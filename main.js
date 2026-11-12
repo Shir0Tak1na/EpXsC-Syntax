@@ -55,7 +55,7 @@ const TYPES = ['METOS', 'locus', 'siro', 'intervallum', 'verb', 'littera', 'form
 const MODIFIERS = ['priv', 'tut', 'publ', 'consta', 'om', 'tot'];
 
 /* 代码版本：诊断报告里会写出来，用来分辨「文件换了但插件没重载」 */
-const BUILD = '1.28.3';
+const BUILD = '1.28.4';
 
 function escapeWord(w) {
   return w.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');
@@ -1276,7 +1276,7 @@ function buildTip(cls, text, info, ranks) {
   return { label: head, body: entry.meaning + (note ? '；' + note : '') };
 }
 
-const FALLBACK_CSS = "/* EpXsC Syntax 内置兜底样式（与 styles.css 第 1／2／3／5／6 节一致） */\nbody{--epx-comment:var(--text-faint);--epx-pretium:var(--color-red);--epx-keyword:var(--color-purple);--epx-judge:var(--color-purple);--epx-clause:var(--color-red);--epx-verb:var(--color-blue);--epx-decl:var(--color-yellow);--epx-element:var(--color-cyan);--epx-type:var(--color-cyan);--epx-unit:var(--color-orange);--epx-number:var(--color-orange);--epx-degree:var(--color-pink);--epx-axis:var(--color-green);--epx-pointer:var(--text-accent);--epx-operator:var(--text-muted);--epx-punct:var(--text-muted);--epx-paren:var(--text-muted);--epx-bracket:var(--text-muted);--epx-brace:var(--text-muted);--epx-rank:var(--color-orange);--epx-b2:var(--text-muted);--epx-b3:var(--text-muted);--epx-variable:var(--color-pink);--epx-modifier:var(--color-red)}\npre:has(> code[class*=\"language-EpXsC\" i]){position:relative;padding:1.1em 1.15em 1.15em;background:var(--code-background);border:1px solid var(--background-modifier-border);border-left:3px solid var(--text-accent);border-radius:var(--radius-m)}\npre:has(> code[class*=\"language-EpXsC\" i])::before{content:\"EpXsC\";position:absolute;inset:0 0 auto auto;padding:0 .7em;font-family:var(--font-interface);font-size:.62em;font-weight:600;letter-spacing:.09em;line-height:1.8;color:var(--text-on-accent);background:var(--text-accent);border-radius:0 var(--radius-m) 0 var(--radius-s);opacity:.85;pointer-events:none;user-select:none}\ncode[class*=\"language-EpXsC\" i]{font-family:var(--font-monospace);font-size:.9em;line-height:1.65;tab-size:4;color:var(--code-normal,var(--text-normal));background:none;padding:0;text-shadow:none}\ncode[class*=\"language-EpXsC\" i] .token.comment{color:var(--epx-comment);font-style:italic}\ncode[class*=\"language-EpXsC\" i] .token.pretium{color:var(--epx-pretium);font-weight:700}code[class*=\"language-EpXsC\" i] .token.clause{color:var(--epx-clause);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.keyword{color:var(--epx-keyword);font-weight:600}code[class*=\"language-EpXsC\" i] .token.judge{color:var(--epx-judge);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.negPrefix{color:var(--epx-keyword);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.function{color:var(--epx-verb)}\ncode[class*=\"language-EpXsC\" i] .token.spellRef{color:var(--epx-verb);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.predicate{color:var(--epx-verb)}\ncode[class*=\"language-EpXsC\" i] .token.declaration{color:var(--epx-decl);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.element{color:var(--epx-element);font-weight:600}\ncode[class*=\"language-EpXsC\" i] .token.type{color:var(--epx-type)}\ncode[class*=\"language-EpXsC\" i] .token.variable{color:var(--epx-variable);font-weight:600}\ncode[class*=\"language-EpXsC\" i] .token.unit{color:var(--epx-unit);font-style:italic}\ncode[class*=\"language-EpXsC\" i] .token.number{color:var(--epx-number)}\ncode[class*=\"language-EpXsC\" i] .token.rankRange{color:var(--epx-rank);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.degree{color:var(--epx-degree);font-style:italic}\ncode[class*=\"language-EpXsC\" i] .token.axis{color:var(--epx-axis)}\ncode[class*=\"language-EpXsC\" i] .token.pointer{color:var(--epx-pointer);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.coordRun{color:var(--text-muted);font-weight:600}\ncode[class*=\"language-EpXsC\" i] .token.modifier{color:var(--epx-modifier);font-style:italic;font-weight:600}\ncode[class*=\"language-EpXsC\" i] .token.declTarget{color:var(--epx-variable);font-weight:600}\ncode[class*=\"language-EpXsC\" i] .token.varUse{color:var(--epx-variable)}\ncode[class*=\"language-EpXsC\" i] .token.operator{color:var(--epx-operator)}\ncode[class*=\"language-EpXsC\" i] .token.bracket{color:var(--epx-bracket);color:color-mix(in srgb,var(--color-cyan) 40%,var(--text-muted));font-weight:600}\ncode[class*=\"language-EpXsC\" i] .token.paren{color:var(--epx-paren)}\ncode[class*=\"language-EpXsC\" i] .token.brace{color:var(--epx-brace)}\ncode[class*=\"language-EpXsC\" i] .token.punctuation{color:var(--epx-punct)}\ncode[class*=\"language-EpXsC\" i] .token.epx-d2{color:var(--epx-b2);color:color-mix(in srgb,var(--color-pink) 35%,var(--text-muted))}\ncode[class*=\"language-EpXsC\" i] .token.epx-d3{color:var(--epx-b3);color:color-mix(in srgb,var(--color-green) 35%,var(--text-muted))}\nbody.theme-light code[class*=\"language-EpXsC\" i] .token.declaration{color:#7e691f;color:color-mix(in srgb,var(--color-yellow) 45%,var(--text-normal))}\nbody.theme-light code[class*=\"language-EpXsC\" i] .token.element,body.theme-light code[class*=\"language-EpXsC\" i] .token.type{color:#17797a;color:color-mix(in srgb,var(--color-cyan) 50%,var(--text-normal))}\nbody.theme-light code[class*=\"language-EpXsC\" i] .token.unit,body.theme-light code[class*=\"language-EpXsC\" i] .token.number,body.theme-light code[class*=\"language-EpXsC\" i] .token.rankRange{color:#a05b16;color:color-mix(in srgb,var(--color-orange) 60%,var(--text-normal))}\nbody.theme-light code[class*=\"language-EpXsC\" i] .token.axis{color:#197d44;color:color-mix(in srgb,var(--color-green) 55%,var(--text-normal))}\nbody.theme-light code[class*=\"language-EpXsC\" i] .token.degree,body.theme-light code[class*=\"language-EpXsC\" i] .token.variable,body.theme-light code[class*=\"language-EpXsC\" i] .token.declTarget,body.theme-light code[class*=\"language-EpXsC\" i] .token.varUse{color:#c4387c;color:color-mix(in srgb,var(--color-pink) 90%,var(--text-normal))}\nbody.theme-light code[class*=\"language-EpXsC\" i] .token.pretium,body.theme-light code[class*=\"language-EpXsC\" i] .token.clause,body.theme-light code[class*=\"language-EpXsC\" i] .token.modifier{color:#cd3145;color:color-mix(in srgb,var(--color-red) 85%,var(--text-normal))}\ncode[class*=\"language-EpXsC\" i] .token.epx-unknown{text-decoration:underline dotted var(--color-orange);text-underline-offset:.2em}\n.epx-tip{position:fixed;z-index:9999;max-width:340px;padding:7px 11px;border:1px solid var(--background-modifier-border);border-radius:var(--radius-s);background:var(--background-secondary);color:var(--text-normal);font-family:var(--font-interface);font-size:12px;line-height:1.5;box-shadow:var(--shadow-s);pointer-events:none;opacity:0}\n.epx-tip.is-visible{opacity:1}\n.epx-tip .epx-tip-head{font-weight:600;color:var(--text-accent)}\n.epx-tip .epx-tip-body{color:var(--text-muted)}\n/* 普通句块：外框 + 右上角语言签，跟术式块同形，只按模式换色（G 青 · T 橙）\n   外层是 code.language-EpXsC：token 配色与悬停沿用术式那套选择器，这里只管版面。 */\ncode.epx-ord {\n  --epx-ord-tint: var(--color-cyan);\n  display: block;\n  position: relative;\n  line-height: 1.9;\n  padding: 1.1em 1.15em 1.15em;\n  background: var(--code-background);\n  border: 1px solid var(--background-modifier-border);\n  border-left: 3px solid var(--epx-ord-tint);\n  border-radius: var(--radius-m);\n  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);\n}\ncode.epx-ord-T { --epx-ord-tint: var(--color-orange); }\ncode.epx-ord::before {\n  content: \"EpXsG\";\n  position: absolute;\n  inset: 0 0 auto auto;\n  padding: 0 0.7em;\n  font-family: var(--font-interface);\n  font-size: 0.62em;\n  font-weight: 600;\n  letter-spacing: 0.09em;\n  line-height: 1.8;\n  color: var(--epx-ord-tint);\n  background: var(--background-secondary);\n  background: color-mix(in srgb, var(--epx-ord-tint) 22%, var(--background-primary));\n  border-radius: 0 var(--radius-m) 0 var(--radius-s);\n  opacity: 0.95;\n  pointer-events: none;\n  user-select: none;\n}\ncode.epx-ord-T::before { content: \"EpXsT\"; }\n/* 词与词注都是 inline-block：必须 top 对齐，否则有词注的词被顶高、整行字上下跳。 */\n.epx-oline { margin: .18em 0; }\n.epx-gs { display: block; }\n.epx-gw { display: inline-block; text-align: center; margin: 0 .16em; vertical-align: top; }\n.epx-gsrc { display: block; line-height: 1.3; }\n.epx-ggl { display: block; font-size: .74em; line-height: 1.2; opacity: .7; font-family: var(--font-text); }\n.epx-tsrc { display: block; }\n.epx-tzh { display: block; font-family: var(--font-text); opacity: .78; font-size: .92em; }\n.epx-gap { height: .45em; }";
+const FALLBACK_CSS = "/* EpXsC Syntax 内置兜底样式（与 styles.css 第 1／2／3／5／6 节一致） */\nbody{--epx-comment:var(--text-faint);--epx-pretium:var(--color-red);--epx-keyword:var(--color-purple);--epx-judge:var(--color-purple);--epx-clause:var(--color-red);--epx-verb:var(--color-blue);--epx-decl:var(--color-yellow);--epx-element:var(--color-cyan);--epx-type:var(--color-cyan);--epx-unit:var(--color-orange);--epx-number:var(--color-orange);--epx-degree:var(--color-pink);--epx-axis:var(--color-green);--epx-pointer:var(--text-accent);--epx-operator:var(--text-muted);--epx-punct:var(--text-muted);--epx-paren:var(--text-muted);--epx-bracket:var(--text-muted);--epx-brace:var(--text-muted);--epx-rank:var(--color-orange);--epx-b2:var(--text-muted);--epx-b3:var(--text-muted);--epx-variable:var(--color-pink);--epx-modifier:var(--color-red)}\npre:has(> code[class*=\"language-EpXsC\" i]){position:relative;padding:1.1em 1.15em 1.15em;background:var(--code-background);border:1px solid var(--background-modifier-border);border-left:3px solid var(--text-accent);border-radius:var(--radius-m)}\npre:has(> code[class*=\"language-EpXsC\" i])::before{content:\"EpXsC\";position:absolute;inset:0 0 auto auto;padding:0 .7em;font-family:var(--font-interface);font-size:.62em;font-weight:600;letter-spacing:.09em;line-height:1.8;color:var(--text-on-accent);background:var(--text-accent);border-radius:0 var(--radius-m) 0 var(--radius-s);opacity:.85;pointer-events:none;user-select:none}\ncode[class*=\"language-EpXsC\" i]{font-family:var(--font-monospace);font-size:.9em;line-height:1.65;tab-size:4;color:var(--code-normal,var(--text-normal));background:none;padding:0;text-shadow:none}\ncode[class*=\"language-EpXsC\" i] .token.comment{color:var(--epx-comment);font-style:italic}\ncode[class*=\"language-EpXsC\" i] .token.pretium{color:var(--epx-pretium);font-weight:700}code[class*=\"language-EpXsC\" i] .token.clause{color:var(--epx-clause);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.keyword{color:var(--epx-keyword);font-weight:600}code[class*=\"language-EpXsC\" i] .token.judge{color:var(--epx-judge);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.negPrefix{color:var(--epx-keyword);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.function{color:var(--epx-verb)}\ncode[class*=\"language-EpXsC\" i] .token.spellRef{color:var(--epx-verb);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.predicate{color:var(--epx-verb)}\ncode[class*=\"language-EpXsC\" i] .token.declaration{color:var(--epx-decl);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.element{color:var(--epx-element);font-weight:600}\ncode[class*=\"language-EpXsC\" i] .token.type{color:var(--epx-type)}\ncode[class*=\"language-EpXsC\" i] .token.variable{color:var(--epx-variable);font-weight:600}\ncode[class*=\"language-EpXsC\" i] .token.unit{color:var(--epx-unit);font-style:italic}\ncode[class*=\"language-EpXsC\" i] .token.number{color:var(--epx-number)}\ncode[class*=\"language-EpXsC\" i] .token.rankRange{color:var(--epx-rank);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.degree{color:var(--epx-degree);font-style:italic}\ncode[class*=\"language-EpXsC\" i] .token.axis{color:var(--epx-axis)}\ncode[class*=\"language-EpXsC\" i] .token.pointer{color:var(--epx-pointer);font-weight:700}\ncode[class*=\"language-EpXsC\" i] .token.coordRun{color:var(--text-muted);font-weight:600}\ncode[class*=\"language-EpXsC\" i] .token.modifier{color:var(--epx-modifier);font-style:italic;font-weight:600}\ncode[class*=\"language-EpXsC\" i] .token.declTarget{color:var(--epx-variable);font-weight:600}\ncode[class*=\"language-EpXsC\" i] .token.varUse{color:var(--epx-variable)}\ncode[class*=\"language-EpXsC\" i] .token.operator{color:var(--epx-operator)}\ncode[class*=\"language-EpXsC\" i] .token.bracket{color:var(--epx-bracket);color:color-mix(in srgb,var(--color-cyan) 40%,var(--text-muted));font-weight:600}\ncode[class*=\"language-EpXsC\" i] .token.paren{color:var(--epx-paren)}\ncode[class*=\"language-EpXsC\" i] .token.brace{color:var(--epx-brace)}\ncode[class*=\"language-EpXsC\" i] .token.punctuation{color:var(--epx-punct)}\ncode[class*=\"language-EpXsC\" i] .token.epx-d2{color:var(--epx-b2);color:color-mix(in srgb,var(--color-pink) 35%,var(--text-muted))}\ncode[class*=\"language-EpXsC\" i] .token.epx-d3{color:var(--epx-b3);color:color-mix(in srgb,var(--color-green) 35%,var(--text-muted))}\nbody.theme-light code[class*=\"language-EpXsC\" i] .token.declaration{color:#7e691f;color:color-mix(in srgb,var(--color-yellow) 45%,var(--text-normal))}\nbody.theme-light code[class*=\"language-EpXsC\" i] .token.element,body.theme-light code[class*=\"language-EpXsC\" i] .token.type{color:#17797a;color:color-mix(in srgb,var(--color-cyan) 50%,var(--text-normal))}\nbody.theme-light code[class*=\"language-EpXsC\" i] .token.unit,body.theme-light code[class*=\"language-EpXsC\" i] .token.number,body.theme-light code[class*=\"language-EpXsC\" i] .token.rankRange{color:#a05b16;color:color-mix(in srgb,var(--color-orange) 60%,var(--text-normal))}\nbody.theme-light code[class*=\"language-EpXsC\" i] .token.axis{color:#197d44;color:color-mix(in srgb,var(--color-green) 55%,var(--text-normal))}\nbody.theme-light code[class*=\"language-EpXsC\" i] .token.degree,body.theme-light code[class*=\"language-EpXsC\" i] .token.variable,body.theme-light code[class*=\"language-EpXsC\" i] .token.declTarget,body.theme-light code[class*=\"language-EpXsC\" i] .token.varUse{color:#c4387c;color:color-mix(in srgb,var(--color-pink) 90%,var(--text-normal))}\nbody.theme-light code[class*=\"language-EpXsC\" i] .token.pretium,body.theme-light code[class*=\"language-EpXsC\" i] .token.clause,body.theme-light code[class*=\"language-EpXsC\" i] .token.modifier{color:#cd3145;color:color-mix(in srgb,var(--color-red) 85%,var(--text-normal))}\ncode[class*=\"language-EpXsC\" i] .token.epx-unknown{text-decoration:underline dotted var(--color-orange);text-underline-offset:.2em}\n.epx-tip{position:fixed;z-index:9999;max-width:340px;padding:7px 11px;border:1px solid var(--background-modifier-border);border-radius:var(--radius-s);background:var(--background-secondary);color:var(--text-normal);font-family:var(--font-interface);font-size:12px;line-height:1.5;box-shadow:var(--shadow-s);pointer-events:none;opacity:0}\n.epx-tip.is-visible{opacity:1}\n.epx-tip .epx-tip-head{font-weight:600;color:var(--text-accent)}\n.epx-tip .epx-tip-body{color:var(--text-muted)}\n/* 普通句块：外框 + 右上角语言签，跟术式块同形，只按模式换色（G 青 · T 橙）\n   外层是 code.language-EpXsC：token 配色与悬停沿用术式那套选择器，这里只管版面。 */\ncode.epx-ord {\n  --epx-ord-tint: var(--color-cyan);\n  display: block;\n  position: relative;\n  line-height: 1.9;\n  padding: 1.1em 1.15em 1.15em;\n  background: var(--code-background);\n  border: 1px solid var(--background-modifier-border);\n  border-left: 3px solid var(--epx-ord-tint);\n  border-radius: var(--radius-m);\n  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);\n}\ncode.epx-ord-T { --epx-ord-tint: var(--color-orange); }\ncode.epx-ord::before {\n  content: \"EpXsG\";\n  position: absolute;\n  inset: 0 0 auto auto;\n  padding: 0 0.7em;\n  font-family: var(--font-interface);\n  font-size: 0.62em;\n  font-weight: 600;\n  letter-spacing: 0.09em;\n  line-height: 1.8;\n  color: var(--epx-ord-tint);\n  background: var(--background-secondary);\n  background: color-mix(in srgb, var(--epx-ord-tint) 22%, var(--background-primary));\n  border-radius: 0 var(--radius-m) 0 var(--radius-s);\n  opacity: 0.95;\n  pointer-events: none;\n  user-select: none;\n}\ncode.epx-ord-T::before { content: \"EpXsT\"; }\n/* 词与词注都是 inline-block：必须 top 对齐，否则有词注的词被顶高、整行字上下跳。 */\n.epx-oline { display: block; margin: .18em 0; }\n.epx-gs { display: block; }\n.epx-gw { display: inline-block; text-align: center; margin: 0 .16em; vertical-align: top; }\n.epx-gsrc { display: block; line-height: 1.3; }\n.epx-ggl { display: block; font-size: .74em; line-height: 1.2; opacity: .7; font-family: var(--font-text); }\n.epx-tsrc { display: block; }\n.epx-tzh { display: block; font-family: var(--font-text); opacity: .78; font-size: .92em; }\n.epx-gap { display: block; height: .45em; }\n.epx-ord-wrap { display: block; }\ncode.epx-ord { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }\n@media (max-width:640px){code.epx-ord,pre:has(> code[class*='language-EpXsC' i]){white-space:pre-wrap;overflow-wrap:break-word;padding:0 .9em .9em}code.epx-ord{line-height:1.8}code.epx-ord::before,pre:has(> code[class*='language-EpXsC' i])::before{position:static;display:block;margin:0 -.9em .75em;padding:.22em .9em;text-align:right;line-height:1.7;border-radius:var(--radius-m) var(--radius-m) 0 0;opacity:1}.epx-ggl{line-height:1.25}.epx-tzh{margin-top:.15em}}";
 
 const varTypesOf = new WeakMap();
 /* 术式登记表（refresh 时填充）：提示与检查都用它 */
@@ -1446,14 +1446,42 @@ function wordAtPoint(x, y) {
   return text.slice(a, b) || null;
 }
 
-/* 悬停位置是不是落在代码块里：阅读视图看 language-EpXsC，实时预览看代码行 */
+/* 悬停位置是不是落在「EpXsC 家族」的代码块里：
+   阅读视图看 language-EpXsC；实时预览沿代码行往回找围栏，只认 EpXsC/EpXsT/EpXsG。
+   其它语言的代码块、没有语言标注的代码块，一律不给词条提示。 */
+function epxFenceLang(text) {
+  const s = String(text || '').replace(/\u200b/g, '');
+  let i = 0;
+  while (i < s.length && (s.charAt(i) === ' ' || s.charAt(i) === '\t')) i++;
+  const ch = s.charAt(i);
+  if (ch !== String.fromCharCode(96) && ch !== '~') return '';
+  let j = i;
+  while (j < s.length && s.charAt(j) === ch) j++;
+  if (j - i < 3) return '';
+  while (j < s.length && (s.charAt(j) === ' ' || s.charAt(j) === '\t')) j++;
+  let k = j;
+  while (k < s.length && /[A-Za-z0-9_+-]/.test(s.charAt(k))) k++;
+  return s.slice(j, k).toLowerCase();
+}
+function liveCodeLang(el) {
+  let line = el.closest('.HyperMD-codeblock');
+  if (!line) return '';
+  let cur = line;
+  for (let n = 0; cur && n < 500; n++) {
+    if (cur.classList && cur.classList.contains('HyperMD-codeblock-begin')) {
+      return epxFenceLang(cur.textContent || '');
+    }
+    cur = cur.previousElementSibling;
+    if (!cur || !cur.classList || !cur.classList.contains('HyperMD-codeblock')) return '';
+  }
+  return '';
+}
 function inCodeContext(el) {
   if (!el || !el.closest) return false;
   if (el.closest('code[class*="language-EpXsC" i]')) return true;
-  if (el.closest('.HyperMD-codeblock')) return true;
-  return false;
+  const lang = liveCodeLang(el);
+  return lang === 'epxsc' || lang === 'epxst' || lang === 'epxsg';
 }
-
 /* 检查结果面板：点一行跳到那一处 */
 class LintModal extends Modal {
   constructor(app, file, issues, blocks) {
@@ -1528,36 +1556,36 @@ function renderOrdBlockInner(el, source, mode, grammar, info) {
   let pending = null;
   const flush = function (pair) {
     if (!pair) return;
-    html += '<div class="epx-oline">';
+    html += '<span class="epx-oline" style="display:block;margin:.18em 0">';
     if (mode === 'G') {
       const toks = ordTokens(pair.src, grammar);
-      html += '<span class="epx-gs">';
+      html += '<span class="epx-gs" style="display:block">';
       for (let i = 0; i < toks.length; i++) {
         const tok = toks[i];
         const gl = ordGlossOf(tok, info);
-        html += '<span class="epx-gw"><span class="epx-gsrc token ' + tok.cls + '">' + tok.text + '</span>' +
-                (gl ? '<span class="epx-ggl">' + gl + '</span>' : '') + '</span>';
+        html += '<span class="epx-gw"><span class="epx-gsrc token ' + tok.cls + '" style="display:block;line-height:1.3">' + tok.text + '</span>' +
+                (gl ? '<span class="epx-ggl" style="display:block;font-size:.74em;line-height:1.2;opacity:.7">' + gl + '</span>' : '') + '</span>';
       }
       html += '</span>';
     } else {
-      html += '<span class="epx-tsrc">' + tokenizeText(pair.src, grammar) + '</span>';
+      html += '<span class="epx-tsrc" style="display:block">' + tokenizeText(pair.src, grammar) + '</span>';
     }
-    if (pair.zh) html += '<span class="epx-tzh">' + pair.zh + '</span>';
-    html += '</div>';
+    if (pair.zh) html += '<span class="epx-tzh" style="display:block">' + pair.zh + '</span>';
+    html += '</span>';
   };
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
     const t = raw.trim();
-    if (!t) { flush(pending); pending = null; html += '<div class="epx-gap"></div>'; continue; }
-    if (t.charAt(0) === '>') { if (pending) pending.zh = t.slice(1).trim(); else html += '<div class="epx-oline"><span class="epx-tzh">' + t.slice(1).trim() + '</span></div>'; continue; }
+    if (!t) { flush(pending); pending = null; html += '<span class="epx-gap" style="display:block;height:.45em"></span>'; continue; }
+    if (t.charAt(0) === '>') { if (pending) pending.zh = t.slice(1).trim(); else html += '<span class="epx-oline" style="display:block;margin:.18em 0"><span class="epx-tzh" style="display:block">' + t.slice(1).trim() + '</span></span>'; continue; }
     /* 没写 > 时：紧跟原文行、含汉字的一行，当作上一句的译文 */
     if (pending && !pending.zh && /[\u3400-\u9fff]/.test(t)) { pending.zh = t; continue; }
     flush(pending);
     pending = { src: t, zh: '' };
   }
   flush(pending);
-  /* 外层用 code.language-EpXsC：token 配色、悬停、样式直接沿用术式那一套选择器。 */
-  el.innerHTML = '<code class="' + ORD_CLASS + ' epx-ord epx-ord-' + mode + '">' + html + '</code>';
+  /* 块级结构自己带（div + inline style），不依赖样式表；code 沿用 token 配色与悬停。 */
+  el.innerHTML = '<div class="epx-ord-wrap" style="display:block"><code class="' + ORD_CLASS + ' epx-ord epx-ord-' + mode + '" style="display:block;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word">' + html + '</code></div>';
 }
 /* 包一层：普通句渲染出错时退化成普通代码块，不要变成 Obsidian 的「代码块渲染错误」。 */
 function renderOrdBlock(el, source, mode, grammar, info) {

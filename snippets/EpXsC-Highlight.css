@@ -279,11 +279,46 @@ code.epx-ord::before {
 }
 code.epx-ord-T::before { content: "EpXsT"; }
 /* 词与词注都是 inline-block：必须 top 对齐，否则有词注的词被顶高、整行字上下跳。 */
-.epx-oline { margin: .18em 0; }
+.epx-oline { display: block; margin: .18em 0; }
 .epx-gs { display: block; }
 .epx-gw { display: inline-block; text-align: center; margin: 0 .16em; vertical-align: top; }
 .epx-gsrc { display: block; line-height: 1.3; }
 .epx-ggl { display: block; font-size: .74em; line-height: 1.2; opacity: .7; font-family: var(--font-text); }
 .epx-tsrc { display: block; }
 .epx-tzh { display: block; font-family: var(--font-text); opacity: .78; font-size: .92em; }
-.epx-gap { height: .45em; }
+.epx-gap { display: block; height: .45em; }
+.epx-ord-wrap { display: block; }
+code.epx-ord { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+/* --------------------------------------------------------------------------
+   7. 窄屏（移动端阅读模式）：语言签改为通栏抬头，正文一律换行
+   --------------------------------------------------------------------------
+   桌面端标签是绝对定位的右上角小块，靠 padding-top 让出位置；窄屏下字号与行高
+   一变，标签就会压到第一行的中文词注／译文上。这里改成正常流里的抬头条：
+   标签先占一行，正文从下一行开始，无论字号怎么缩放都不会叠。
+   同时把代码块从 pre 的「不换行横滚」改成自动折行，窄屏下词与词注不再挤在边上。
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  code.epx-ord,
+  pre:has(> code[class*="language-EpXsC" i]) {
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    padding: 0 0.9em 0.9em;
+  }
+  code.epx-ord { line-height: 1.8; }
+
+  code.epx-ord::before,
+  pre:has(> code[class*="language-EpXsC" i])::before {
+    position: static;
+    display: block;
+    margin: 0 -0.9em 0.75em;
+    padding: 0.22em 0.9em;
+    text-align: right;
+    line-height: 1.7;
+    border-radius: var(--radius-m) var(--radius-m) 0 0;
+    opacity: 1;
+  }
+
+  /* 词注紧贴词下，换行时不被上一行的字顶住 */
+  .epx-ggl { line-height: 1.25; }
+  .epx-tzh { margin-top: 0.15em; }
+}
