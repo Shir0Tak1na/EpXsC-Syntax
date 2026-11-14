@@ -3,7 +3,7 @@
   "name": "EpXsC Syntax",
   "version": "1.28.4",
   "minAppVersion": "1.4.0",
-  "description": "为述无空语构造记号 EpXsC 的代码块注册 Prism 语法；词表自动读自《述无空语词典》。",
+  "description": "为述无空语构造记号 EpXsC 提供 Prism 语法高亮与悬停词表。Prism syntax highlighting and hover dictionary for the EpXsC conlang.",
   "author": "Shir0Tak1na",
   "authorUrl": "https://github.com/Shir0Tak1na",
   "isDesktopOnly": false
