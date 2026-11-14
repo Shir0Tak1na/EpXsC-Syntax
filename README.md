@@ -9,6 +9,26 @@ Expaste(METOS: a, METOS: b) {
 }
 ```
 
+## Installation
+
+1. In Obsidian, open **Settings → Community plugins** and turn off Restricted Mode.
+2. Search for **EpXsC Syntax** and install it, or add `Shir0Tak1na/EpXsC-Syntax-Highlight` with BRAT.
+3. Enable the plugin. `styles.css` loads automatically; you do **not** need to enable the CSS snippet.
+
+Manual install: copy `main.js`, `manifest.json`, and `styles.css` into `<vault>/.obsidian/plugins/epxsc-syntax/`, then enable **EpXsC Syntax** in Community plugins.
+
+## Usage
+
+Write an EpXsC fenced code block (language name is case-insensitive: `EpXsC`, `epxsc`, or `EPXSC`):
+
+```EpXsC
+Expaste(METOS: a, METOS: b) {
+	intervall(a, b) <= 66 miteas;
+}
+```
+
+Hover any token to see its class and meaning. To lint a note, run **EpXsC Syntax: 检查当前笔记的 EpXsC 代码块** from the command palette. Syntax, hover dictionaries, and all settings are explained below.
+
 ## 为什么光有 CSS 不够
 
 Obsidian 的代码块只有在 Prism 认识那个语言时才会被切成 `<span class="token keyword">` 这类小片。`EpXsC` 不在 Prism 的语言表里，DOM 里就是一整块纯文本，而 CSS 没法按文本内容选元素。所以：

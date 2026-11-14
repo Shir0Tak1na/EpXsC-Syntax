@@ -1645,17 +1645,9 @@ class EpXsCSyntaxPlugin extends Plugin {
     this.registerDomEvent(document, 'scroll', hideTip, true);
     this.addCommand({
       id: 'reload-self',
-      name: '重载 EpXsC 插件（等于关掉再打开）',
+      name: '重载 EpXsC 插件（提示手动重载）',
       callback: function () {
-        const app = self.app;
-        const id = self.manifest.id;
-        setTimeout(function () {
-          try {
-            Promise.resolve(app.plugins.disablePlugin(id)).then(function () {
-              return app.plugins.enablePlugin(id);
-            }).then(function () { new Notice('EpXsC 已重载'); });
-          } catch (e) { new Notice('重载失败：' + (e && e.message)); }
-        }, 80);
+        new Notice('请在 设置 → 社区插件 中关闭再启用 EpXsC Syntax。');
       }
     });
     this.addCommand({
