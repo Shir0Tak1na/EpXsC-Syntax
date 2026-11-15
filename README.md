@@ -2,6 +2,8 @@
 
 ![GitHub release](https://img.shields.io/github/v/release/Shir0Tak1na/EpXsC-Syntax-Highlight) ![License](https://img.shields.io/github/license/Shir0Tak1na/EpXsC-Syntax-Highlight) ![Obsidian](https://img.shields.io/badge/Obsidian-1.4.0%2B-7c3aed)
 
+*请注意，本插件是应用于虚构小说的虚构语言语法检查。和现实世界无关，为以后的语料库索引类插件做实验，在此仅作代码css片段展示和练习。*
+
 为 **EpXsC（述无空语构造记号 / Expaulxsirian Construct）** 代码块提供语法高亮、词义悬停与语法检查的 Obsidian 插件。
 
 Syntax highlighting, hover tooltips, and linting for EpXsC fenced code blocks.
@@ -55,7 +57,7 @@ Expaste(METOS: a, METOS: b) {
 
 ### 悬停
 
-阅读视图和实时预览里，鼠标停在 token 上会浮出类别与释义。移动端没有鼠标悬停，词义请在桌面端查看。
+阅读视图和实时预览里，鼠标停在 token 上会浮出类别与释义。移动端没有鼠标悬停，但是会有触摸悬停，不双击代码块且在阅读模式下可以看到词义。
 
 ### 命令
 
