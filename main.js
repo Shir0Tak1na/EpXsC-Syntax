@@ -1552,43 +1552,92 @@ function ordGlossOf(tok, info) {
 }
 function renderOrdBlockInner(el, source, mode, grammar, info) {
   const lines = String(source || '').replace(/\r/g, '').split('\n');
-  let html = '';
-  let pending = null;
+  const wrap = document.createElement('div');
+  wrap.className = 'epx-ord-wrap';
+  const code = document.createElement('code');
+  code.className = ORD_CLASS + ' epx-ord epx-ord-' + mode;
+  wrap.appendChild(code);
+  const appendHTML = function (parent, html) {
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html;
+    parent.appendChild(tpl.content);
+  };
+  const lineEl = function () {
+    const d = document.createElement('div');
+    d.className = 'epx-oline';
+    return d;
+  };
   const flush = function (pair) {
     if (!pair) return;
-    html += '<span class="epx-oline">';
+    const line = lineEl();
     if (mode === 'G') {
+      const gs = document.createElement('div');
+      gs.className = 'epx-gs';
       const toks = ordTokens(pair.src, grammar);
-      html += '<span class="epx-gs">';
       for (let i = 0; i < toks.length; i++) {
         const tok = toks[i];
         const gl = ordGlossOf(tok, info);
-        html += '<span class="epx-gw" style="display:inline-block;text-align:center;margin:0 .16em;vertical-align:top"><span class="epx-gsrc token ' + tok.cls + '" style="display:block;line-height:1.3">' + tok.text + '</span>' +
-                (gl ? '<span class="epx-ggl" style="display:block;font-size:.74em;line-height:1.2;opacity:.7">' + gl + '</span>' : '') + '</span>';
+        const gw = document.createElement('span');
+        gw.className = 'epx-gw';
+        const srcEl = document.createElement('span');
+        srcEl.className = 'epx-gsrc token ' + tok.cls;
+        srcEl.textContent = tok.text;
+        gw.appendChild(srcEl);
+        if (gl) {
+          const gg = document.createElement('span');
+          gg.className = 'epx-ggl';
+          gg.textContent = gl;
+          gw.appendChild(gg);
+        }
+        gs.appendChild(gw);
       }
-      html += '</span>';
+      line.appendChild(gs);
     } else {
-      html += '<span class="epx-tsrc">' + tokenizeText(pair.src, grammar) + '</span>';
+      const srcEl = document.createElement('div');
+      srcEl.className = 'epx-tsrc';
+      appendHTML(srcEl, tokenizeText(pair.src, grammar));
+      line.appendChild(srcEl);
     }
-    html += '<br>';
-    if (pair.zh) html += '<span class="epx-tzh">' + pair.zh + '</span><br>';
-    html += '</span>';
+    if (pair.zh) {
+      const zh = document.createElement('div');
+      zh.className = 'epx-tzh';
+      zh.textContent = pair.zh;
+      line.appendChild(zh);
+    }
+    code.appendChild(line);
   };
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
     const t = raw.trim();
-    if (!t) { flush(pending); pending = null; html += '<br>'; continue; }
-    if (t.charAt(0) === '>') { if (pending) pending.zh = t.slice(1).trim(); else html += '<span class="epx-tzh">' + t.slice(1).trim() + '</span><br>'; continue; }
+    if (!t) {
+      flush(pending); pending = null;
+      const gap = document.createElement('div');
+      gap.className = 'epx-gap';
+      code.appendChild(gap);
+      continue;
+    }
+    if (t.charAt(0) === '>') {
+      if (pending) pending.zh = t.slice(1).trim();
+      else {
+        const line = lineEl();
+        const zh = document.createElement('div');
+        zh.className = 'epx-tzh';
+        zh.textContent = t.slice(1).trim();
+        line.appendChild(zh);
+        code.appendChild(line);
+      }
+      continue;
+    }
     /* 没写 > 时：紧跟原文行、含汉字的一行，当作上一句的译文 */
     if (pending && !pending.zh && /[\u3400-\u9fff]/.test(t)) { pending.zh = t; continue; }
     flush(pending);
     pending = { src: t, zh: '' };
   }
   flush(pending);
-  html = html.replace(/<br>$/, '');
-  /* 用真实 <br> 断行：阅读视图会清洗块级元素，但不会去掉 br；
-     这样实时预览与阅读模式都能保持原文/译文各占一行。 */
-  el.innerHTML = '<div class="epx-ord-wrap"><code class="' + ORD_CLASS + ' epx-ord epx-ord-' + mode + '">' + html + '</code></div>';
+  /* 用 DOM 节点而不是 el.innerHTML：阅读视图会把插件写入的 HTML 字符串清成纯文本，
+     但不会拆掉已经 append 的节点。 */
+  el.textContent = '';
+  el.appendChild(wrap);
 }
 /* 包一层：普通句渲染出错时退化成普通代码块，不要变成 Obsidian 的「代码块渲染错误」。 */
 function renderOrdBlock(el, source, mode, grammar, info) {
