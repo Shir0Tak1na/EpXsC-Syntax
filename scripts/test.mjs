@@ -20,7 +20,7 @@ sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox, { filename: 'main.js' });
 
-const { extractEpXsCBlocks, collectSpells, lintText } = sandbox;
+const { extractEpXsCBlocks, collectSpells, lintText, builtinLists, makeGrammar, tokenizeText } = sandbox;
 
 // 1) 代码围栏别名 + CRLF + 前导空格
 const blocks = extractEpXsCBlocks('x\n```epxsc\r\nA()\r\n```\r\n\n```EPXSC\nB()\n```\n');
@@ -48,4 +48,14 @@ const ctxB = { info: new Map(), units: new Set(), keys: new Set(), spells, path:
 const issuesB = lintText('PrivA();', ctxB);
 assert.ok(issuesB.some(x => String(x.message).includes('私') || String(x.message).includes('priv')), 'cross-file call must warn');
 
-console.log('OK: block aliases, line mapping, spell file/scope tests passed');
+// 5) Tokenizer golden：关键词 / 单位
+const grammar = makeGrammar(builtinLists([]), []);
+const html = tokenizeText('1 MU', grammar);
+assert.ok(html.includes('token number'), '1 should tokenize as number');
+assert.ok(html.includes('token unit'), 'MU should tokenize as unit');
+
+// 6) Linter 括号错误
+const bracketIssues = lintText('Foo() {', { info: new Map(), units: new Set(), keys: new Set(), spells: new Map() });
+assert.ok(bracketIssues.some(x => x.level === 'error'), 'unclosed brace must be an error');
+
+console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket tests passed');

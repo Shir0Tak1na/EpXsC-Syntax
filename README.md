@@ -121,6 +121,7 @@ npm test        # 代码围栏别名、CRLF、术式作用域回归测试
 | `styles.css` | token 配色、代码块外框、T/G 版面 |
 | `snippets/EpXsC-Highlight.css` | 独立配色片段 |
 | `manifest.json` / `versions.json` | 插件元数据与版本映射 |
+| `docs/ARCHITECTURE.md` | Core / Adapter 分层与迁移计划 |
 
 本地调试：把仓库放进 `<库>/.obsidian/plugins/epxsc-syntax/`，在 Obsidian 里重载插件；改 `main.js` 后关闭再启用即可。Release 附件只放 `main.js`、`manifest.json`、`styles.css` 三个文件。
 
