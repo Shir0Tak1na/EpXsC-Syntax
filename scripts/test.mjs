@@ -13,6 +13,7 @@ const markupCore = nodeRequire('../src/core/markup.js');
 const coreIndex = nodeRequire('../src/core/index.js');
 const builtinLexicon = nodeRequire('../data/builtin-lexicon.json');
 const lexiconCore = nodeRequire('../src/data/lexicon.js');
+const { RefreshScheduler } = nodeRequire('../src/services/refresh-scheduler.js');
 
 const source = fs.readFileSync('src/adapter/plugin.js', 'utf8');
 const adapterConfig = fs.readFileSync('src/adapter/config.js', 'utf8');
@@ -165,4 +166,27 @@ assert.ok(!tokenizerSrc.includes('CLASS_ORDER'), 'tokenizer must not own CLASS_O
 assert.ok(!tokenizerSrc.includes('SYMBOL_INFO'), 'tokenizer must not own SYMBOL_INFO');
 assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR');
 
-console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers, hover, markup, core-api, history-regression');
+// 12) RefreshScheduler debounce / cancel（注入假定时器）
+{
+  let calls = 0;
+  const timers = new Map();
+  let id = 0;
+  const scheduler = new RefreshScheduler(() => { calls += 1; }, 300, {
+    setTimeout: (fn) => { id += 1; timers.set(id, fn); return id; },
+    clearTimeout: (timer) => { timers.delete(timer); }
+  });
+  scheduler.request();
+  scheduler.request();
+  assert.equal(timers.size, 1, 'rescheduling must keep only one timer');
+  const only = Array.from(timers.values())[0];
+  timers.clear();
+  only();
+  assert.equal(calls, 1, 'one debounced run');
+  scheduler.request();
+  scheduler.cancel();
+  assert.equal(timers.size, 0, 'cancel must clear timer');
+  assert.equal(scheduler.pending(), false);
+  assert.ok(source.includes('RefreshScheduler'), 'adapter must use RefreshScheduler');
+}
+
+console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers, hover, markup, core-api, history-regression, scheduler');

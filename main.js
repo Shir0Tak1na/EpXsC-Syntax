@@ -56,6 +56,46 @@ var require_lexicon = __commonJS({
   }
 });
 
+// src/services/refresh-scheduler.js
+var require_refresh_scheduler = __commonJS({
+  "src/services/refresh-scheduler.js"(exports2, module2) {
+    "use strict";
+    var RefreshScheduler = class {
+      constructor(run, delay, timers) {
+        if (typeof run !== "function") throw new TypeError("run must be a function");
+        this.run = run;
+        this.delay = typeof delay === "number" ? delay : 300;
+        const t = timers || {};
+        this.setTimeout = t.setTimeout || setTimeout;
+        this.clearTimeout = t.clearTimeout || clearTimeout;
+        this.timer = null;
+        this.generation = 0;
+      }
+      request() {
+        this.cancel();
+        this.generation += 1;
+        const gen = this.generation;
+        this.timer = this.setTimeout(() => {
+          this.timer = null;
+          if (gen !== this.generation) return;
+          this.run();
+        }, this.delay);
+        return gen;
+      }
+      cancel() {
+        if (this.timer !== null) {
+          this.clearTimeout(this.timer);
+          this.timer = null;
+        }
+      }
+      pending() {
+        return this.timer !== null;
+      }
+    };
+    module2.exports = { RefreshScheduler };
+  }
+});
+
 // src/data/parsers.js
 var require_parsers = __commonJS({
   "src/data/parsers.js"(exports2, module2) {
@@ -1110,6 +1150,7 @@ var require_plugin = __commonJS({
     var { Plugin: Plugin2, TFile, TFolder, Notice, MarkdownView, Modal } = require("obsidian");
     var { extractEpXsCBlocks } = require_markdown_blocks();
     var { loadBuiltinLexicon } = require_lexicon();
+    var { RefreshScheduler } = require_refresh_scheduler();
     var { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require_markup();
     var { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require_grammar();
     var { tokenizeText } = require_tokenizer();
@@ -1917,13 +1958,11 @@ var require_plugin = __commonJS({
           if (!file || !file.path) return false;
           return file.path === DICT_PATH || file.path === SYNTAX_PATH || file.path === RANK_PATH || file.path.indexOf(ROOTS_DIR) === 0 || file.path.indexOf(SPELL_DIR) === 0;
         };
-        let refreshTimer = null;
+        const refreshScheduler = new RefreshScheduler(function() {
+          self.refresh();
+        }, 300);
         const scheduleRefresh = function() {
-          if (refreshTimer) window.clearTimeout(refreshTimer);
-          refreshTimer = window.setTimeout(function() {
-            refreshTimer = null;
-            self.refresh();
-          }, 300);
+          refreshScheduler.request();
         };
         const onDataEvent = function(file) {
           if (isDataFile(file)) scheduleRefresh();
@@ -1935,7 +1974,7 @@ var require_plugin = __commonJS({
           if (isDataFile(file) || oldPath && isDataFile({ path: oldPath })) scheduleRefresh();
         }));
         this.register(function() {
-          if (refreshTimer) window.clearTimeout(refreshTimer);
+          refreshScheduler.cancel();
         });
         this.addCommand({
           id: "reload-lexicon",

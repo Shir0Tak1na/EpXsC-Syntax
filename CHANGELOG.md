@@ -4,6 +4,7 @@
 
 - T0.2：新增 8 个 parser、7 个 lint、6 个 markup golden fixtures；fixture-runner 接入 parser / lint / markup 目录。
 - 文档：README.md 改为英文主文档，中文完整保留在 README.zh-CN.md；manifest 描述改为中英双语，响应 Obsidian Community 对英文 README 的要求。
+- T2.1：抽出 `src/services/refresh-scheduler.js`，保留 300ms 防抖、取消与 generation，增加 fake-timer 测试。
 - T1.3/T1.4：补齐 parser/loader 的空、缺、损坏与回退测试，记录数据源语义；数据源路径集中到 `src/adapter/config.js`。
 - T1.2：内置快照加入 `schemaVersion` / `lexiconVersion` / `generatedAt`，adapter 通过 `src/data/lexicon.js` 做 schema gate；不兼容或缺字段时回退空表，Vault 数据仍可用。
 - T1.1：内置词库从 adapter 迁到 `data/builtin-lexicon.json`；新增 `scripts/generate-lexicon.mjs --check` 保证规范化，`npm test` 覆盖快照结构。

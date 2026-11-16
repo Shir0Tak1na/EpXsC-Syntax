@@ -13,6 +13,7 @@
 const { Plugin, TFile, TFolder, Notice, MarkdownView, Modal } = require('obsidian');
 const { extractEpXsCBlocks } = require('../core/markdown-blocks.js');
 const { loadBuiltinLexicon } = require('../data/lexicon.js');
+const { RefreshScheduler } = require('../services/refresh-scheduler.js');
 const { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require('../core/markup.js');
 const { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require('../core/grammar.js');
 const { tokenizeText } = require('../core/tokenizer.js');
@@ -856,11 +857,8 @@ class EpXsCSyntaxPlugin extends Plugin {
       return file.path === DICT_PATH || file.path === SYNTAX_PATH || file.path === RANK_PATH ||
         file.path.indexOf(ROOTS_DIR) === 0 || file.path.indexOf(SPELL_DIR) === 0;
     };
-    let refreshTimer = null;
-    const scheduleRefresh = function () {
-      if (refreshTimer) window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(function () { refreshTimer = null; self.refresh(); }, 300);
-    };
+    const refreshScheduler = new RefreshScheduler(function () { self.refresh(); }, 300);
+    const scheduleRefresh = function () { refreshScheduler.request(); };
     const onDataEvent = function (file) { if (isDataFile(file)) scheduleRefresh(); };
     this.registerEvent(this.app.vault.on('modify', onDataEvent));
     this.registerEvent(this.app.vault.on('create', onDataEvent));
@@ -868,7 +866,7 @@ class EpXsCSyntaxPlugin extends Plugin {
     this.registerEvent(this.app.vault.on('rename', function (file, oldPath) {
       if (isDataFile(file) || (oldPath && isDataFile({ path: oldPath }))) scheduleRefresh();
     }));
-    this.register(function () { if (refreshTimer) window.clearTimeout(refreshTimer); });
+    this.register(function () { refreshScheduler.cancel(); });
     this.addCommand({
       id: 'reload-lexicon',
       name: '重新载入词表与释义',

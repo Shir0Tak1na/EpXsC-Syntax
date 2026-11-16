@@ -35,7 +35,7 @@
 
 ### T2 — services / adapter
 
-- [ ] T2.1 `RefreshScheduler`: requestRefresh / cancelPending / execute; keep debounce, dedupe, generation guard.
+- [x] T2.1 `RefreshScheduler`: requestRefresh / cancelPending / execute; keep debounce, dedupe, generation guard (implemented as `src/services/refresh-scheduler.js`).
 - [ ] T2.2 `LexiconService` / `SpellRegistry` / `LintService`: Vault read + parse + merge + snapshot; Node-testable.
 - [ ] T2.3 Adapter only lifecycle, Vault events, commands, processors; no tokenize/lint/render rules.
 
@@ -88,8 +88,8 @@ Do not start T1/T2 migration before T0 is complete.
 | T1.2 | DONE | schema gate + metadata validation |
 | T1.3 | DONE | parser/loader fallback tests + semantics doc |
 | T1.4 | DONE | adapter config module |
-| T2.1 | TODO | next action |
-| T2.2 | TODO | |
+| T2.1 | DONE | RefreshScheduler + fake-timer tests |
+| T2.2 | TODO | next action |
 | T2.3 | TODO | |
 | T3.1 | TODO | |
 | T3.2 | TODO | |
@@ -120,13 +120,13 @@ Do not start T1/T2 migration before T0 is complete.
 
 ## G. Next single action
 
-**T2.1 — RefreshScheduler.**
+**T2.2 — LexiconService / SpellRegistry / LintService.**
 
-T1.3/T1.4 are done: parser/loader fallback coverage is in fixtures/tests, data semantics are documented, and paths live in `src/adapter/config.js`.
+T2.1 is done: debounce/cancel/generation are in `src/services/refresh-scheduler.js`, covered by fake-timer tests.
 
-T2.1 deliverable:
+T2.2 deliverable:
 
-- `src/services/refresh-scheduler.js` with request/cancel/execute;
-- debounce, dedupe, generation guard preserved;
-- Node tests for debounce and stale-task discard;
-- adapter uses the service; no behavior change.
+- extract Vault reading + parse + merge + snapshot building into a Node-testable service;
+- adapter supplies file-read/list callbacks only;
+- tests with a fake vault covering dictionary/syntax/rank/roots/spells and fallback;
+- no behavior change.
