@@ -1714,11 +1714,6 @@ class EpXsCSyntaxPlugin extends Plugin {
       callback: function () { self.lintActiveNote(); }
     });
     this.addCommand({
-      id: 'dump-epx-dom',
-      name: '诊断：导出 EpXsT DOM',
-      callback: function () { self.dumpDom(); }
-    });
-    this.addCommand({
       id: 'self-check',
       name: 'EpXsC 自检（视图／token／颜色／样式表）',
       callback: function () { self.selfCheck(); }
@@ -2133,34 +2128,6 @@ class EpXsCSyntaxPlugin extends Plugin {
       '首个块 token 数：' + tokenCount + ' · 首个 token 颜色：' + color,
       '样式表：' + styleState + (this._styleState ? ' · 兜底：' + this._styleState : '')
     ].join('\n'), 15000);
-  }
-
-  async dumpDom() {
-    const out = [];
-    const codes = document.querySelectorAll('.epx-ord, code[class*="language-EpXsT" i], code[class*="language-EpXsG" i]');
-    for (let i = 0; i < codes.length; i++) {
-      const code = codes[i];
-      const line = code.querySelector('.epx-oline');
-      out.push({
-        index: i,
-        codeClass: code.className,
-        codeDisplay: getComputedStyle(code).display,
-        codeWhiteSpace: getComputedStyle(code).whiteSpace,
-        lineTag: line ? line.tagName : null,
-        lineDisplay: line ? getComputedStyle(line).display : null,
-        tokenCount: code.querySelectorAll('span.token').length,
-        orderLineCount: code.querySelectorAll('.epx-oline').length,
-        parentClass: code.parentElement ? code.parentElement.className : null,
-        outerHTML: String(code.outerHTML || '').slice(0, 2500)
-      });
-    }
-    out.push({ wraps: document.querySelectorAll('.epx-ord-wrap').length });
-    try {
-      await this.app.vault.adapter.write('epxsc-dom-dump.txt', JSON.stringify(out, null, 2));
-      new Notice('已写入 epxsc-dom-dump.txt（' + codes.length + ' 块）');
-    } catch (e) {
-      new Notice('写入失败：' + (e && e.message));
-    }
   }
 
   rehighlight() {
