@@ -95,7 +95,7 @@ body.theme-light {
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.keyword { color: var(--epx-keyword); font-weight: 600; }
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.judge { color: var(--epx-judge); font-weight: 700; }
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.negPrefix { color: var(--epx-keyword); font-weight: 700; }
-:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-neg-scope { text-decoration: underline dotted var(--epx-keyword); text-underline-offset: 0.2em; }
+:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-neg-scope { text-decoration-line: underline; text-decoration-style: dotted; text-decoration-color: var(--epx-keyword); text-underline-offset: 0.2em; }
 
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.predicate,
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.function { color: var(--epx-verb); }
@@ -108,12 +108,12 @@ body.theme-light {
 
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.unit { color: var(--epx-unit); font-style: italic; }
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.number { color: var(--epx-number); }
-:is(code[class*="language-EpXsC" i], .epx-ord) .token.rankRange { color: var(--epx-rank); font-weight: 700; text-decoration: underline dotted; text-underline-offset: 0.15em; }
+:is(code[class*="language-EpXsC" i], .epx-ord) .token.rankRange { color: var(--epx-rank); font-weight: 700; text-decoration-line: underline; text-decoration-style: dotted; text-underline-offset: 0.15em; }
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.degree { color: var(--epx-degree); font-style: italic; }
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.axis { color: var(--epx-axis); }
 
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.pointer { color: var(--epx-pointer); font-weight: 700; }
-:is(code[class*="language-EpXsC" i], .epx-ord) .token.coordRun { color: var(--text-muted); font-weight: 600; text-decoration: underline dotted var(--text-faint); text-underline-offset: 0.2em; }
+:is(code[class*="language-EpXsC" i], .epx-ord) .token.coordRun { color: var(--text-muted); font-weight: 600; text-decoration-line: underline; text-decoration-style: dotted; text-decoration-color: var(--text-faint); text-underline-offset: 0.2em; }
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier { color: var(--epx-modifier); font-style: italic; font-weight: 600; }
 
 /* 筛选键（第五章）：genus= / intervall( 这类语义选择子 */
@@ -132,7 +132,6 @@ body.theme-light {
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.operator { color: var(--epx-operator); }
 /* 括号一族：朝弱化色混，保留嵌套分层但不再跳眼 —— 想更淡就调小百分数，想更亮就调大 */
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.bracket {
-  color: var(--epx-bracket);
   color: color-mix(in srgb, var(--color-cyan) 40%, var(--text-muted));
   font-weight: 600;
 }
@@ -142,11 +141,9 @@ body.theme-light {
 
 /* 嵌套括号：只有第 2 层起才换色，第 1 层保持各自的分类色 */
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-d2 {
-  color: var(--epx-b2);
   color: color-mix(in srgb, var(--color-pink) 35%, var(--text-muted));
 }
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-d3 {
-  color: var(--epx-b3);
   color: color-mix(in srgb, var(--color-green) 35%, var(--text-muted));
 }
 
@@ -180,7 +177,7 @@ body.theme-light {
    6. 语法检查：未入典的点线 + 结果面板
    -------------------------------------------------------------------------- */
 :is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-unknown {
-  text-decoration: underline dotted var(--color-orange);
+  text-decoration-line: underline; text-decoration-style: dotted; text-decoration-color: var(--color-orange);
   text-underline-offset: 0.2em;
 }
 
@@ -199,36 +196,30 @@ body.theme-light {
    朝正文色压深到 ≥4.5:1。不支持 color-mix 的环境用前面的硬编码色。
    -------------------------------------------------------------------------- */
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.declaration {
-  color: #7e691f;
   color: color-mix(in srgb, var(--color-yellow) 45%, var(--text-normal));
 }
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.element,
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.type,
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.dictKey {
-  color: #17797a;
   color: color-mix(in srgb, var(--color-cyan) 50%, var(--text-normal));
 }
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.unit,
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.number,
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.rankRange {
-  color: #a05b16;
   color: color-mix(in srgb, var(--color-orange) 60%, var(--text-normal));
 }
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.axis {
-  color: #197d44;
   color: color-mix(in srgb, var(--color-green) 55%, var(--text-normal));
 }
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.degree,
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.variable,
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.declTarget,
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.varUse {
-  color: #c4387c;
   color: color-mix(in srgb, var(--color-pink) 90%, var(--text-normal));
 }
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.pretium,
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.clause,
 body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier {
-  color: #cd3145;
   color: color-mix(in srgb, var(--color-red) 85%, var(--text-normal));
 }
 /* --------------------------------------------------------------------------
@@ -237,7 +228,7 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
 @media print {
   .epx-pre,
   .epx-ord {
-    break-inside: avoid;
+    page-break-inside: avoid;
     box-shadow: none;
   }
   .epx-pre::before,
@@ -270,7 +261,6 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
   letter-spacing: 0.09em;
   line-height: 1.8;
   color: var(--epx-ord-tint);
-  background: var(--background-secondary);
   background: color-mix(in srgb, var(--epx-ord-tint) 22%, var(--background-primary));
   border-radius: 0 var(--radius-m) 0 var(--radius-s);
   opacity: 0.95;

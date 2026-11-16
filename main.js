@@ -55,7 +55,7 @@ const TYPES = ['METOS', 'locus', 'siro', 'intervallum', 'verb', 'littera', 'form
 const MODIFIERS = ['priv', 'tut', 'publ', 'consta', 'om', 'tot'];
 
 /* 代码版本：诊断报告里会写出来，用来分辨「文件换了但插件没重载」 */
-const BUILD = '1.29.0';
+const BUILD = '1.29.1';
 
 function escapeWord(w) {
   return w.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.29.1
+
+- 处理 CSS lint warning：`text-decoration` 拆成长属性、去掉 `:has` 已完成的遗留、移除 color/background 的重复 fallback、用 `page-break-inside` 替代 `break-inside`。
+- README 底部加 powered by dsh 徽章。
+
 ## 1.29.0
 
 - 收窄词典查找：不再 `vault.getFiles()` 全库枚举，只遍历词典所在目录与《魔法》目录。

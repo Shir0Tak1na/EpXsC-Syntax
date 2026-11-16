@@ -1,6 +1,6 @@
 {
   "name": "epxsc-syntax",
-  "version": "1.29.0",
+  "version": "1.29.1",
   "private": true,
   "description": "Obsidian plugin: EpXsC syntax highlighting, hover dictionary, and linting",
   "scripts": {

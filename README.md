@@ -130,3 +130,5 @@ npm run check   # 校验 manifest / 语法 / CSS 括号 / 片段一致性
 ## License
 
 [Apache-2.0](LICENSE)
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
