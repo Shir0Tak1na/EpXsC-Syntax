@@ -10,7 +10,7 @@
 
 Syntax highlighting, hover tooltips, and linting for EpXsC fenced code blocks.
 
-![EpXsC code block rendered in Obsidian](https://raw.githubusercontent.com/Shir0Tak1na/EpXsC-Syntax/main/assets/hero.png)
+![EpXsC code block rendered in Obsidian](https://raw.githubusercontent.com/Shir0Tak1na/EpXsC-Syntax/HEAD/assets/hero.png)
 
 *在 Obsidian 中由插件渲染：token 配色、外框与语言签。*
 

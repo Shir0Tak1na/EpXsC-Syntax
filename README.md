@@ -8,7 +8,7 @@ An Obsidian plugin for **EpXsC (Expaulxsirian Construct)**, a fictional conlang 
 
 > This plugin is for a fictional language only. It is not related to any real-world language. It is also an experiment for a future corpus/glossary toolchain.
 
-![EpXsC code block rendered in Obsidian](https://raw.githubusercontent.com/Shir0Tak1na/EpXsC-Syntax/main/assets/hero.png)
+![EpXsC code block rendered in Obsidian](https://raw.githubusercontent.com/Shir0Tak1na/EpXsC-Syntax/HEAD/assets/hero.png)
 
 *Rendered by the plugin in Obsidian: token colors, frame and language tag.*
 
