@@ -3,11 +3,6 @@
 /* Pure tokenizer: grammar rules -> escaped HTML tokens. */
 
 const GLOBAL_RE_CACHE = new WeakMap();
-/* 术式登记表：从《魔法》目录与术式语法里收集术式声明（名字、可见性、形参、所在块范围）。
-   用于检查「引用未声明的术式／越权引用／参数不符／consta 被改写」，以及给被引用的术式名着色。 */
-const SPELL_DIR = '世界设定集/设定概念集合/魔法';
-/* 超过这个行数就整块不着色 */
-const MAX_HIGHLIGHT_LINES = 50;
 function asGlobalRe(re) {
   if (re.global) return re;
   let g = GLOBAL_RE_CACHE.get(re);

@@ -27,6 +27,8 @@ const RANK_PATH = '世界设定集/设定概念集合/维度/维度模型.md';
 const SYNTAX_PATH = '世界设定集/地域文化图鉴/语言/述无空语/述无空语术式语法.md';
 /* 词根表分册目录：整目录都在读，新增分册会自动纳入 */
 const ROOTS_DIR = '世界设定集/地域文化图鉴/语言/述无空语/词库/词根表/';
+const SPELL_DIR = '世界设定集/设定概念集合/魔法';
+const MAX_HIGHLIGHT_LINES = 50;
 
 const BUILD = '1.31.0';
 
