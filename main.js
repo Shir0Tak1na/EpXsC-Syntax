@@ -21,18 +21,10 @@ var require_markdown_blocks = __commonJS({
   }
 });
 
-// src/legacy/plugin.js
-var require_plugin = __commonJS({
-  "src/legacy/plugin.js"(exports2, module2) {
+// src/data/parsers.js
+var require_parsers = __commonJS({
+  "src/data/parsers.js"(exports2, module2) {
     "use strict";
-    var { Plugin: Plugin2, TFile, TFolder, Notice, MarkdownView, Modal } = require("obsidian");
-    var { extractEpXsCBlocks } = require_markdown_blocks();
-    var LANG_KEYS = ["EpXsC", "epxsc", "EPXSC"];
-    var CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
-    var DICT_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u8BCD\u5178.md";
-    var RANK_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u7EF4\u5EA6/\u7EF4\u5EA6\u6A21\u578B.md";
-    var SYNTAX_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u672F\u5F0F\u8BED\u6CD5.md";
-    var ROOTS_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8BCD\u5E93/\u8BCD\u6839\u8868/";
     var FALLBACK = {
       /* 词典读不到时的兜底；in / om 这类词性易漏，一并钉死 */
       keyword: ["in", "de", "pro", "om", "post", "nec"],
@@ -54,19 +46,6 @@ var require_plugin = __commonJS({
       unit: ["\u5355\u4F4D"]
     };
     var ELEMENTS = ["Ert", "Aqu", "Flm", "Wnd", "Nut", "Elc", "Lum", "Duk", "Sar", "Qen"];
-    var AXES = ["vis", "diu", "celer", "latus", "altus", "acutus", "densus", "gravis", "levis"];
-    var TYPES = ["METOS", "locus", "siro", "intervallum", "verb", "littera", "forma", "sonus"];
-    var MODIFIERS = ["priv", "tut", "publ", "consta", "om", "tot"];
-    var BUILD = "1.31.0";
-    function escapeWord(w) {
-      return w.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
-    }
-    function wordPattern(words) {
-      const sorted = (Array.isArray(words) ? words.slice() : []).sort(function(a, b) {
-        return b.length - a.length;
-      });
-      return new RegExp("\\b(?:" + sorted.map(escapeWord).join("|") + ")\\b", "i");
-    }
     function splitSections(text) {
       const map = {};
       let current = null;
@@ -230,6 +209,57 @@ var require_plugin = __commonJS({
       }
       return out;
     }
+    function wordsFrom(map, names, fallback) {
+      const out = [];
+      for (let i = 0; i < names.length; i++) {
+        const list = map[names[i]] || [];
+        for (let j = 0; j < list.length; j++) out.push(list[j]);
+      }
+      for (let k = 0; k < fallback.length; k++) out.push(fallback[k]);
+      return Array.from(new Set(out));
+    }
+    module2.exports = {
+      FALLBACK,
+      SECTIONS,
+      ELEMENTS,
+      splitSections,
+      parseEntries,
+      parseDictionary: parseEntries,
+      parseRanks,
+      parseFilterKeys,
+      parseUnits,
+      parseRoots,
+      wordsFrom
+    };
+  }
+});
+
+// src/legacy/plugin.js
+var require_plugin = __commonJS({
+  "src/legacy/plugin.js"(exports2, module2) {
+    "use strict";
+    var { Plugin: Plugin2, TFile, TFolder, Notice, MarkdownView, Modal } = require("obsidian");
+    var { extractEpXsCBlocks } = require_markdown_blocks();
+    var { FALLBACK, SECTIONS, ELEMENTS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require_parsers();
+    var LANG_KEYS = ["EpXsC", "epxsc", "EPXSC"];
+    var CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
+    var DICT_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u8BCD\u5178.md";
+    var RANK_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u7EF4\u5EA6/\u7EF4\u5EA6\u6A21\u578B.md";
+    var SYNTAX_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u672F\u5F0F\u8BED\u6CD5.md";
+    var ROOTS_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8BCD\u5E93/\u8BCD\u6839\u8868/";
+    var AXES = ["vis", "diu", "celer", "latus", "altus", "acutus", "densus", "gravis", "levis"];
+    var TYPES = ["METOS", "locus", "siro", "intervallum", "verb", "littera", "forma", "sonus"];
+    var MODIFIERS = ["priv", "tut", "publ", "consta", "om", "tot"];
+    var BUILD = "1.31.0";
+    function escapeWord(w) {
+      return w.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
+    }
+    function wordPattern(words) {
+      const sorted = (Array.isArray(words) ? words.slice() : []).sort(function(a, b) {
+        return b.length - a.length;
+      });
+      return new RegExp("\\b(?:" + sorted.map(escapeWord).join("|") + ")\\b", "i");
+    }
     function builtinMap(part) {
       const out = /* @__PURE__ */ new Map();
       const source = BUILTIN_LEXICON[part] || {};
@@ -267,15 +297,6 @@ var require_plugin = __commonJS({
         predicate: wordsFrom(bySection, SECTIONS.predicate, FALLBACK.predicate).concat(verbRoots || []),
         unit: wordsFrom(bySection, SECTIONS.unit, FALLBACK.unit).concat(units)
       };
-    }
-    function wordsFrom(map, names, fallback) {
-      const out = [];
-      for (let i = 0; i < names.length; i++) {
-        const list = map[names[i]] || [];
-        for (let j = 0; j < list.length; j++) out.push(list[j]);
-      }
-      for (let k = 0; k < fallback.length; k++) out.push(fallback[k]);
-      return Array.from(new Set(out));
     }
     function makeGrammar(lists, keys) {
       const keyList = Array.isArray(keys) ? keys.slice() : [];

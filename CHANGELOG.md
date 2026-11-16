@@ -4,6 +4,7 @@
 
 - 引入 `src/` + esbuild：`main.js` 改为构建产物，`src/core/` 开始承载可测试纯逻辑。
 - 代码围栏提取器抽到 `src/core/markdown-blocks.js`，插件与测试共用。
+- 词典 / 词根 / 秩 / 筛选键 / 单位 parser 抽到 `src/data/parsers.js`。
 - CI 增加 `npm ci` / `npm run build`；测试覆盖 CLI 构建链。
 - 运行时行为不变。
 

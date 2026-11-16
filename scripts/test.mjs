@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const nodeRequire = createRequire(import.meta.url);
 const blockCore = nodeRequire('../src/core/markdown-blocks.js');
+const parserCore = nodeRequire('../src/data/parsers.js');
 
 const source = fs.readFileSync('src/legacy/plugin.js', 'utf8');
 const obsidianStub = {
@@ -11,7 +12,12 @@ const obsidianStub = {
   Notice: class {}, Modal: class {}
 };
 const sandbox = {
-  require: (name) => (name === 'obsidian' ? obsidianStub : (String(name).includes('markdown-blocks') ? blockCore : {})),
+  require: (name) => {
+    if (name === 'obsidian') return obsidianStub;
+    if (String(name).includes('markdown-blocks')) return blockCore;
+    if (String(name).includes('data/parsers')) return parserCore;
+    return {};
+  },
   module: { exports: {} },
   exports: {},
   console,
@@ -24,6 +30,7 @@ vm.createContext(sandbox);
 vm.runInContext(source, sandbox, { filename: 'main.js' });
 
 const { collectSpells, lintText, builtinLists, makeGrammar, tokenizeText } = sandbox;
+const { parseEntries, parseRoots, parseFilterKeys } = parserCore;
 const { extractEpXsCBlocks } = blockCore;
 
 // 1) 代码围栏别名 + CRLF + 前导空格
@@ -62,4 +69,12 @@ assert.ok(html.includes('token unit'), 'MU should tokenize as unit');
 const bracketIssues = lintText('Foo() {', { info: new Map(), units: new Set(), keys: new Set(), spells: new Map() });
 assert.ok(bracketIssues.some(x => x.level === 'error'), 'unclosed brace must be an error');
 
-console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket tests passed');
+// 7) 数据 parser 冒烟
+const entries = parseEntries('## 介词\n| de | 在……之内 | dex |\n');
+assert.equal(entries.get('de').meaning, '在……之内');
+const roots = parseRoots('| agr | 田地 | agr | 物 | 物 |\n');
+assert.equal(roots.get('agr').kind, '物');
+const keys = parseFilterKeys('## 筛选键\n| genus | 类别 |\n');
+assert.ok(keys.has('genus'));
+
+console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers');
