@@ -1556,36 +1556,38 @@ function renderOrdBlockInner(el, source, mode, grammar, info) {
   let pending = null;
   const flush = function (pair) {
     if (!pair) return;
-    html += '<div class="epx-oline">';
+    html += '<span class="epx-oline">';
     if (mode === 'G') {
       const toks = ordTokens(pair.src, grammar);
-      html += '<div class="epx-gs">';
+      html += '<span class="epx-gs">';
       for (let i = 0; i < toks.length; i++) {
         const tok = toks[i];
         const gl = ordGlossOf(tok, info);
         html += '<span class="epx-gw" style="display:inline-block;text-align:center;margin:0 .16em;vertical-align:top"><span class="epx-gsrc token ' + tok.cls + '" style="display:block;line-height:1.3">' + tok.text + '</span>' +
                 (gl ? '<span class="epx-ggl" style="display:block;font-size:.74em;line-height:1.2;opacity:.7">' + gl + '</span>' : '') + '</span>';
       }
-      html += '</div>';
+      html += '</span>';
     } else {
-      html += '<div class="epx-tsrc">' + tokenizeText(pair.src, grammar) + '</div>';
+      html += '<span class="epx-tsrc">' + tokenizeText(pair.src, grammar) + '</span>';
     }
-    if (pair.zh) html += '<div class="epx-tzh">' + pair.zh + '</div>';
-    html += '</div>';
+    html += '<br>';
+    if (pair.zh) html += '<span class="epx-tzh">' + pair.zh + '</span><br>';
+    html += '</span>';
   };
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
     const t = raw.trim();
-    if (!t) { flush(pending); pending = null; html += '<div class="epx-gap"></div>'; continue; }
-    if (t.charAt(0) === '>') { if (pending) pending.zh = t.slice(1).trim(); else html += '<div class="epx-oline"><div class="epx-tzh">' + t.slice(1).trim() + '</div></div>'; continue; }
+    if (!t) { flush(pending); pending = null; html += '<br>'; continue; }
+    if (t.charAt(0) === '>') { if (pending) pending.zh = t.slice(1).trim(); else html += '<span class="epx-tzh">' + t.slice(1).trim() + '</span><br>'; continue; }
     /* 没写 > 时：紧跟原文行、含汉字的一行，当作上一句的译文 */
     if (pending && !pending.zh && /[\u3400-\u9fff]/.test(t)) { pending.zh = t; continue; }
     flush(pending);
     pending = { src: t, zh: '' };
   }
   flush(pending);
-  /* 用 div 而不是 span + inline display：阅读视图会剥掉部分 inline style，
-     div 的块级行为不依赖样式表，译文行与原文行因此不会挤成一段。 */
+  html = html.replace(/<br>$/, '');
+  /* 用真实 <br> 断行：阅读视图会清洗块级元素，但不会去掉 br；
+     这样实时预览与阅读模式都能保持原文/译文各占一行。 */
   el.innerHTML = '<div class="epx-ord-wrap"><code class="' + ORD_CLASS + ' epx-ord epx-ord-' + mode + '">' + html + '</code></div>';
 }
 /* 包一层：普通句渲染出错时退化成普通代码块，不要变成 Obsidian 的「代码块渲染错误」。 */
