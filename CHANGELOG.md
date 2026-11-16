@@ -2,6 +2,10 @@
 
 ## 1.31.0
 
+- 重构目录：`src/core`（纯语言逻辑）、`src/data`（解析）、`src/adapter`（Obsidian 适配）、`src/main.js` + esbuild 构建产物。
+- 修复 T/G 在词典载入前用兜底 grammar 渲染且不重绘的问题：refresh 后重新渲染 `.epx-ord` 块。
+- 修复 hover 常量、C 块 `pre.epx-pre` 选择器权重问题。
+- 移除全部临时诊断命令/写入。
 - 引入 `src/` + esbuild：`main.js` 改为构建产物，`src/core/` 开始承载可测试纯逻辑。
 - 代码围栏提取器抽到 `src/core/markdown-blocks.js`，插件与测试共用。
 - 词典 / 词根 / 秩 / 筛选键 / 单位 parser 抽到 `src/data/parsers.js`。

@@ -1853,6 +1853,7 @@ var require_plugin = __commonJS({
         this.registerMarkdownCodeBlockProcessor("epxsc", renderBlock);
         this.registerMarkdownCodeBlockProcessor("EPXSC", renderBlock);
         const ord = function(source, el, ctx, mode) {
+          el.__epxOrd = { source, mode, ctx };
           renderOrdBlock(el, source, mode, self.grammar, self.info);
           bindClickToSource(el, self.app, el, ctx);
         };
@@ -2313,6 +2314,18 @@ var require_plugin = __commonJS({
       }
       rehighlight() {
         this.highlightIn(document);
+        const wraps = document.querySelectorAll(".epx-ord-wrap");
+        for (let i = 0; i < wraps.length; i++) {
+          const wrap = wraps[i];
+          const el = wrap.parentElement;
+          const rec = el && el.__epxOrd;
+          if (!rec) continue;
+          try {
+            renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info);
+            bindClickToSource(el, this.app, el, rec.ctx);
+          } catch (e) {
+          }
+        }
       }
       highlightIn(root) {
         if (!root || !root.querySelectorAll) return;

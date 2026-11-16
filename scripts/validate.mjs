@@ -20,7 +20,7 @@ for (const [name, css] of [['styles.css', styles], ['snippets/EpXsC-Highlight.cs
 }
 if (styles !== snippet) fail('styles.css and snippets/EpXsC-Highlight.css differ');
 
-for (const forbidden of ['app.plugins', 'dump-epx-dom', 'epxsc-render-', 'PLUGIN_APP']) {
+for (const forbidden of ['app.plugins', 'dump-epx-dom', 'dump-token-colors', 'epxsc-render-', 'PLUGIN_APP', 'epxsc-token-dump']) {
   if (main.includes(forbidden)) fail('forbidden diagnostic/API string in main.js: ' + forbidden);
 }
 if (main.includes('pre:has(')) fail('main.js still contains pre:has() fallback selector');

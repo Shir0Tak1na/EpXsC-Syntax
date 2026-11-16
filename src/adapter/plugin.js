@@ -850,6 +850,7 @@ class EpXsCSyntaxPlugin extends Plugin {
        这里必须按 (source, el) 接参数，否则 el 拿到的是字符串，innerHTML 赋值会在严格模式下抛
        TypeError（表现为代码块显示「渲染错误」）。 */
     const ord = function (source, el, ctx, mode) {
+      el.__epxOrd = { source: source, mode: mode, ctx: ctx };
       renderOrdBlock(el, source, mode, self.grammar, self.info);
       bindClickToSource(el, self.app, el, ctx);
     };
@@ -1259,6 +1260,17 @@ class EpXsCSyntaxPlugin extends Plugin {
 
   rehighlight() {
     this.highlightIn(document);
+    const wraps = document.querySelectorAll('.epx-ord-wrap');
+    for (let i = 0; i < wraps.length; i++) {
+      const wrap = wraps[i];
+      const el = wrap.parentElement;
+      const rec = el && el.__epxOrd;
+      if (!rec) continue;
+      try {
+        renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info);
+        bindClickToSource(el, this.app, el, rec.ctx);
+      } catch (e) { /* keep previous render */ }
+    }
   }
 
   highlightIn(root) {
