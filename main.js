@@ -1567,6 +1567,7 @@ function renderOrdBlockInner(el, source, mode, grammar, info) {
     d.className = 'epx-oline';
     return d;
   };
+  let pending = null;
   const flush = function (pair) {
     if (!pair) return;
     const line = lineEl();
