@@ -10,12 +10,12 @@
 
 Syntax highlighting, hover tooltips, and linting for EpXsC fenced code blocks.
 
-```EpXsC
-Expaste(METOS: a, METOS: b) {
-	intervall(a, b) <= 66 miteas;
-	luss (15 + 35 * intervall(a, b)) MU;
-}
-```
+![EpXsC code block rendered in Obsidian](https://raw.githubusercontent.com/Shir0Tak1na/EpXsC-Syntax/main/assets/hero.png)
+
+*在 Obsidian 中由插件渲染：token 配色、外框与语言签。*
+
+> 下面的代码块是源码示例；在 Obsidian 中启用插件后会显示同样的外框与配色。社区页面不加载插件的样式。
+
 
 ## Features / 功能
 

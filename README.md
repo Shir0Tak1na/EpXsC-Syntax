@@ -8,12 +8,12 @@ An Obsidian plugin for **EpXsC (Expaulxsirian Construct)**, a fictional conlang 
 
 > This plugin is for a fictional language only. It is not related to any real-world language. It is also an experiment for a future corpus/glossary toolchain.
 
-```EpXsC
-Expaste(METOS: a, METOS: b) {
-	intervall(a, b) <= 66 miteas;
-	luss (15 + 35 * intervall(a, b)) MU;
-}
-```
+![EpXsC code block rendered in Obsidian](https://raw.githubusercontent.com/Shir0Tak1na/EpXsC-Syntax/main/assets/hero.png)
+
+*Rendered by the plugin in Obsidian: token colors, frame and language tag.*
+
+> The code samples below are source examples. In Obsidian, the plugin renders them with the same frame and colors; the community page does not load plugin styles.
+
 
 ## Features
 
