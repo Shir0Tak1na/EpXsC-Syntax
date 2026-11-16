@@ -1,6 +1,6 @@
 # EpXsC Syntax
 
-![GitHub release](https://img.shields.io/github/v/release/Shir0Tak1na/EpXsC-Syntax-Highlight) ![License](https://img.shields.io/github/license/Shir0Tak1na/EpXsC-Syntax-Highlight) ![Obsidian](https://img.shields.io/badge/Obsidian-1.4.0%2B-7c3aed)
+![GitHub release](https://img.shields.io/github/v/release/Shir0Tak1na/EpXsC-Syntax-Highlight) ![License](https://img.shields.io/github/license/Shir0Tak1na/EpXsC-Syntax-Highlight) ![Obsidian](https://img.shields.io/badge/Obsidian-1.4.0%2B-7c3aed) ![Validate](https://github.com/Shir0Tak1na/EpXsC-Syntax-Highlight/actions/workflows/validate.yml/badge.svg)
 
 *请注意，本插件是应用于虚构小说的虚构语言语法检查。和现实世界无关，为以后的语料库索引类插件做实验，在此仅作代码css片段展示和练习。*
 
@@ -109,6 +109,10 @@ Tallse aris agrus nec manis humal.
 ## Development / 开发
 
 没有构建步骤：`main.js` 就是源码，`styles.css` 就是样式。
+
+```bash
+npm run check   # 校验 manifest / 语法 / CSS 括号 / 片段一致性
+```
 
 | 文件 | 作用 |
 | :-- | :-- |

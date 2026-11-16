@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.29.0
+
+- 收窄词典查找：不再 `vault.getFiles()` 全库枚举，只遍历词典所在目录与《魔法》目录。
+- `self-check` / 诊断报告现在也统计 EpXsT / EpXsG 块。
+- 去掉 `pre:has()`：由插件给 `<pre>` 加 `.epx-pre` 类，减少宽泛选择器与 CSS lint warning。
+- 新增 `npm run check`、GitHub Actions 校验与 Release provenance attestation。
+
 ## 1.28.14
 
 - 修复 T/G 代码块 token 悬停：阅读模式改用 `.epx-ord` 容器后，悬停选择器没有同步。

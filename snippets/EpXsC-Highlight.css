@@ -44,7 +44,7 @@ body.theme-light {
 /* --------------------------------------------------------------------------
    2. 代码块外框（阅读视图与导出）
    -------------------------------------------------------------------------- */
-pre:has(> :is(code[class*="language-EpXsC" i], .epx-ord)) {
+.epx-pre {
   position: relative;
   padding: 1.1em 1.15em 1.15em;
   background: var(--code-background);
@@ -55,7 +55,7 @@ pre:has(> :is(code[class*="language-EpXsC" i], .epx-ord)) {
 }
 
 /* 右上角语言签 */
-pre:has(> :is(code[class*="language-EpXsC" i], .epx-ord))::before {
+.epx-pre::before {
   content: "EpXsC";
   position: absolute;
   inset: 0 0 auto auto;
@@ -235,12 +235,12 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
    4. 导出／打印
    -------------------------------------------------------------------------- */
 @media print {
-  pre:has(> :is(code[class*="language-EpXsC" i], .epx-ord)),
+  .epx-pre,
   .epx-ord {
     break-inside: avoid;
     box-shadow: none;
   }
-  pre:has(> :is(code[class*="language-EpXsC" i], .epx-ord))::before,
+  .epx-pre::before,
   .epx-ord::before { display: none; }
 }
 
@@ -302,7 +302,7 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
    -------------------------------------------------------------------------- */
 @media (max-width: 640px) {
   .epx-ord,
-  pre:has(> :is(code[class*="language-EpXsC" i], .epx-ord)) {
+  .epx-pre {
     white-space: pre-wrap;
     overflow-wrap: break-word;
     padding: 0 0.9em 0.9em;
@@ -310,7 +310,7 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
   .epx-ord { line-height: 1.8; }
 
   .epx-ord::before,
-  pre:has(> :is(code[class*="language-EpXsC" i], .epx-ord))::before {
+  .epx-pre::before {
     position: static;
     display: block;
     margin: 0 -0.9em 0.75em;
