@@ -43,6 +43,7 @@ const sandbox = {
     if (String(name).includes('services/lexicon-service')) return nodeRequire('../src/services/lexicon-service.js');
     if (String(name).includes('ui/lint-modal')) return { LintModal: class {} };
     if (String(name).includes('ui/tooltip')) return tooltipCore;
+    if (String(name).includes('renderers/ord-dom')) return nodeRequire('../src/renderers/ord-dom.js');
     return {};
   },
   module: { exports: {} },

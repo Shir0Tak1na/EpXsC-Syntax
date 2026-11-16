@@ -1780,6 +1780,92 @@ var require_tooltip = __commonJS({
   }
 });
 
+// src/renderers/ord-dom.js
+var require_ord_dom = __commonJS({
+  "src/renderers/ord-dom.js"(exports2, module2) {
+    "use strict";
+    var { parseOrdBlocks } = require_ord_renderer();
+    var { SECTION_POS } = require_tooltip();
+    function renderOrdBlockInner2(el, source, mode, grammar, info) {
+      const records = parseOrdBlocks(source, mode, grammar, info, SECTION_POS);
+      const wrap = document.createElement("div");
+      wrap.className = "epx-ord-wrap";
+      const code = document.createElement("div");
+      code.className = "epx-ord epx-ord-" + mode;
+      wrap.appendChild(code);
+      const appendHTML = function(parent, html) {
+        const tpl = document.createElement("template");
+        tpl.innerHTML = html;
+        parent.appendChild(tpl.content);
+      };
+      const lineEl = function() {
+        const d = document.createElement("div");
+        d.className = "epx-oline";
+        return d;
+      };
+      for (let i = 0; i < records.length; i++) {
+        const record = records[i];
+        if (record.kind === "gap") {
+          const gap = document.createElement("div");
+          gap.className = "epx-gap";
+          code.appendChild(gap);
+          continue;
+        }
+        const line = lineEl();
+        if (mode === "G") {
+          const gs = document.createElement("div");
+          gs.className = "epx-gs";
+          const toks = record.tokens || [];
+          for (let j = 0; j < toks.length; j++) {
+            const tok = toks[j];
+            const gw = document.createElement("span");
+            gw.className = "epx-gw";
+            const srcEl = document.createElement("span");
+            srcEl.className = "epx-gsrc token " + tok.cls;
+            srcEl.textContent = tok.text;
+            gw.appendChild(srcEl);
+            if (tok.gloss) {
+              const gg = document.createElement("span");
+              gg.className = "epx-ggl";
+              gg.textContent = tok.gloss;
+              gw.appendChild(gg);
+            }
+            gs.appendChild(gw);
+          }
+          line.appendChild(gs);
+        } else if (record.src) {
+          const srcEl = document.createElement("div");
+          srcEl.className = "epx-tsrc";
+          appendHTML(srcEl, record.html || "");
+          line.appendChild(srcEl);
+        }
+        if (record.zh) {
+          const zh = document.createElement("div");
+          zh.className = "epx-tzh";
+          zh.textContent = record.zh;
+          line.appendChild(zh);
+        }
+        code.appendChild(line);
+      }
+      el.textContent = "";
+      el.appendChild(wrap);
+    }
+    function renderOrdBlock(el, source, mode, grammar, info) {
+      try {
+        renderOrdBlockInner2(el, source, mode, grammar, info);
+      } catch (err) {
+        console.warn("[EpXsC Syntax] \u666E\u901A\u53E5\u6E32\u67D3\u5931\u8D25\uFF1A", err);
+        try {
+          if (el && el.empty) el.empty();
+          if (el && el.createEl) el.createEl("pre", { text: String(source || "") });
+        } catch (e) {
+        }
+      }
+    }
+    module2.exports = { renderOrdBlock, renderOrdBlockInner: renderOrdBlockInner2 };
+  }
+});
+
 // data/builtin-lexicon.json
 var require_builtin_lexicon = __commonJS({
   "data/builtin-lexicon.json"(exports2, module2) {
@@ -2006,82 +2092,7 @@ var require_plugin = __commonJS({
       const lang = liveCodeLang(el);
       return lang === "epxsc" || lang === "epxst" || lang === "epxsg";
     }
-    function renderOrdBlockInner(el, source, mode, grammar, info) {
-      const records = parseOrdBlocks(source, mode, grammar, info, SECTION_POS);
-      const wrap = document.createElement("div");
-      wrap.className = "epx-ord-wrap";
-      const code = document.createElement("div");
-      code.className = "epx-ord epx-ord-" + mode;
-      wrap.appendChild(code);
-      const appendHTML = function(parent, html) {
-        const tpl = document.createElement("template");
-        tpl.innerHTML = html;
-        parent.appendChild(tpl.content);
-      };
-      const lineEl = function() {
-        const d = document.createElement("div");
-        d.className = "epx-oline";
-        return d;
-      };
-      for (let i = 0; i < records.length; i++) {
-        const record = records[i];
-        if (record.kind === "gap") {
-          const gap = document.createElement("div");
-          gap.className = "epx-gap";
-          code.appendChild(gap);
-          continue;
-        }
-        const line = lineEl();
-        if (mode === "G") {
-          const gs = document.createElement("div");
-          gs.className = "epx-gs";
-          const toks = record.tokens || [];
-          for (let j = 0; j < toks.length; j++) {
-            const tok = toks[j];
-            const gw = document.createElement("span");
-            gw.className = "epx-gw";
-            const srcEl = document.createElement("span");
-            srcEl.className = "epx-gsrc token " + tok.cls;
-            srcEl.textContent = tok.text;
-            gw.appendChild(srcEl);
-            if (tok.gloss) {
-              const gg = document.createElement("span");
-              gg.className = "epx-ggl";
-              gg.textContent = tok.gloss;
-              gw.appendChild(gg);
-            }
-            gs.appendChild(gw);
-          }
-          line.appendChild(gs);
-        } else if (record.src) {
-          const srcEl = document.createElement("div");
-          srcEl.className = "epx-tsrc";
-          appendHTML(srcEl, record.html || "");
-          line.appendChild(srcEl);
-        }
-        if (record.zh) {
-          const zh = document.createElement("div");
-          zh.className = "epx-tzh";
-          zh.textContent = record.zh;
-          line.appendChild(zh);
-        }
-        code.appendChild(line);
-      }
-      el.textContent = "";
-      el.appendChild(wrap);
-    }
-    function renderOrdBlock(el, source, mode, grammar, info) {
-      try {
-        renderOrdBlockInner(el, source, mode, grammar, info);
-      } catch (err) {
-        console.warn("[EpXsC Syntax] \u666E\u901A\u53E5\u6E32\u67D3\u5931\u8D25\uFF1A", err);
-        try {
-          if (el && el.empty) el.empty();
-          if (el && el.createEl) el.createEl("pre", { text: String(source || "") });
-        } catch (e) {
-        }
-      }
-    }
+    var { renderOrdBlock } = require_ord_dom();
     function bindClickToSource(target, app, el, ctx) {
       if (!target || !target.style || !target.addEventListener) return;
       target.style.cursor = "text";

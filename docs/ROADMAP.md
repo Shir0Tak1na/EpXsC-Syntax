@@ -90,9 +90,9 @@ Do not start T1/T2 migration before T0 is complete.
 | T1.4 | DONE | adapter config module |
 | T2.1 | DONE | RefreshScheduler + fake-timer tests |
 | T2.2 | DONE | lexicon/spell/lint services + fake-vault tests |
-| T2.3 | IN_PROGRESS | adapter 43k; UI diagnostics still local |
-| T3.1 | DONE | EpXsC + T/G data pipelines |
-| T3.2 | IN_PROGRESS | lint modal + tooltip data extracted; diagnostics still local |
+| T2.3 | IN_PROGRESS | adapter ~40k; diagnostics still local |
+| T3.1 | DONE | EpXsC + T/G data + DOM renderers |
+| T3.2 | IN_PROGRESS | lint modal + tooltip data + T/G DOM extracted; diagnostics still local |
 | T3.3 | DONE | C/T/G data renderer tests |
 | T3.4 | TODO | |
 | T4.1 | DONE | `npm run bench` |
