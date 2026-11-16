@@ -1,23 +1,41 @@
 # Changelog
 
-## Unreleased
+## 2.0.0
 
-- T0.2：新增 8 个 parser、7 个 lint、6 个 markup golden fixtures；fixture-runner 接入 parser / lint / markup 目录。
-- 文档：README.md 改为英文主文档，中文完整保留在 README.zh-CN.md；manifest 描述改为中英双语，响应 Obsidian Community 对英文 README 的要求。
-- 修复 T/G 着色回归：`rehighlight()` 调用 `renderOrdBlockInner` 但 adapter 只导入了 `renderOrdBlock`，导致 refresh 后的 T/G 重渲染被静默 catch，块停在 `BASE_LISTS`。补导入并加静态回归断言。
-- T3.1：T/G DOM 挂载抽到 `src/renderers/ord-dom.js`；adapter 只保留处理器与 UI 事件。
-- T6.1：新增无 Obsidian 依赖的 CLI `bin/epxsc.mjs`（tokenize / lint / JSON / dictionary+syntax 上下文）；新增 package exports/bin、`docs/CLI.md` 与 CLI 测试。
-- T2.3/T3.2/T5.2：diagnostics 移到 `src/ui/diagnostics.js`；adapter 约 34KB；新增 release asset validator 并接入 CI。
-- T3.2：tooltip 数据构建抽到 `src/ui/tooltip.js`；adapter 保留 DOM show/hide，并新增 known-word / coord 测试。
-- T3.2（部分）：LintModal 抽到 `src/ui/lint-modal.js`；修复渲染拆分时误删的 `EXTRA_WORDS` / `SECTION_POS` / `TYPE_NOTES` 并加回归断言。
-- T4/T5：新增 `npm run bench` 基准；CI 在干净构建后校验 `main.js` 无漂移，继续校验 manifest/CSS/lexicon 与全量测试。
-- T2.2/T3.1：抽出 `src/services/`（lexicon / spell / lint / scheduler）与 `src/renderers/`（EpXsC、T/G 数据管线），adapter 只负责 I/O 与 DOM 挂载；新增 fake-vault / renderer 测试。
-- T2.1：抽出 `src/services/refresh-scheduler.js`，保留 300ms 防抖、取消与 generation，增加 fake-timer 测试。
-- T1.3/T1.4：补齐 parser/loader 的空、缺、损坏与回退测试，记录数据源语义；数据源路径集中到 `src/adapter/config.js`。
-- T1.2：内置快照加入 `schemaVersion` / `lexiconVersion` / `generatedAt`，adapter 通过 `src/data/lexicon.js` 做 schema gate；不兼容或缺字段时回退空表，Vault 数据仍可用。
-- T1.1：内置词库从 adapter 迁到 `data/builtin-lexicon.json`；新增 `scripts/generate-lexicon.mjs --check` 保证规范化，`npm test` 覆盖快照结构。
-- T0.3/T0.4：历史 Bug 静态回归（T/G 重渲染、hover 常量、C 框线权重、抽离漏常量）与四类 fixture runner/CI 收口。
-- T0.1：新增 13 个 tokenizer golden fixtures（tests/fixtures/tokenizer/）与 scripts/fixture-runner.mjs，接入 npm test；覆盖关键字、类型、单位、数字、秩区间、括号、注释/注解、坐标串、否定、空输入、CRLF、转义与长输入。
+发布日期：2026-11-16
+
+**2.0.0 是架构稳定版：不包含 EpXsC 语言语义的破坏性变更。**
+
+### 架构
+
+- 完成 Core / Data / Services / Renderers / UI / Adapter 分层。
+- 新增 `src/services/`：`refresh-scheduler`、`lexicon-service`、`spell-registry`、`lint-service`。
+- 新增 `src/renderers/`：EpXsC、T/G 数据与 DOM 渲染。
+- 新增 `src/ui/`：tooltip、lint modal、diagnostics。
+- adapter 从约 72KB 收薄到约 39KB，只保留生命周期、事件、命令和 DOM 挂载。
+- 数据源路径集中到 `src/adapter/config.js`；内置词库独立为 `data/builtin-lexicon.json`，带 schema gate。
+
+### 修复
+
+- 修复 T/G refresh 后停留在 `BASE_LISTS` 的着色回归：`rehighlight()` 缺少 `renderOrdBlockInner` 导入。
+- 修复渲染拆分时误删的 `EXTRA_WORDS` / `SECTION_POS` / `TYPE_NOTES`，并加回归断言。
+- 适配新版《维度模型》的「九序规则」表；秩/序定义重新解析（旧版「九个秩与维度的对应」表仍兼容）。
+- 数据回退、空/缺/损坏源、Hover、C/T/G 重渲染均有测试。
+
+### 测试与 CI
+
+- golden fixtures：tokenizer 13、parser 12、lint 7、markup 6。
+- 新增 CLI 测试、fake-vault 测试、renderer 测试、history regression。
+- CI 在干净构建后校验 `main.js` 无漂移；新增 release asset validator 与 lexicon canonical check。
+- `npm run bench` 基准：短块 tokenize ≈ 0.14ms，1000 行词典解析 ≈ 0.47ms，150 token 块 ≈ 1.62ms。
+
+### 文档与工具
+
+- README 英文主文档 + `README.zh-CN.md`；manifest 描述中英双语。
+- 新增 `bin/epxsc.mjs` CLI（tokenize / lint / JSON / dictionary+syntax）与 `docs/CLI.md`。
+- 新增 `docs/ROADMAP.md`、`docs/RELEASING.md`、`docs/NEXT_RELEASE.md`。
+
+---
 
 ## 1.31.0
 

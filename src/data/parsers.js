@@ -85,13 +85,19 @@ function parseEntries(text) {
 
 
 /* 秩表里的分量列带 LaTeX，洗成人能读的样子 */
-const GREEK = { theta: 'θ', lambda: 'λ', sigma: 'σ', Delta: 'Δ', varphi: 'φ', eta: 'η', omega: 'ω', mu: 'μ', pi: 'π', alpha: 'α', beta: 'β', gamma: 'γ', tau: 'τ', rho: 'ρ' };
+const GREEK = { theta: 'θ', Theta: 'Θ', lambda: 'λ', sigma: 'σ', Delta: 'Δ', varphi: 'φ', eta: 'η', omega: 'ω', mu: 'μ', pi: 'π', alpha: 'α', beta: 'β', gamma: 'γ', tau: 'τ', rho: 'ρ' };
 
 function cleanMath(s) {
   let t = String(s);
   t = t.replace(/\$([^$]*)\$/g, '$1');
   t = t.replace(/\\mathrm\{([^}]*)\}/g, '$1');
   t = t.replace(/\\text\{([^}]*)\}/g, '$1');
+  t = t.replace(/\\mathbb\{([^}]*)\}/g, '$1');
+  t = t.replace(/\\mathcal\{([^}]*)\}/g, '$1');
+  t = t.replace(/\\le(?![A-Za-z])/g, '≤');
+  t = t.replace(/\\ge(?![A-Za-z])/g, '≥');
+  t = t.replace(/\\times/g, '×');
+  t = t.replace(/\\to/g, '→');
   t = t.replace(/\\([a-zA-Z]+)/g, function (all, name) { return GREEK[name] || name; });
   t = t.replace(/\\[,;!]/g, ' ');
   t = t.replace(/[{}]/g, '');
@@ -100,7 +106,32 @@ function cleanMath(s) {
 }
 
 
+/* 新版《维度模型》用「九序」表述：8.2 默认表示表（序 / 分量 / 产生者 / 默认表示 / 类型）。
+   旧版仍走「九个秩与维度的对应」表；两者都产出 rank -> 释义。 */
+function parseModernRanks(text) {
+  const out = new Map();
+  const lines = text.split(/\r?\n/);
+  let inTable = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!inTable) {
+      if (/^\s*\|\s*序\s*\|\s*分量\s*\|\s*产生者/.test(line)) inTable = true;
+      continue;
+    }
+    if (!/^\s*\|/.test(line)) { if (out.size) break; continue; }
+    const cells = line.split('|').map(cleanCell);
+    const rank = cells[1];
+    if (!/^\d$/.test(rank)) continue;
+    const parts = [];
+    for (let j = 2; j <= 5; j++) { const v = cleanMath(cells[j] || ''); if (v) parts.push(v); }
+    if (parts.length) out.set(rank, parts.join(' · '));
+  }
+  return out;
+}
+
 function parseRanks(text) {
+  const modern = parseModernRanks(text);
+  if (modern.size) return modern;
   const out = new Map();
   const lines = text.split(/\r?\n/);
   let started = false;
