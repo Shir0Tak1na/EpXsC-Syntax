@@ -63,6 +63,27 @@ const CLASS_LABEL = {
 
 
 
+const EXTRA_WORDS = {
+  in: { word: 'in', pos: '介词', meaning: '在……里（词典暂未收录，按术式用法补）', abbr: '' },
+  /* 第五章筛选键表：ordin= 的三个取值（词典未收，按表补） */
+  proxim: { word: 'proxim', pos: '筛选值', meaning: '近（ordin= 的取值）', abbr: '' },
+  procul: { word: 'procul', pos: '筛选值', meaning: '远（ordin= 的取值）', abbr: '' },
+  temer: { word: 'temer', pos: '筛选值', meaning: '随机（ordin= 的取值）', abbr: '' }
+};
+
+const SECTION_POS = {
+  '名词': '名词', '动词': '动词', '数词': '数词', '形容词': '形容词', '副词': '副词',
+  '介词': '介词', '助动词': '助动词', '判断词': '判断词', '限定词': '限定词',
+  '时间限定': '限定词', '数量与范围限定': '限定词', '指称限定': '限定词',
+  '顺序限定': '限定词', '程度限定': '副词',
+  '代词（人称）': '代词', '疑问词': '疑问词', '量词': '量词', '连接词与从句标记': '连接词',
+  '族名': '名词', '动物名': '名词', '族、血统与分类': '名词',
+  '地名与势力名': '专名', '地理 · 神宫 · 货币专名': '专名',
+  '根词': '词根', '后缀': '后缀', '复合词': '复合词', '高频补充词': '补充词',
+  '元素固定缩写': '元素', '术式关键词': '术式关键词', '单位': '单位'
+};
+
+
 function pickClass(classList) {
   for (let i = 0; i < CLASS_ORDER.length; i++) {
     if (classList.contains(CLASS_ORDER[i])) return CLASS_ORDER[i];
@@ -253,6 +274,11 @@ const WORD_KIND = {
   class: '语法词', hered: '语法词', campus: '结界类',
   protocol: '协议条款', clav: '协议条目', frequent: '协议条目', erk: '相位', impo: '语法词'
 };
+/* 个别类型词要补一句（词典释义只说词义，说不清它在类型里的职务） */
+const TYPE_NOTES = {
+  siro: 'void：无目标／无载体，可声明变量或直接占位'
+};
+
 function buildTip(cls, text, info, ranks) {
   /* 术式引用：登记表里有就说明可见性与形参，没有就点明未登记 */
   if (cls === 'spellRef' || cls === 'declaration') {

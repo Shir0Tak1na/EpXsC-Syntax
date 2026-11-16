@@ -116,6 +116,13 @@ const fakeToken = {
 };
 const hoverTip = tipForElement(fakeToken, new Map(), new Map());
 assert.ok(hoverTip && hoverTip.label, 'hover must return a tip for a known token class');
+const knownTip = tipForElement({
+  classList: { contains: (c) => c === 'word' },
+  textContent: 'de',
+  getAttribute: () => null,
+  closest: () => null
+}, new Map([['de', { pos: '介词', meaning: '在……之内', abbr: 'dex' }]]), new Map());
+assert.ok(knownTip && knownTip.label, 'hover must return a glossary tip for a known word');
 
 // 9) markup 纯函数
 const vars = parseVarTypes('Foo(locus: a) {\n}', new Map());
@@ -164,6 +171,9 @@ assert.ok(!/pre:has\(/.test(css), 'C border regression: do not reintroduce pre:h
 assert.ok(css.includes('border-left: 3px solid var(--text-accent)'), 'C border regression: left accent border must exist');
 assert.equal(css, snippetCss, 'styles.css and snippet must stay byte-identical');
 assert.ok(source.includes('const CLASS_ORDER'), 'hover regression: CLASS_ORDER must stay in adapter');
+assert.ok(source.includes('const EXTRA_WORDS'), 'onload regression: EXTRA_WORDS must stay in adapter');
+assert.ok(source.includes('const SECTION_POS'), 'hover regression: SECTION_POS must stay in adapter');
+assert.ok(source.includes('const TYPE_NOTES'), 'hover regression: TYPE_NOTES must stay in adapter');
 assert.ok(source.includes('const SYMBOL_INFO'), 'hover regression: SYMBOL_INFO must stay in adapter');
 assert.ok(adapterConfig.includes('const SPELL_DIR'), 'extraction regression: SPELL_DIR must stay in adapter config');
 assert.ok(adapterConfig.includes('const MAX_HIGHLIGHT_LINES'), 'extraction regression: MAX_HIGHLIGHT_LINES must stay in adapter config');

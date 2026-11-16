@@ -1476,6 +1476,45 @@ var require_plugin = __commonJS({
       axis: "\u7F29\u653E\u8F74",
       pretium: "\u4EE3\u4EF7"
     };
+    var EXTRA_WORDS = {
+      in: { word: "in", pos: "\u4ECB\u8BCD", meaning: "\u5728\u2026\u2026\u91CC\uFF08\u8BCD\u5178\u6682\u672A\u6536\u5F55\uFF0C\u6309\u672F\u5F0F\u7528\u6CD5\u8865\uFF09", abbr: "" },
+      /* 第五章筛选键表：ordin= 的三个取值（词典未收，按表补） */
+      proxim: { word: "proxim", pos: "\u7B5B\u9009\u503C", meaning: "\u8FD1\uFF08ordin= \u7684\u53D6\u503C\uFF09", abbr: "" },
+      procul: { word: "procul", pos: "\u7B5B\u9009\u503C", meaning: "\u8FDC\uFF08ordin= \u7684\u53D6\u503C\uFF09", abbr: "" },
+      temer: { word: "temer", pos: "\u7B5B\u9009\u503C", meaning: "\u968F\u673A\uFF08ordin= \u7684\u53D6\u503C\uFF09", abbr: "" }
+    };
+    var SECTION_POS = {
+      "\u540D\u8BCD": "\u540D\u8BCD",
+      "\u52A8\u8BCD": "\u52A8\u8BCD",
+      "\u6570\u8BCD": "\u6570\u8BCD",
+      "\u5F62\u5BB9\u8BCD": "\u5F62\u5BB9\u8BCD",
+      "\u526F\u8BCD": "\u526F\u8BCD",
+      "\u4ECB\u8BCD": "\u4ECB\u8BCD",
+      "\u52A9\u52A8\u8BCD": "\u52A9\u52A8\u8BCD",
+      "\u5224\u65AD\u8BCD": "\u5224\u65AD\u8BCD",
+      "\u9650\u5B9A\u8BCD": "\u9650\u5B9A\u8BCD",
+      "\u65F6\u95F4\u9650\u5B9A": "\u9650\u5B9A\u8BCD",
+      "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A": "\u9650\u5B9A\u8BCD",
+      "\u6307\u79F0\u9650\u5B9A": "\u9650\u5B9A\u8BCD",
+      "\u987A\u5E8F\u9650\u5B9A": "\u9650\u5B9A\u8BCD",
+      "\u7A0B\u5EA6\u9650\u5B9A": "\u526F\u8BCD",
+      "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09": "\u4EE3\u8BCD",
+      "\u7591\u95EE\u8BCD": "\u7591\u95EE\u8BCD",
+      "\u91CF\u8BCD": "\u91CF\u8BCD",
+      "\u8FDE\u63A5\u8BCD\u4E0E\u4ECE\u53E5\u6807\u8BB0": "\u8FDE\u63A5\u8BCD",
+      "\u65CF\u540D": "\u540D\u8BCD",
+      "\u52A8\u7269\u540D": "\u540D\u8BCD",
+      "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B": "\u540D\u8BCD",
+      "\u5730\u540D\u4E0E\u52BF\u529B\u540D": "\u4E13\u540D",
+      "\u5730\u7406 \xB7 \u795E\u5BAB \xB7 \u8D27\u5E01\u4E13\u540D": "\u4E13\u540D",
+      "\u6839\u8BCD": "\u8BCD\u6839",
+      "\u540E\u7F00": "\u540E\u7F00",
+      "\u590D\u5408\u8BCD": "\u590D\u5408\u8BCD",
+      "\u9AD8\u9891\u8865\u5145\u8BCD": "\u8865\u5145\u8BCD",
+      "\u5143\u7D20\u56FA\u5B9A\u7F29\u5199": "\u5143\u7D20",
+      "\u672F\u5F0F\u5173\u952E\u8BCD": "\u672F\u5F0F\u5173\u952E\u8BCD",
+      "\u5355\u4F4D": "\u5355\u4F4D"
+    };
     function pickClass(classList) {
       for (let i = 0; i < CLASS_ORDER.length; i++) {
         if (classList.contains(CLASS_ORDER[i])) return CLASS_ORDER[i];
@@ -1650,6 +1689,9 @@ var require_plugin = __commonJS({
       frequent: "\u534F\u8BAE\u6761\u76EE",
       erk: "\u76F8\u4F4D",
       impo: "\u8BED\u6CD5\u8BCD"
+    };
+    var TYPE_NOTES = {
+      siro: "void\uFF1A\u65E0\u76EE\u6807\uFF0F\u65E0\u8F7D\u4F53\uFF0C\u53EF\u58F0\u660E\u53D8\u91CF\u6216\u76F4\u63A5\u5360\u4F4D"
     };
     function buildTip(cls, text, info, ranks) {
       if (cls === "spellRef" || cls === "declaration") {
