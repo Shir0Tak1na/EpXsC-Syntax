@@ -1956,7 +1956,7 @@ var require_ord_dom = __commonJS({
     "use strict";
     var { parseOrdBlocks } = require_ord_renderer();
     var { SECTION_POS } = require_tooltip();
-    function renderOrdBlockInner2(el, source, mode, grammar, info) {
+    function renderOrdBlockInner(el, source, mode, grammar, info) {
       const records = parseOrdBlocks(source, mode, grammar, info, SECTION_POS);
       const wrap = document.createElement("div");
       wrap.className = "epx-ord-wrap";
@@ -2022,7 +2022,7 @@ var require_ord_dom = __commonJS({
     }
     function renderOrdBlock(el, source, mode, grammar, info) {
       try {
-        renderOrdBlockInner2(el, source, mode, grammar, info);
+        renderOrdBlockInner(el, source, mode, grammar, info);
       } catch (err) {
         console.warn("[EpXsC Syntax] \u666E\u901A\u53E5\u6E32\u67D3\u5931\u8D25\uFF1A", err);
         try {
@@ -2032,7 +2032,7 @@ var require_ord_dom = __commonJS({
         }
       }
     }
-    module2.exports = { renderOrdBlock, renderOrdBlockInner: renderOrdBlockInner2 };
+    module2.exports = { renderOrdBlock, renderOrdBlockInner };
   }
 });
 
@@ -2263,7 +2263,7 @@ var require_plugin = __commonJS({
       const lang = liveCodeLang(el);
       return lang === "epxsc" || lang === "epxst" || lang === "epxsg";
     }
-    var { renderOrdBlock } = require_ord_dom();
+    var { renderOrdBlock, renderOrdBlockInner } = require_ord_dom();
     function bindClickToSource(target, app, el, ctx) {
       if (!target || !target.style || !target.addEventListener) return;
       target.style.cursor = "text";

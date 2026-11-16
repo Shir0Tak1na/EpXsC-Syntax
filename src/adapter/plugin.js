@@ -249,7 +249,7 @@ function inCodeContext(el) {
    EpXsT：只做对译——原文一行、译文一行。
    ─────────────────────────────────────────────────────────────── */
 const ORD_CLASS = 'language-EpXsC';          /* 沿用同一套 token 类，悬停与配色自动生效 */
-const { renderOrdBlock } = require('../renderers/ord-dom.js');
+const { renderOrdBlock, renderOrdBlockInner } = require('../renderers/ord-dom.js');
 
 function bindClickToSource(target, app, el, ctx) {
   if (!target || !target.style || !target.addEventListener) return;

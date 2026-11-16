@@ -264,6 +264,7 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   const long = renderEpXsC(Array.from({ length: 60 }, () => 'a').join('\n'), makeGrammar(builtinLists([]), []), new Map(), 50);
   assert.equal(long.skip, true, 'long blocks must skip tokenization');
   assert.ok(source.includes('renderEpXsC'), 'adapter must use renderer');
+assert.ok(source.includes('renderOrdBlockInner'), 'rehighlight must import the T/G inner renderer');
 }
 
 // 16) T/G renderer data parser
