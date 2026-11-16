@@ -93,7 +93,7 @@ Tallse aris agrus nec manis humal.
 | `世界设定集/地域文化图鉴/语言/述无空语/词库/词根表/` | 词根分册（整目录读取） |
 | `世界设定集/设定概念集合/魔法/` | 术式声明登记（整目录读取） |
 
-改这些文件后插件会自动重读；换库或改路径时，修改 `src/adapter/plugin.js` 里的 `DICT_PATH`、`SYNTAX_PATH`、`RANK_PATH`、`ROOTS_DIR`、`SPELL_DIR`，再执行 `npm run build`。读不到文件（例如别人下载的库）时使用内置词库快照，开箱即用。
+改这些文件后插件会自动重读；换库或改路径时，修改 `src/adapter/plugin.js` 里的 `DICT_PATH`、`SYNTAX_PATH`、`RANK_PATH`、`ROOTS_DIR`、`SPELL_DIR`，再执行 `npm run build`。读不到文件（例如别人下载的库）时使用 `data/builtin-lexicon.json` 内置快照，开箱即用。
 
 ## Customization / 自定义
 
@@ -143,6 +143,7 @@ npm test          # 行为测试 + tokenizer/parser/lint/markup fixtures
 | `src/core/` | 纯语言逻辑：grammar / tokenizer / markup / lint / spells / 围栏提取 |
 | `src/core/index.js` | 稳定 core 入口与别名 |
 | `src/data/parsers.js` | 词典 / 词根 / 秩 / 筛选键 / 单位解析 |
+| `data/builtin-lexicon.json` | 内置词库快照（规范化 JSON） |
 | `styles.css` | token 配色、代码块外框、T/G 版面 |
 | `snippets/EpXsC-Highlight.css` | 独立配色片段 |
 | `manifest.json` / `versions.json` | 插件元数据与版本映射 |

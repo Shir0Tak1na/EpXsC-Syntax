@@ -17,6 +17,8 @@
 
 ## B. Remaining work
 
+> **T1.0 checkpoint**: T1.1 is done. Pause here for review before T1.2.
+
 ### T0 — test baseline (first)
 
 - [x] T0.1 Tokenizer golden fixtures (13 fixtures, scripts/fixture-runner.mjs) (`tests/fixtures/tokenizer/`): keywords, types, modifiers, predicates, elements, units, numbers, rank ranges, nested brackets, comments, annotations, coord runs, negPrefix, empty, very long, unknown words.
@@ -26,7 +28,7 @@
 
 ### T1 — data layer
 
-- [ ] T1.1 Move `BUILTIN_LEXICON` to `data/builtin-lexicon.json`; add deterministic `scripts/generate-lexicon.mjs`; no local paths.
+- [x] T1.1 Move `BUILTIN_LEXICON` to `data/builtin-lexicon.json`; add deterministic `scripts/generate-lexicon.mjs`; no local paths.
 - [ ] T1.2 Add `schemaVersion` / `lexiconVersion` / `generatedAt`; loader compatibility check.
 - [ ] T1.3 Tests for Vault priority, missing/empty/malformed/deleted files, duplicate merge, builtin fallback.
 - [ ] T1.4 Centralize data-source paths in one config module.
@@ -82,8 +84,8 @@ Do not start T1/T2 migration before T0 is complete.
 | T0.2 | DONE | 21 fixtures + runner sections |
 | T0.3 | DONE | history-regression in test.mjs |
 | T0.4 | DONE | runner + CI + diff output |
-| T1.1 | TODO | next action |
-| T1.2 | TODO | |
+| T1.1 | DONE | JSON + canonical generator + tests |
+| T1.2 | TODO | next action |
 | T1.3 | TODO | |
 | T1.4 | TODO | |
 | T2.1 | TODO | |
@@ -118,14 +120,13 @@ Do not start T1/T2 migration before T0 is complete.
 
 ## G. Next single action
 
-**T1.1 — move the built-in lexicon to `data/builtin-lexicon.json`.**
+**T1.2 — data model versioning.**
 
-T0.3/T0.4 are done: historical regressions are asserted in `scripts/test.mjs`; all fixture categories and CI are wired.
+T1.1 is done: the built-in lexicon lives in `data/builtin-lexicon.json`, the adapter loads it, `scripts/generate-lexicon.mjs --check` enforces canonical form, and `npm test` covers the snapshot shape.
 
-T1.1 deliverable:
+T1.2 deliverable:
 
-- `data/builtin-lexicon.json`;
-- adapter loads JSON, same fallback behavior;
-- deterministic generation/validation for the snapshot;
-- test that JSON structure and fallback maps are intact;
-- build output still contains no vault paths or private data.
+- add `schemaVersion` / `lexiconVersion` / `generatedAt`;
+- loader compatibility check;
+- tests for incompatible schema and missing metadata;
+- keep fallback behavior unchanged.

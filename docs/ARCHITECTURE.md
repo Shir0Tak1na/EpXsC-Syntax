@@ -43,7 +43,8 @@ src/adapter/plugin.js       Obsidian lifecycle, DOM, hover, commands, processors
 | `src/core/lint.js` | `lintText` |
 | `src/core/markdown-blocks.js` | fenced-block extraction |
 | `src/core/index.js` | public aggregate + stable aliases |
-| `src/data/parsers.js` | dictionary / roots / ranks / filter keys / units, built-in constants |
+| `data/builtin-lexicon.json` | built-in snapshot (entries/roots/units/ranks/keys) |
+| `src/data/parsers.js` | dictionary / roots / ranks / filter keys / units |
 
 Rules:
 
@@ -93,7 +94,7 @@ Priority is preserved:
 2. built-in snapshot when a source is missing or unreadable;
 3. partial failures fall back per source, never silently mix incompatible schemas.
 
-The built-in snapshot (`BUILTIN_LEXICON`) still lives in `src/adapter/plugin.js` for now. A future generated
+The built-in snapshot lives in `data/builtin-lexicon.json`; the adapter loads it and `scripts/generate-lexicon.mjs --check` enforces canonical form. A future generated
 `snapshot.json` should carry:
 
 ```json

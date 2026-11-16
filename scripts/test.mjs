@@ -11,6 +11,7 @@ const grammarCore = nodeRequire('../src/core/grammar.js');
 const tokenizerCore = nodeRequire('../src/core/tokenizer.js');
 const markupCore = nodeRequire('../src/core/markup.js');
 const coreIndex = nodeRequire('../src/core/index.js');
+const builtinLexicon = nodeRequire('../data/builtin-lexicon.json');
 
 const source = fs.readFileSync('src/adapter/plugin.js', 'utf8');
 const obsidianStub = {
@@ -27,6 +28,7 @@ const sandbox = {
     if (String(name).includes('core/grammar')) return grammarCore;
     if (String(name).includes('core/tokenizer')) return tokenizerCore;
     if (String(name).includes('core/markup')) return markupCore;
+    if (String(name).includes('builtin-lexicon')) return builtinLexicon;
     return {};
   },
   module: { exports: {} },
@@ -109,6 +111,12 @@ assert.equal(vars.get('a').type, 'locus');
 const kinds = bracketKinds('Foo(a)');
 assert.equal(kinds[0], '参数表');
 assert.ok(markBracketDepth('<span class="token paren">(</span>', []).includes('epx-d1'));
+
+// 10a) 内置词库快照独立 JSON
+assert.ok(builtinLexicon.entries && Object.keys(builtinLexicon.entries).length > 400, 'builtin entries snapshot');
+assert.ok(builtinLexicon.roots && Object.keys(builtinLexicon.roots).length > 5000, 'builtin roots snapshot');
+assert.ok(builtinLexicon.units && Object.keys(builtinLexicon.units).length > 0, 'builtin units snapshot');
+assert.ok(builtinLexicon.ranks && Object.keys(builtinLexicon.ranks).length > 0, 'builtin ranks snapshot');
 
 // 10) public core aliases
 assert.equal(typeof coreIndex.extractBlocks, 'function');

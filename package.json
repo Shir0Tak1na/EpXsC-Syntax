@@ -5,7 +5,7 @@
   "description": "Obsidian plugin: EpXsC syntax highlighting, hover dictionary, and linting",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "node scripts/validate.mjs",
+    "check": "node scripts/validate.mjs && node scripts/generate-lexicon.mjs --check",
     "test": "node scripts/test.mjs && node scripts/fixture-runner.mjs"
   },
   "license": "Apache-2.0",
