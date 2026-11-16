@@ -44,7 +44,7 @@ body.theme-light {
 /* --------------------------------------------------------------------------
    2. 代码块外框（阅读视图与导出）
    -------------------------------------------------------------------------- */
-.epx-pre {
+pre.epx-pre {
   position: relative;
   padding: 1.1em 1.15em 1.15em;
   background: var(--code-background);
@@ -55,7 +55,7 @@ body.theme-light {
 }
 
 /* 右上角语言签 */
-.epx-pre::before {
+pre.epx-pre::before {
   content: "EpXsC";
   position: absolute;
   inset: 0 0 auto auto;
@@ -226,12 +226,12 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
    4. 导出／打印
    -------------------------------------------------------------------------- */
 @media print {
-  .epx-pre,
+  pre.epx-pre,
   .epx-ord {
     page-break-inside: avoid;
     box-shadow: none;
   }
-  .epx-pre::before,
+  pre.epx-pre::before,
   .epx-ord::before { display: none; }
 }
 
@@ -292,7 +292,7 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
    -------------------------------------------------------------------------- */
 @media (max-width: 640px) {
   .epx-ord,
-  .epx-pre {
+  pre.epx-pre {
     white-space: pre-wrap;
     overflow-wrap: break-word;
     padding: 0 0.9em 0.9em;
@@ -300,7 +300,7 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
   .epx-ord { line-height: 1.8; }
 
   .epx-ord::before,
-  .epx-pre::before {
+  pre.epx-pre::before {
     position: static;
     display: block;
     margin: 0 -0.9em 0.75em;

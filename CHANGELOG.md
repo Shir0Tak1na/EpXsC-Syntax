@@ -7,6 +7,7 @@
 - 词典 / 词根 / 秩 / 筛选键 / 单位 parser 抽到 `src/data/parsers.js`。
 - 术式登记与 Lint 纯逻辑抽到 `src/core/spells.js` / `src/core/lint.js`。
 - 语法构造与 tokenizer 抽到 `src/core/grammar.js` / `src/core/tokenizer.js`。
+- 括号深度、变量分析、字典键等 token 后处理抽到 `src/core/markup.js`。
 - CI 增加 `npm ci` / `npm run build`；测试覆盖 CLI 构建链。
 - 运行时行为不变。
 

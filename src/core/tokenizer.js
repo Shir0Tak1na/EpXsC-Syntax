@@ -65,35 +65,4 @@ function tokenizeText(text, grammar) {
 
 /* ---------- 悬停提示 ---------- */
 
-/* 一个 token 可能带多个类（如 typeParam + type），按语义优先级取第一个 */
-const CLASS_ORDER = ['rankRange', 'bracket', 'paren', 'brace', 'pointer', 'coordRun', 'negPrefix', 'modifier', 'declTarget', 'varUse', 'judge', 'clause', 'declaration', 'variable', 'type', 'element', 'unit', 'predicate', 'spellRef', 'function', 'keyword', 'pretium', 'degree', 'axis', 'number', 'comment', 'annotation', 'operator', 'punctuation', 'word'];
-
-const CLASS_LABEL = {
-  judge: '判断词',
-  clause: '条款',
-  modifier: '限定词',
-  declTarget: '声明目标',
-  negPrefix: '前置否定',
-  declaration: '术式名',
-  className: '类名',
-  filterKey: '筛选键',
-  filterValue: '筛选值',
-  dictKey: '字典键',
-  freqTag: '频段标签',
-  spellRef: '术式引用',
-  predicate: '谓词',
-  function: '谓词调用',
-  keyword: '',
-  type: '类型名',
-  element: '元素码',
-  unit: '单位',
-  number: '数值',
-  degree: '程度词',
-  axis: '缩放轴',
-  pretium: '代价'
-};
-
-/* 词典暂未收、但术式里在用的词（补一条即可） */
-
-
 module.exports = { asGlobalRe, escHtml, tokenizeText };

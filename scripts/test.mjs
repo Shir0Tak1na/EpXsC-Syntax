@@ -9,6 +9,7 @@ const spellsCore = nodeRequire('../src/core/spells.js');
 const lintCore = nodeRequire('../src/core/lint.js');
 const grammarCore = nodeRequire('../src/core/grammar.js');
 const tokenizerCore = nodeRequire('../src/core/tokenizer.js');
+const markupCore = nodeRequire('../src/core/markup.js');
 
 const source = fs.readFileSync('src/legacy/plugin.js', 'utf8');
 const obsidianStub = {
@@ -24,6 +25,7 @@ const sandbox = {
     if (String(name).includes('core/lint')) return lintCore;
     if (String(name).includes('core/grammar')) return grammarCore;
     if (String(name).includes('core/tokenizer')) return tokenizerCore;
+    if (String(name).includes('core/markup')) return markupCore;
     return {};
   },
   module: { exports: {} },
@@ -37,9 +39,10 @@ sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox, { filename: 'main.js' });
 
-const { builtinLists } = sandbox;
+const { builtinLists, tipForElement } = sandbox;
 const { makeGrammar } = grammarCore;
 const { tokenizeText } = tokenizerCore;
+const { parseVarTypes, bracketKinds, markBracketDepth } = markupCore;
 const { collectSpells } = spellsCore;
 const { lintText } = lintCore;
 const { parseEntries, parseRoots, parseFilterKeys } = parserCore;
@@ -89,4 +92,21 @@ assert.equal(roots.get('agr').kind, '物');
 const keys = parseFilterKeys('## 筛选键\n| genus | 类别 |\n');
 assert.ok(keys.has('genus'));
 
-console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers');
+// 8) 悬停路径冒烟：CLASS_ORDER / pickClass 必须存在
+const fakeToken = {
+  classList: { contains: (c) => c === 'word' },
+  textContent: 'test',
+  getAttribute: () => null,
+  closest: () => null
+};
+const hoverTip = tipForElement(fakeToken, new Map(), new Map());
+assert.ok(hoverTip && hoverTip.label, 'hover must return a tip for a known token class');
+
+// 9) markup 纯函数
+const vars = parseVarTypes('Foo(locus: a) {\n}', new Map());
+assert.equal(vars.get('a').type, 'locus');
+const kinds = bracketKinds('Foo(a)');
+assert.equal(kinds[0], '参数表');
+assert.ok(markBracketDepth('<span class="token paren">(</span>', []).includes('epx-d1'));
+
+console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers, hover, markup');
