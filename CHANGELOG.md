@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.31.0
+
+- 引入 `src/` + esbuild：`main.js` 改为构建产物，`src/core/` 开始承载可测试纯逻辑。
+- 代码围栏提取器抽到 `src/core/markdown-blocks.js`，插件与测试共用。
+- CI 增加 `npm ci` / `npm run build`；测试覆盖 CLI 构建链。
+- 运行时行为不变。
+
 ## 1.30.0
 
 - 数据源监听覆盖 `create` / `delete` / `rename`，并纳入 `ROOTS_DIR`；300ms debounce 合并连续保存。

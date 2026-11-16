@@ -1,2269 +1,2305 @@
-'use strict';
-
-/*
- * EpXsC Syntax —— 为「述无空语构造记号」（EpXsC）代码块注册 Prism 语法。
- *
- * 分工：插件把代码切成 token（<span class="token keyword">…</span>），
- *       配色交给 CSS 片段 EpXsC-Highlight.css。
- *
- * 词表来源：载入时读《述无空语词典》的「动词 / 判断词 / 术式关键词 / 程度限定 / 单位」小节，
- *           词典一改、颜色跟着改；读不到就退回下面的内置词表（两者取并集，内置的不会被顶掉）。
- */
-
-const { Plugin, TFile, TFolder, Notice, MarkdownView, Modal } = require('obsidian');
-
-const LANG_KEYS = ['EpXsC', 'epxsc', 'EPXSC'];
-const CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
-const DICT_PATH = '世界设定集/地域文化图鉴/语言/述无空语/述无空语词典.md';
-/* 秩的构成表：悬停秩区间时显示（维度模型 · 九个秩与维度的对应） */
-const RANK_PATH = '世界设定集/设定概念集合/维度/维度模型.md';
-/* 术式语法文档：读「筛选键」表，给 genus / intervall / ordin … 挂释义 */
-const SYNTAX_PATH = '世界设定集/地域文化图鉴/语言/述无空语/述无空语术式语法.md';
-/* 词根表分册目录：整目录都在读，新增分册会自动纳入 */
-const ROOTS_DIR = '世界设定集/地域文化图鉴/语言/述无空语/词库/词根表/';
-
-const FALLBACK = {
-  /* 词典读不到时的兜底；in / om 这类词性易漏，一并钉死 */
-  keyword: ['in', 'de', 'pro', 'om', 'post', 'nec'],
-  judge: ['keal', 'keol', 'tam', 'dum', 'nisi', 'quan', 'vero', 'es', 'exo', 'lic', 're', 'ren', 'rea', 'kon', 'aut', 'dis', 'ergo', 'kaus', 'ske', 'aude', 'rase', 'fas', 'nefas'],
-  clause: ['pretium', 'limit', 'luss', 'solum', 'hauri', 'vita', 'memoria', 'sensus', 'voluntas', 'anima', 'vis', 'diu', 'celer', 'metos'],
-  degree: ['max', 'min', 'valde', 'magis', 'minus', 'parum', 'paulum', 'nimis'],
-  predicate: ['plur', 'navis', 'apolus', 'expual', 'aepaus', 'movis', 'venis', 'retase'],
-  unit: ['MUW', 'EUW', 'MU', 'miteas', 'kigrama', 'm', 's', 'kg']
+"use strict";
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __commonJS = (cb, mod) => function __require() {
+  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
 
-/* 词典小节 → 词类 */
-const SECTIONS = {
-  /* 功能词（介词·助动词·限定词·代词·疑问词·连接词）：紫 */
-  keyword: ['介词', '助动词', '限定词', '时间限定', '数量与范围限定', '指称限定', '顺序限定', '代词（人称）', '疑问词', '连接词与从句标记'],
-  /* 判断词（if／elif／else 一族）：单独一色 */
-  judge: ['判断词'],
-  /* 术式关键词（块内条款与术式专用词）：单独一色 */
-  clause: ['术式关键词'],
-  degree: ['程度限定'],
-  predicate: ['动词'],
-  unit: ['单位']
-};
-
-const ELEMENTS = ['Ert', 'Aqu', 'Flm', 'Wnd', 'Nut', 'Elc', 'Lum', 'Duk', 'Sar', 'Qen'];
-const AXES = ['vis', 'diu', 'celer', 'latus', 'altus', 'acutus', 'densus', 'gravis', 'levis'];
-
-/* 类型名（元素码另算，见 ELEMENTS）：域类型登记表，新类型加在这里 */
-/* 类型词：见《术式语法》第九章定义 9.5。兼作术式关键词或筛选键的词不列在此（免得被它们先吃掉） */
-const TYPES = ['METOS', 'locus', 'siro', 'intervallum', 'verb', 'littera', 'forma', 'sonus'];
-/* 作用域／可见性限定词：写在变量名前，解析赋值时要跳过它们 */
-const MODIFIERS = ['priv', 'tut', 'publ', 'consta', 'om', 'tot'];
-
-/* 代码版本：诊断报告里会写出来，用来分辨「文件换了但插件没重载」 */
-const BUILD = '1.30.0';
-
-function escapeWord(w) {
-  return w.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');
-}
-
-/* 词表一律大小写不敏感：术式里 Plur / plur 混用，元素码除外 */
-function wordPattern(words) {
-  /* 容错：词表缺失时退化成空表，绝不让加载期抛错 */
-  const sorted = (Array.isArray(words) ? words.slice() : []).sort(function (a, b) { return b.length - a.length; });
-  return new RegExp('\\b(?:' + sorted.map(escapeWord).join('|') + ')\\b', 'i');
-}
-
-/* 按标题切分 markdown，取每个小节表格第一列的词 */
-function splitSections(text) {
-  const map = {};
-  let current = null;
-  const lines = text.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const h = /^#{1,6}\s*(.+?)\s*$/.exec(line);
-    if (h) {
-      current = h[1];
-      if (!map[current]) map[current] = [];
-      continue;
-    }
-    if (!current) continue;
-    const m = /^\|\s*([A-Za-z][A-Za-z0-9_-]{0,30})\s*\|/.exec(line);
-    if (m && !/^(word|key|root)$/i.test(m[1])) map[current].push(m[1]);
-  }
-  return map;
-}
-
-/* 词典表格 → 词条表：词性取所在小节，释义取第二列，缩写取第三列 */
-function parseEntries(text) {
-  const out = new Map();
-  let section = '';
-  const lines = text.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const h = /^#{1,6}\s*(.+?)\s*$/.exec(lines[i]);
-    if (h) { section = h[1]; continue; }
-    const m = /^\|\s*([A-Za-z][A-Za-z0-9_-]{0,30})\s*\|(.*)$/.exec(lines[i]);
-    if (!m) {
-      /* 另一类表：首列中文名、次列码（如《词典》附表「元素固定缩写」）——把码也登记成词条 */
-      const c2 = /^\|\s*([^|]{1,14}?)\s*\|\s*([A-Za-z][A-Za-z0-9]{0,6})\s*\|/.exec(lines[i]);
-      if (c2) {
-        const code = c2[2];
-        const cn = c2[1].trim();
-        const k = code.toLowerCase();
-        if (cn && !out.has(k)) out.set(k, { word: code, pos: '元素码', meaning: cn, abbr: code });
-        /* 元素码以大小写与普通词区分（Sar 初元素 vs sar 开始）：原样再登记一份 */
-        if (cn) out.set(code, { word: code, pos: '元素码', meaning: cn, abbr: code });
-      }
-      continue;
-    }
-    const cells = m[2].split('|');
-    const meaning = (cells[0] || '').trim();
-    if (!meaning || meaning === 'meaning' || meaning === '义' || meaning === '释义') continue;
-    const key = m[1].toLowerCase();
-    if (!out.has(key)) out.set(key, { word: m[1], pos: section, meaning: meaning, abbr: (cells[1] || '').trim() });
-    /* 缩写反查：登记 Abbr → 词条，使缩写也能悬停 */
-    const abbr = (cells[1] || '').trim();
-    if (/^[A-Za-z][A-Za-z0-9]{1,6}$/.test(abbr) && !out.has(abbr.toLowerCase())) {
-      out.set(abbr.toLowerCase(), { word: abbr, pos: ELEMENTS.indexOf(abbr) >= 0 ? '元素码' : (section + '·缩写'), meaning: meaning, abbr: abbr });
-    }
-  }
-  return out;
-}
-
-/* 秩表里的分量列带 LaTeX，洗成人能读的样子 */
-const GREEK = { theta: 'θ', lambda: 'λ', sigma: 'σ', Delta: 'Δ', varphi: 'φ', eta: 'η', omega: 'ω', mu: 'μ', pi: 'π', alpha: 'α', beta: 'β', gamma: 'γ', tau: 'τ', rho: 'ρ' };
-
-function cleanMath(s) {
-  let t = String(s);
-  t = t.replace(/\$([^$]*)\$/g, '$1');
-  t = t.replace(/\\mathrm\{([^}]*)\}/g, '$1');
-  t = t.replace(/\\text\{([^}]*)\}/g, '$1');
-  t = t.replace(/\\([a-zA-Z]+)/g, function (all, name) { return GREEK[name] || name; });
-  t = t.replace(/\\[,;!]/g, ' ');
-  t = t.replace(/[{}]/g, '');
-  t = t.replace(/\\/g, '');
-  return t.replace(/\s+/g, ' ').trim();
-}
-
-/* 维度模型「九个秩与维度的对应」表 → 秩区间提示 */
-function parseRanks(text) {
-  const out = new Map();
-  const lines = text.split(/\r?\n/);
-  let started = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!started) {
-      if (/九个秩与维度的对应/.test(line)) started = true;
-      continue;
-    }
-    if (!/^\s*\|/.test(line)) { if (out.size) break; else continue; }
-    const m = /^\s*\|\s*(\d{1,2}(?:[–-]\d{1,2})?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|/.exec(line);
-    if (!m) continue;
-    const rank = m[1].replace('-', '–');
-    const parts = [];
-    const comp = cleanMath(m[2]);
-    if (comp) parts.push(comp);
-    if (m[3].trim()) parts.push(m[3].trim());
-    if (parts.length) out.set(rank, parts.join(' · '));
-  }
-  return out;
-}
-/* 术式语法「筛选键」表 → 悬停释义 */
-function parseFilterKeys(text) {
-  const out = new Map();
-  const lines = text.split(/\r?\n/);
-  let started = false;
-  let rows = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!started) { if (/^#{2,6}\s*筛选键\s*$/.test(line)) started = true; continue; }
-    if (!/^\s*\|/.test(line)) { if (rows) break; else continue; }
-    const m = /^\s*\|\s*\x60?\s*([A-Za-z][A-Za-z0-9_-]{0,30})\s*\x60?\s*\|\s*([^|]*?)\s*\|/.exec(line);
-    if (!m) continue;
-    rows += 1;
-    out.set(m[1].toLowerCase(), { word: m[1], pos: '筛选键', meaning: m[2].replace(/\x60/g, '').trim(), abbr: '' });
-  }
-  return out;
-}
-
-function cleanCell(s) {
-  return String(s).replace(/\*\*/g, '').replace(/\x60/g, '').trim();
-}
-
-/* 术式语法「六、单位」两张表 → MU / EU / MUW / EUW 与 passus · sands 等 */
-function parseUnits(text) {
-  const out = new Map();
-  const lines = text.split(/\r?\n/);
-  let started = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!started) { if (/^#{2,6}\s*六、单位/.test(line)) started = true; continue; }
-    if (/^#{2,6}\s/.test(line) && !/其他单位/.test(line)) break;
-    if (!/^\s*\|/.test(line)) continue;
-    const cells = line.split('|').map(cleanCell);
-    if (cells.length < 5) continue;
-    const energy = /^[?？]?\s*([A-Z]{2,4})$/.exec(cells[1]);
-    if (energy) {
-      const luss = cells[4] || '';
-      const note = /锁存/.test(luss) ? '写它即为锁存（触发式术式）' : (/不得/.test(luss) ? '功率口径，不得配 luss（持续发动）' : '');
-      const ekey = energy[1].toLowerCase();
-      if (!out.has(ekey)) out.set(ekey, { word: energy[1], pos: '能量单位', meaning: cells[2] + (note ? '；' + note : ''), abbr: '' });
-      continue;
-    }
-    const amount = cells[1];
-    const names = (cells[3] || '').match(/[A-Za-z][A-Za-z0-9]*/g) || [];
-    const labels = (cells[2] || '').split('·').map(function (s) { return s.trim(); });
-    for (let j = 0; j < names.length; j++) {
-      const key = names[j].toLowerCase();
-      if (out.has(key)) continue;
-      const label = labels.length === names.length ? labels[j] : (names.length === 1 ? labels[0] : '');
-      out.set(key, { word: names[j], pos: amount, meaning: label || cells[2], abbr: '' });
-    }
-  }
-  return out;
-}
-
-/* 词根表分册 → 词根释义（根类：动／物／性／数） */
-function parseRoots(text) {
-  const out = new Map();
-  const lines = text.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const m = /^\|\s*([A-Za-z][A-Za-z0-9-]{0,20})\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|/.exec(lines[i]);
-    if (!m || /^(根|word|词根)$/.test(m[1])) continue;
-    const key = m[1].toLowerCase();
-    if (!out.has(key)) out.set(key, { word: m[1], pos: '词根·' + m[5].trim(), meaning: m[2].trim(), kind: m[5].trim() });
-  }
-  return out;
-}
-
-/* ---------- 内置快照（别人下载后库里没有那几份文件时的兜底） ---------- */
-
-function builtinMap(part) {
-  const out = new Map();
-  const source = (BUILTIN_LEXICON[part] || {});
-  for (const key in source) {
-    const v = source[key];
-    out.set(key, { word: v[0], pos: v[1], meaning: v[2], abbr: v[3] || '' });
-  }
-  return out;
-}
-
-function builtinRanks() {
-  const out = new Map();
-  const source = (BUILTIN_LEXICON.ranks || {});
-  for (const key in source) out.set(key, source[key]);
-  return out;
-}
-
-function builtinRoots() {
-  const out = new Map();
-  const source = (BUILTIN_LEXICON.roots || {});
-  for (const key in source) out.set(key, { word: source[key][2] || key, pos: '词根·' + source[key][1], meaning: source[key][0], kind: source[key][1] });
-  return out;
-}
-
-function builtinLists(verbRoots) {
-  const bySection = {};
-  const e = (BUILTIN_LEXICON.entries || {});
-  for (const key in e) {
-    const pos = e[key][1];
-    (bySection[pos] = bySection[pos] || []).push(e[key][0]);
-  }
-  const units = Object.keys(BUILTIN_LEXICON.units || {});
-  return {
-    keyword: wordsFrom(bySection, SECTIONS.keyword, FALLBACK.keyword),
-    judge: wordsFrom(bySection, SECTIONS.judge, FALLBACK.judge),
-    clause: wordsFrom(bySection, SECTIONS.clause, FALLBACK.clause),
-    degree: wordsFrom(bySection, SECTIONS.degree, FALLBACK.degree),
-    predicate: wordsFrom(bySection, SECTIONS.predicate, FALLBACK.predicate).concat(verbRoots || []),
-    unit: wordsFrom(bySection, SECTIONS.unit, FALLBACK.unit).concat(units)
-  };
-}
-
-function wordsFrom(map, names, fallback) {
-  const out = [];
-  for (let i = 0; i < names.length; i++) {
-    const list = map[names[i]] || [];
-    for (let j = 0; j < list.length; j++) out.push(list[j]);
-  }
-  for (let k = 0; k < fallback.length; k++) out.push(fallback[k]);
-  return Array.from(new Set(out));
-}
-
-function makeGrammar(lists, keys) {
-  const keyList = Array.isArray(keys) ? keys.slice() : [];
-  return {
-    comment: /\/\*[\s\S]*?\*\//,
-    annotation: /^[ \t]*\.[A-Za-z_][\w-]*(?:[ \t]+[^\n]*)?$/m,
-    /* 导入：块首声明要引用的他处术式（第十二章规则 12.6） */
-    importDecl: {
-      pattern: /^[ \t]*impo[ \t]+[^\n;]*/m,
-      inside: {
-        keyword: /\bimpo\b/,
-        spellRef: /[A-Z][A-Za-z0-9_]*/,
-        punctuation: /[,;]/
-      }
-    },
-    /* 频段标签：协议里 frequent: #… 的 # 之后，直到条目结束（, ; } 或换行） */
-    freqTag: /#[^\n,;}]*/,
-    /* 变量名：紧跟「类型:」的那个词（含 [2:变量] 这类位数写法）。
-       必须排在 type / number 之前——否则冒号左边先被它们吃掉，右边这个词就轮不到这里了。 */
-    variable: {
-      pattern: /([([,][ \t]*(?:(?:priv|tut|publ|consta)[ \t]+)*[A-Za-z0-9_]+:[ \t]*(?:(?:priv|tut|publ|consta)[ \t]+)*)([A-Za-z_][A-Za-z0-9_]*)/,
-      lookbehind: true
-    },
-    /* 位数声明组：[2:名] —— 冒号前是位数、冒号后是变量名（列表容器的声明） */
-    indexDecl: {
-      pattern: /\[[ \t]*\d+[ \t]*:[^\]\n]*\]/,
-      inside: {
-        variable: /[A-Za-z_][A-Za-z0-9_]*/,
-        number: /\d+/,
-        punctuation: /:/,
-        bracket: /[\[\]]/
-      }
-    },
-    /* 下标组：[1] / [1..3] —— 里面的数字按「第 n 位／第 n 秩」解释 */
-    indexGroup: {
-      pattern: /\[[ \t]*\d+[ \t]*(?:\.\.[ \t]*\d*)?[ \t]*\]/,
-      inside: {
-        rankRange: /(?:\d+\.\.\d*|\d*\.\.\d+)(?!\.)/,
-        number: /\d+/,
-        operator: /\.\./,
-        bracket: /[\[\]]/
-      }
-    },
-    pretium: /\bpretium\b/i,
-    /* 秩区间：1..3、..10、2..（要求至少一边有数字，且后面不再跟点，避免吃掉省略号 ...） */
-    rankRange: /(?:\d+\.\.\d*|\d*\.\.\d+)(?!\.)/,
-    number: /\b\d+(?:\.\d+)?\b/,
-    /* 筛选键：genus= / intervall( 这类。放在 declTarget 之前 —— 否则行首的 genus= 会被当成赋值目标 */
-    filterKey: { pattern: new RegExp('\\b(?:' + keyList.map(escapeWord).join('|') + ')\\b(?=[ \\t]*[=(])', 'i'), },
-    /* 筛选值：ordin= 的三个取值（见第五章筛选键表：proxim 近／procul 远／temer 随机） */
-    filterValue: /\b(?:proxim|procul|temer)\b/i,
-    /* 限定词：作用域与可见性（与 C 的 private／protected／public／const 相当）。
-       放在 unit／predicate 之前 —— tut 这类词兼作动词，靠「后面跟着一个名字」区分 */
-    modifier: /\b(?:priv|tut|publ|consta)\b(?=[ \t]+[A-Za-z_])/,
-    unit: wordPattern(lists.unit),
-    element: new RegExp('\\b(?:' + ELEMENTS.join('|') + ')\\b'),
-    type: new RegExp('\\b(?:' + TYPES.join('|') + ')\\b'),
-    /* 参数表里的类型位：紧跟在 ( 或 , 之后、后面是冒号的词（单个小写字母按变量名处理）。
-       用 Prism 的 lookbehind 写法，避免原生 (?<=) 在旧 iOS Safari 上解析即报错。 */
-    typeParam: {
-      pattern: /([(,]\s*)(?![a-z]\s*:)[A-Za-z_][A-Za-z0-9_]*(?=\s*:(?!:))/,
-      lookbehind: true,
-      alias: 'type'
-    },
-    axis: wordPattern(AXES),
-    degree: wordPattern(lists.degree),
-    /* 前置否定：ne 紧跟一个词时，等同 !（逻辑非），否定后面那个成分 */
-    negPrefix: /\bne(?=[ \t]+[A-Za-z_&*@?(\[])/i,
-    /* 声明目标：赋值语句左边的那个名字（前面可带限定词） */
-    declTarget: {
-      pattern: /((?:^|[;\n])[ \t]*(?:(?:priv|tut|publ|consta|om|tot)[ \t]+)*)([A-Za-z_][A-Za-z0-9_]*)(?=[ \t]*=(?!=))/,
-      lookbehind: true
-    },
-    /* 判断词（if／elif／else 一族）与术式关键词（块内条款）各自一色 */
-    judge: wordPattern(lists.judge),
-    clause: wordPattern(lists.clause),
-    keyword: wordPattern(lists.keyword),
-    /* 术式名：大写开头且后面紧跟 ( { [ ，或下划线复合名（Gramakipo_Aepaus） */
-    /* 类名：Class::member 里 :: 前那个名字（排在 declaration 之前，否则被当成术式名） */
-    classUse: { pattern: /[A-Z][A-Za-z0-9_]*(?=[ \t]*::)/, alias: 'className' },
-    className: { pattern: /(\bclass[ \t]+)([A-Z][A-Za-z0-9_]*)/, lookbehind: true, alias: 'className' },
-    declaration: /\b(?:[A-Z][A-Za-z0-9_]*(?=\s*[({\[])|[A-Z][A-Za-z0-9]*_[A-Za-z0-9_]+)/,
-    predicate: wordPattern(lists.predicate),
-    function: /\b[a-z][A-Za-z0-9_]*(?=\s*\()/,
-    pointer: /\*&|&|@[A-Za-z][A-Za-z0-9_]*|@/,
-    /* 坐标串：同一符号连写两个以上才算坐标（~ 世界轴 / ^ 朝向前三轴） */
-    coordRun: {
-      pattern: /(?:~(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)(?:[ \t]+~(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)+|(?:\^(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)(?:[ \t]+\^(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)+/,
-      greedy: true
-    },
-    classOp: { pattern: /::/, alias: 'operator' },
-    operator: /(?:\+=|-=|\*=|\/=|<=|>=|==|!=|\.{2,3})|\+|-|\*|%|\/|=|<|>|\^|~|\?|!/,
-    /* 括号分三类：() 分组 · [] 方括号（列表 / 下标 / 秩）· {} 花括号（语块）；其余标点归 punctuation */
-    paren: /[()]/,
-    bracket: /[\[\]]/,
-    brace: /[{}]/,
-    punctuation: /[;:,]/,
-    /* 兜底：其余标识符也切成 token，只为挂悬停释义；CSS 不给它上色 */
-    word: /\b[A-Za-z_][A-Za-z0-9_]*\b/
-  };
-}
-
-const BASE_LISTS = {
-  keyword: FALLBACK.keyword.slice(),
-  judge: FALLBACK.judge.slice(),
-  clause: FALLBACK.clause.slice(),
-  degree: FALLBACK.degree.slice(),
-  predicate: FALLBACK.predicate.slice(),
-  unit: FALLBACK.unit.slice()
-};
-
-/* ---------- 自带词法着色：不依赖 Obsidian 内部的 window.Prism ----------
-   与 Prism 同构的取用规则：在所有规则里取「最早出现」的那个；同一位置先列出的优先；
-   lookbehind 规则的内容从第 1 组之后算起；inside 规则的内容再递归切一遍；alias 追加附加类名。
-   整条规则天然贪婪（匹配到就整体吃掉，内部不再切）—— coordRun 这类正是要这个行为。 */
-const GLOBAL_RE_CACHE = new WeakMap();
-/* 术式登记表：从《魔法》目录与术式语法里收集术式声明（名字、可见性、形参、所在块范围）。
-   用于检查「引用未声明的术式／越权引用／参数不符／consta 被改写」，以及给被引用的术式名着色。 */
-const SPELL_DIR = '世界设定集/设定概念集合/魔法';
-const MOD_WORDS = 'priv|tut|publ|consta';
-function parseParamList(text) {
-  const out = [];
-  const s = String(text || '');
-  const parts = [];
-  let depth = 0, cur = '';
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i];
-    if (ch === '[' || ch === '(' || ch === '{') depth += 1;
-    else if (ch === ']' || ch === ')' || ch === '}') depth -= 1;
-    if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; continue; }
-    cur += ch;
-  }
-  if (cur.trim()) parts.push(cur);
-  const mods = '(?:(?:' + MOD_WORDS + ')[ \\t]+)*';
-  const simple = new RegExp('^(' + mods + ')([A-Za-z_][A-Za-z0-9_]*)[ \\t]*:[ \\t]*(' + mods + ')([A-Za-z_][A-Za-z0-9_]*)$');
-  const boxed = new RegExp('^(' + mods + ')([A-Za-z_][A-Za-z0-9_]*)[ \\t]*:[ \\t]*\\[[^\\]]*?([A-Za-z_][A-Za-z0-9_]*)[ \\t]*\\]$');
-  const bare = new RegExp('^(' + mods + ')([A-Za-z_][A-Za-z0-9_]*)$');
-  for (let i = 0; i < parts.length; i++) {
-    const p = parts[i].trim();
-    if (!p) continue;
-    let m = simple.exec(p);
-    if (m) {
-      const list = ((m[1] || '') + ' ' + (m[3] || '')).trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
-      out.push({ type: m[2], name: m[4], modifiers: list });
-      continue;
-    }
-    m = boxed.exec(p);
-    if (m) {
-      const list = (m[1] || '').trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
-      out.push({ type: m[2], name: m[3], container: true, modifiers: list });
-      continue;
-    }
-    m = bare.exec(p);
-    if (m) out.push({ name: m[2], modifiers: (m[1] || '').trim().toLowerCase().split(/[ \t]+/).filter(Boolean) });
-    else out.push({ name: p, modifiers: [] });
-  }
-  return out;
-}
-function collectSpells(text, out, file) {
-  const lines = String(text || '').split('\n');
-  const decl = new RegExp('^(?:De\\b[^{;]*?)?\\s*((?:(?:' + MOD_WORDS + ')[ \\t]+)*)([A-Z][A-Za-z0-9_]*)\\s*\\(([^)]*)\\)[ \\t]*\\{');
-  for (let i = 0; i < lines.length; i++) {
-    const m = decl.exec(lines[i]);
-    if (!m) continue;
-    /* 花括号配对，取本术式的块范围 */
-    let depth = 0, end = i, opened = false;
-    for (let j = i; j < lines.length; j++) {
-      const t = lines[j];
-      for (let k = 0; k < t.length; k++) {
-        if (t[k] === '{') { depth += 1; opened = true; }
-        else if (t[k] === '}') depth -= 1;
-      }
-      if (opened && depth <= 0) { end = j; break; }
-    }
-    const mods = (m[1] || '').trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
-    const name = m[2];
-    const rec = { name: name, visibility: mods.length ? mods[mods.length - 1] : '', modifiers: mods, params: parseParamList(m[3]), file: file, line: i + 1, endLine: end + 1 };
-    if (out.has(name)) { const old = out.get(name); if (!old.duplicates) old.duplicates = []; old.duplicates.push(rec); }
-    else out.set(name, rec);
-  }
-  return out;
-}
-/* 超过这个行数就整块不着色 */
-const MAX_HIGHLIGHT_LINES = 50;
-function asGlobalRe(re) {
-  if (re.global) return re;
-  let g = GLOBAL_RE_CACHE.get(re);
-  if (!g) { g = new RegExp(re.source, re.flags + 'g'); GLOBAL_RE_CACHE.set(re, g); }
-  return g;
-}
-function escHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-function tokenizeText(text, grammar) {
-  let out = '';
-  let pos = 0;
-  while (pos < text.length) {
-    let best = null;
-    for (const name in grammar) {
-      const rule = grammar[name];
-      const pattern = (rule instanceof RegExp) ? rule : (rule && rule.pattern);
-      if (!(pattern instanceof RegExp)) continue;
-      const re = asGlobalRe(pattern);
-      const lb = !(rule instanceof RegExp) && rule.lookbehind;
-      /* lookbehind 规则要从头扫：它的「标签前缀」可能落在已扫描过的位置
-         （如 (locus: zone 里的 variable 需要看见那个左括号），但只接受内容在当前位之后的匹配 */
-      re.lastIndex = lb ? 0 : pos;
-      let m = re.exec(text);
-      let index = 0;
-      let content = '';
-      if (m) {
-        index = m.index;
-        content = m[0];
-        if (lb && m[1]) { index += m[1].length; content = m[0].slice(m[1].length); }
-        if (lb && index < pos) {
-          /* 找到的匹配在当前位置之前 —— 继续往后找 */
-          let guard = 0;
-          while (m && index < pos && guard < 200) {
-            re.lastIndex = index + content.length;
-            m = re.exec(text);
-            if (!m) break;
-            index = m.index; content = m[0];
-            if (m[1]) { index += m[1].length; content = m[0].slice(m[1].length); }
-            guard += 1;
-          }
-        }
-      }
-      if (!m || !content) continue;
-      if (index < pos) continue;
-      if (!best || index < best.index) best = { index: index, content: content, name: name, rule: rule };
-    }
-    if (!best) { out += escHtml(text.slice(pos)); break; }
-    if (best.index > pos) out += escHtml(text.slice(pos, best.index));
-    const rule = best.rule;
-    const cls = best.name + (!(rule instanceof RegExp) && rule.alias ? ' ' + rule.alias : '');
-    const inner = (!(rule instanceof RegExp) && rule.inside) ? tokenizeText(best.content, rule.inside) : escHtml(best.content);
-    out += '<span class="token ' + cls + '">' + inner + '</span>';
-    pos = best.index + best.content.length;
-  }
-  return out;
-}
-
-/* ---------- 语法检查 ---------- */
-
-const BRANCH_WORDS = ['keal', 'keol', 'tam', 'dum', 'nisi', 'quan'];
-
-/* 逐块检查；返回 [{ level, line, message }]。ctx 需要 info / units / keys */
-function extractEpXsCBlocks(text) {
-  const re = /^[ \t]*\x60{3}[ \t]*(?:EpXsC|epxsc|EPXSC)[ \t]*\r?\n([\s\S]*?)^[ \t]*\x60{3}[ \t]*\r?$/gm;
-  const out = [];
-  let m;
-  while ((m = re.exec(text))) {
-    out.push({ source: m[1].replace(/\r/g, ''), line: text.slice(0, m.index).split('\n').length });
-  }
-  return out;
-}
-function lintText(text, ctx) {
-  const issues = [];
-  const lines = text.split('\n');
-  const push = function (level, line, message) { issues.push({ level: level, line: line, message: message }); };
-  const units = (ctx && ctx.units) || new Set();
-  const keys = (ctx && ctx.keys) || new Set();
-
-  /* 日常句与术式的分界：句号「.」不参与术式（它是日常句的句号）。
-     含句号行的块按日常句对待：只查括号，不套术式的规矩。 */
-  let prose = false;
-  for (let i = 0; i < lines.length; i++) {
-    if (/\.\s*(\/\*.*)?$/.test(lines[i].replace(/[ \t]+$/, ""))) { prose = true; break; }
-  }
-
-  /* ① 括号：配对、交叉、闭合（顺带跳过注释） */
-  const stack = [];
-  const pairOf = { ')': '(', ']': '[', '}': '{' };
-  let inComment = false;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    let clean = '';
-    for (let c = 0; c < line.length; c++) {
-      const ch = line.charAt(c);
-      if (inComment) { if (ch === '*' && line.charAt(c + 1) === '/') { inComment = false; c += 1; } continue; }
-      if (ch === '/' && line.charAt(c + 1) === '*') { inComment = true; c += 1; continue; }
-      clean += ch;
-    }
-    for (let c = 0; c < clean.length; c++) {
-      const ch = clean.charAt(c);
-      if (ch === '(' || ch === '[' || ch === '{') stack.push({ ch: ch, line: i + 1 });
-      else if (ch === ')' || ch === ']' || ch === '}') {
-        const top = stack.pop();
-        if (!top) push('error', i + 1, '多出一个「' + ch + '」，前面没有与之对应的「' + pairOf[ch] + '」');
-        else if (top.ch !== pairOf[ch]) push('error', i + 1, '括号对不上：这里是「' + ch + '」，但最近未闭合的是「' + top.ch + '」（第 ' + top.line + ' 行）');
-      }
-    }
-    /* ② 块头：行尾是冒号，下一行必须缩进更深（日常句不套这条） */
-    if (!prose && /:$/.test(clean.replace(/[ \t]+$/, '')) && clean.trim()) {
-      let j = i + 1;
-      while (j < lines.length && !lines[j].trim()) j += 1;
-      if (j >= lines.length) push('error', i + 1, '冒号开的块没有块体');
-      else {
-        const base = (lines[i].match(/^[ \t]*/) || [''])[0].length;
-        const next = (lines[j].match(/^[ \t]*/) || [''])[0].length;
-        if (next <= base) push('error', j + 1, '块体没有缩进：冒号开的块，这一行要比块头更深');
-      }
-    }
-  }
-  for (let i = 0; i < stack.length; i++) push('error', stack[i].line, '「' + stack[i].ch + '」没有闭合');
-  if (prose) return issues;
-
-  /* 条款次序：载体制 → 对象 → 限制 → 代价 → 触发 → 效果 → 能量 */
-  const lead = function (s) { return (s.match(/^[ \t]*/) || [''])[0].length; };
-  const clauseRank = function (line) {
-    const t = line.replace(/\/\*[\s\S]*?\*\//g, '').trim();
-    if (!t || t === '}' || t === '{') return 0;
-    if (/^impo\b/.test(t)) return 0;                              /* 导入行不属于条款序列 */
-    /* 协议条款及其四个条目：排在能量与特性标记之后（第十五章） */
-    if (/^protocol\b/.test(t)) return 8;
-    if (/^(?:(?:priv|tut|publ|consta)[	 ]+)?(clav|eRk|frequent)[	 ]*:/.test(t)) return 8;
-    if (/\{$/.test(t)) return 1;                                   /* 头行：载体制 ＋ 术式名 ＋ 对象 */
-    if (/^limit\s*:/.test(t)) return 2;
-    if (/^pretium\s*:/.test(t)) return 3;
-    if (/^(keal|keol|tam|dum|nisi|quan)\b/.test(t)) return 4;
-    if (/^(luss\b|[?(]|\d)/.test(t) && /\b(MUW|EUW|MU|EU)\b/.test(t)) return 6;
-    if (/^(solum|hauri)\b/.test(t)) return 7;
-    return 5;                                                      /* 效果 */
-  };
-  /* 只查「真术式」：首行是头行（… { 或 De …）的块才检查顺序。
-     文档里常把一个代码块用来并列对比几种写法，那种片段块没有头行，不查，免得误报。 */
-  let firstLine = '';
-  for (let k = 0; k < lines.length; k++) { if (lines[k].trim()) { firstLine = lines[k].trim(); break; } }
-  const isSpell = !/^\s*class\b/.test(firstLine) && (/\{$/.test(firstLine) || /^De\b/.test(firstLine));   /* class 体不是术式的条款序列 */
-  let lastRank = 0;
-  let lastRankLine = 0;
-  let li = 0;
-  while (isSpell && li < lines.length) {
-    const l = lines[li];
-    if (!l.trim()) { li += 1; continue; }
-    const r = clauseRank(l);
-    if (r === 0) { li += 1; continue; }
-    /* 新的头行（术式声明）—— 一个代码块里写两条术式时，次序序列各自从新开始 */
-    if (r === 1 && lastRank >= 1) { lastRank = 1; lastRankLine = li + 1; li += 1; continue; }
-    if (r < lastRank) {
-      push('warn', li + 1, '条款次序：应为 载体制 → 对象 → 限制 → 代价 → 触发 → 效果 → 能量 → 协议（第 ' + lastRankLine + ' 行之后再出现更靠前的条款）');
-      break;
-    }
-    lastRank = r;
-    lastRankLine = li + 1;
-    /* 只有以冒号开块的条款（limit : ／ keal … : ／ pretium :）才跳过它的缩进体；
-       头行（… {）不跳 —— 块内的条款正是要检查的对象 */
-    const opensBlock = /:[ \t]*$/.test(l.replace(/\/\*[\s\S]*?\*\//g, '').trim());
-    const indent = lead(l);
-    li += 1;
-    while (opensBlock && li < lines.length) {
-      const l2 = lines[li];
-      if (!l2.trim()) { li += 1; continue; }
-      if (lead(l2) > indent) { li += 1; continue; }
-      if (/^[ \t]*[{}][ \t]*$/.test(l2)) { li += 1; continue; }
-      break;
-    }
-  }
-
-  /* 限制条款（limit）：写在块首的准入条件，每条都应当是比较式 */
-  for (let i = 0; i < lines.length; i++) {
-    const lm = /^([ \t]*)limit[ \t]*:(.*)$/.exec(lines[i]);
-    if (!lm) continue;
-    const base = lm[1].length;
-    const items = [{ text: lm[2], line: i + 1 }];
-    let j = i + 1;
-    while (j < lines.length) {
-      const l = lines[j];
-      if (!l.trim()) { j += 1; continue; }
-      const ind = (l.match(/^[ \t]*/) || [''])[0].length;
-      if (ind <= base) break;
-      items.push({ text: l, line: j + 1 });
-      j += 1;
-    }
-    for (let k = 0; k < items.length; k++) {
-      const body = items[k].text.replace(/\/\*[\s\S]*?\*\//g, '').trim();
-      if (!body) continue;
-      /* 判定式有两种：符号比较式，或第三章定义的词形判定（aude／kon／aut／dis／ne 等） */
-      const symbolCmp = /(<=|>=|==|!=|<|>)/.test(body);
-      const wordCmp = /(^|[^A-Za-z_])(aude|kon|aut|dis|ne|vero|re|exo)([^A-Za-z_]|$)/.test(body);
-      if (!symbolCmp && !wordCmp) {
-        push('warn', items[k].line, '限制条款（limit）里的每一条都应当是判定式 —— 比较式（如 <= 66 miteas）或词形判定（aude 相等／kon 合取／aut 包含或／dis 互斥或／ne 否定）');
-      }
-    }
-  }
-
-  /* solum：不带意志谱，不得以施术者意志（voluntas）作连接条件 */
-  for (let i = 0; i < lines.length; i++) {
-    if (!/(^|[^A-Za-z_])solum([^A-Za-z_]|$)/.test(lines[i])) continue;
-    /* 向上找最近的块开头，向下找配对的收尾 */
-    let top = i;
-    for (let j = i; j >= 0; j--) { if (/\{[ \t]*$/.test(lines[j].replace(/\/\*[\s\S]*?\*\//g, '').trimEnd())) { top = j; break; } }
-    let depth = 0, bottom = lines.length - 1;
-    for (let j = top; j < lines.length; j++) {
-      const t = lines[j];
-      for (let c = 0; c < t.length; c++) { if (t.charAt(c) === '{') depth += 1; else if (t.charAt(c) === '}') depth -= 1; }
-      if (depth <= 0 && j >= top) { bottom = j; break; }
-    }
-    for (let j = top; j <= bottom; j++) {
-      if (/^[ \t]*limit[ \t]*:/.test(lines[j]) && /(^|[^A-Za-z_])voluntas([^A-Za-z_]|$)/.test(lines[j])) {
-        push('warn', j + 1, '声明了 solum 的术式不带意志谱：不能以施术者意志（voluntas）作为连接条件（代价在制作时付出，不受此限）');
-      }
-    }
-  }
-
-  /* 常数：写入后不可再赋值 */
-  const constDecl = /(^|[;\n])[ \t]*(?:(?:priv|tut|publ)[ \t]+)?consta[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*=(?!=)/g;
-  const consts = [];
-  let cdecl;
-  while ((cdecl = constDecl.exec(text))) consts.push({ name: cdecl[2], line: text.slice(0, cdecl.index + (cdecl[1] || '').length).split('\n').length });
-  for (let i = 0; i < consts.length; i++) {
-    const again = new RegExp('(^|[;\\n])[ \\t]*(?:(?:priv|tut|publ|consta|om|tot)[ \\t]+)?' + consts[i].name + '[ \\t]*=(?!=)', 'g');
-    let m2;
-    while ((m2 = again.exec(text))) {
-      const line = text.slice(0, m2.index + (m2[1] || '').length).split('\n').length;
-      if (line > consts[i].line) {
-        push('error', line, '常量「' + consts[i].name + '」在第 ' + consts[i].line + ' 行以 consta 声明，写入后不可再赋值');
-        break;
-      }
-    }
-  }
-
-  /* 坐标串：~ 至少两轴（X、Z），^ 必须三轴 */
-  const coordRe = /(?:~(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)(?:[ \t]+~(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)+|(?:\^(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)(?:[ \t]+\^(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)+/g;
-  let cd;
-  while ((cd = coordRe.exec(text))) {
-    const line = text.slice(0, cd.index).split('\n').length;
-    const c = parseCoord(cd[0]);
-    if (c.values.length > 3) push('warn', line, '坐标最多三轴，这里写了 ' + c.values.length + ' 个');
-    else if (c.sign === '^' && c.values.length !== 3) push('error', line, '局部坐标必须写全三轴（左／上／前），这里只有 ' + c.values.length + ' 个');
-  }
-
-  /* ③ 判断词要带块 */
-  for (let i = 0; i < lines.length; i++) {
-    const m = /^[ \t]*([A-Za-z_][A-Za-z0-9_]*)/.exec(lines[i]);
-    if (!m || BRANCH_WORDS.indexOf(m[1].toLowerCase()) < 0) continue;
-    if (lines[i].indexOf(':') < 0 && lines[i].indexOf('{') < 0) {
-      push('warn', i + 1, '判断词「' + m[1] + '」要带块：行尾写冒号加缩进，或用花括号');
-    }
-  }
-
-  /* ④ 数字后面跟的必须是登记过的单位 */
-  for (let i = 0; i < lines.length; i++) {
-    const re = /(\d)[ \t]*([A-Za-z_][A-Za-z0-9_]*)/g;
-    let m;
-    while ((m = re.exec(lines[i]))) {
-      if (units.has(m[2].toLowerCase())) continue;
-      push('warn', i + 1, '「' + m[1] + ' ' + m[2] + '」——' + m[2] + ' 不是登记过的单位');
-    }
-  }
-
-  /* ⑤ 功率口径不得写锁存 */
-  for (let i = 0; i < lines.length; i++) {
-    const bare = lines[i].replace(/\/\*[\s\S]*?\*\//g, '');   /* 先去注释：注释里提「不写 luss」不算写 */
-    if (/\bluss\b/i.test(bare) && /\b(MUW|EUW)\b/.test(bare)) {
-      push('error', i + 1, '写 MUW／EUW 即持续发动（功率口径），不得再写 luss（锁存）');
-    }
-  }
-
-  /* ⑥ 量约束说说明的是「?」声明的量 */
-  for (let i = 0; i < lines.length; i++) {
-    if (/\blic\s+(magis|minus)\b/i.test(lines[i]) && lines[i].indexOf('?') < 0) {
-      push('warn', i + 1, '「lic magis／lic minus」用来说明由「?」声明的量可增／可减，这一行没有「?」');
-    }
-  }
-
-  /* ⑦ 筛选键要登记；下标（秩）要在 1–9；筛选值不按秩解释 */
-  const sq = /\[([^\]\n]*)\]/g;
-  let b;
-  while ((b = sq.exec(text))) {
-    const before = text.slice(0, b.index);
-    const line = before.split('\n').length;
-    const inner = b[1];
-    let back = b.index - 1;
-    while (back >= 0 && /[ \t]/.test(text.charAt(back))) back -= 1;
-    if (text.charAt(back) === '=') continue;
-    const kind = classifySquare(inner);
-    if (kind === '筛选键表') {
-      const kr = /([A-Za-z_][A-Za-z0-9_]*)\s*=/g;
-      let k;
-      while ((k = kr.exec(inner))) {
-        if (!keys.has(k[1].toLowerCase())) push('warn', line, '筛选键「' + k[1] + '」不在登记表里');
-      }
-    } else if (kind === '下标 · 秩') {
-      const nums = inner.match(/\d+/g) || [];
-      for (let n = 0; n < nums.length; n++) {
-        const v = parseInt(nums[n], 10);
-        if (v < 1 || v > 9) push('warn', line, '秩只有 1–9，这里的「' + nums[n] + '」超出范围');
-      }
-    }
-  }
-  /* ⑨ 术式引用：未登记 / 越权 / 形参不符 / consta 被改写 */
-  /* 本块的 impo 名单：写进去的名字视为「他处定义」，不再报未登记 */
-  const imported = [];
-  for (let i = 0; i < lines.length; i++) {
-    const im = /^[ \t]*impo[ \t]+([^;\n]*)/.exec(lines[i]);
-    if (!im) continue;
-    const names = im[1].split(',');
-    for (let k = 0; k < names.length; k++) {
-      const nm = names[k].trim();
-      if (nm) imported.push(nm);
-    }
-  }
-  const spells = (ctx && ctx.spells) || spellRegistry;
-  if (spells && spells.size) {
-    const splitTop = function (s) {
+// src/core/markdown-blocks.js
+var require_markdown_blocks = __commonJS({
+  "src/core/markdown-blocks.js"(exports2, module2) {
+    "use strict";
+    function extractEpXsCBlocks(text) {
+      const re = /^[ \t]*\x60{3}[ \t]*(?:EpXsC|epxsc|EPXSC)[ \t]*\r?\n([\s\S]*?)^[ \t]*\x60{3}[ \t]*\r?$/gm;
       const out = [];
-      let depth = 0, cur = '';
-      for (let i = 0; i < s.length; i++) {
-        const ch = s.charAt(i);
-        if (ch === '(' || ch === '[' || ch === '{') depth += 1;
-        else if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
-        if (ch === ',' && depth === 0) { out.push(cur); cur = ''; continue; }
-        cur += ch;
-      }
-      if (cur.trim()) out.push(cur);
-      return out.map(function (x) { return x.trim(); }).filter(Boolean);
-    };
-    for (let i = 0; i < lines.length; i++) {
-      const raw = lines[i];
-      const trimmed = raw.trim();
-      if (!trimmed) continue;
-      if (/\{[ \t]*$/.test(trimmed)) continue;              /* 声明行（收在 { 上）不是引用 */
-      if (/^\|/.test(trimmed) || /^\/\//.test(trimmed)) continue;  /* 表格行、注释行 */
-      const callRe = /\b([A-Z][A-Za-z0-9_]*)[ \t]*\(/g;
       let m;
-      while ((m = callRe.exec(raw))) {
-        const name = m[1];
-        if (raw.slice(Math.max(0, m.index - 2), m.index) === '::') continue;   /* 类成员调用，不是术式引用 */
-        const rec = spells.get(name);
-        if (!rec) {
-          /* impo 声明过的：他处定义，本处只借签名（第十二章规则 12.6），不算未登记 */
-          if (imported.indexOf(name) >= 0) continue;
-          push('warn', i + 1, '引用了未登记的术式「' + name + '」—— 若它定义在他处，请在块首写 impo ' + name + ';');
+      while (m = re.exec(text)) {
+        out.push({ source: m[1].replace(/\r/g, ""), line: text.slice(0, m.index).split("\n").length });
+      }
+      return out;
+    }
+    module2.exports = { extractEpXsCBlocks };
+  }
+});
+
+// src/legacy/plugin.js
+var require_plugin = __commonJS({
+  "src/legacy/plugin.js"(exports2, module2) {
+    "use strict";
+    var { Plugin: Plugin2, TFile, TFolder, Notice, MarkdownView, Modal } = require("obsidian");
+    var { extractEpXsCBlocks } = require_markdown_blocks();
+    var LANG_KEYS = ["EpXsC", "epxsc", "EPXSC"];
+    var CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
+    var DICT_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u8BCD\u5178.md";
+    var RANK_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u7EF4\u5EA6/\u7EF4\u5EA6\u6A21\u578B.md";
+    var SYNTAX_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u672F\u5F0F\u8BED\u6CD5.md";
+    var ROOTS_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8BCD\u5E93/\u8BCD\u6839\u8868/";
+    var FALLBACK = {
+      /* 词典读不到时的兜底；in / om 这类词性易漏，一并钉死 */
+      keyword: ["in", "de", "pro", "om", "post", "nec"],
+      judge: ["keal", "keol", "tam", "dum", "nisi", "quan", "vero", "es", "exo", "lic", "re", "ren", "rea", "kon", "aut", "dis", "ergo", "kaus", "ske", "aude", "rase", "fas", "nefas"],
+      clause: ["pretium", "limit", "luss", "solum", "hauri", "vita", "memoria", "sensus", "voluntas", "anima", "vis", "diu", "celer", "metos"],
+      degree: ["max", "min", "valde", "magis", "minus", "parum", "paulum", "nimis"],
+      predicate: ["plur", "navis", "apolus", "expual", "aepaus", "movis", "venis", "retase"],
+      unit: ["MUW", "EUW", "MU", "miteas", "kigrama", "m", "s", "kg"]
+    };
+    var SECTIONS = {
+      /* 功能词（介词·助动词·限定词·代词·疑问词·连接词）：紫 */
+      keyword: ["\u4ECB\u8BCD", "\u52A9\u52A8\u8BCD", "\u9650\u5B9A\u8BCD", "\u65F6\u95F4\u9650\u5B9A", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u6307\u79F0\u9650\u5B9A", "\u987A\u5E8F\u9650\u5B9A", "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09", "\u7591\u95EE\u8BCD", "\u8FDE\u63A5\u8BCD\u4E0E\u4ECE\u53E5\u6807\u8BB0"],
+      /* 判断词（if／elif／else 一族）：单独一色 */
+      judge: ["\u5224\u65AD\u8BCD"],
+      /* 术式关键词（块内条款与术式专用词）：单独一色 */
+      clause: ["\u672F\u5F0F\u5173\u952E\u8BCD"],
+      degree: ["\u7A0B\u5EA6\u9650\u5B9A"],
+      predicate: ["\u52A8\u8BCD"],
+      unit: ["\u5355\u4F4D"]
+    };
+    var ELEMENTS = ["Ert", "Aqu", "Flm", "Wnd", "Nut", "Elc", "Lum", "Duk", "Sar", "Qen"];
+    var AXES = ["vis", "diu", "celer", "latus", "altus", "acutus", "densus", "gravis", "levis"];
+    var TYPES = ["METOS", "locus", "siro", "intervallum", "verb", "littera", "forma", "sonus"];
+    var MODIFIERS = ["priv", "tut", "publ", "consta", "om", "tot"];
+    var BUILD = "1.31.0";
+    function escapeWord(w) {
+      return w.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
+    }
+    function wordPattern(words) {
+      const sorted = (Array.isArray(words) ? words.slice() : []).sort(function(a, b) {
+        return b.length - a.length;
+      });
+      return new RegExp("\\b(?:" + sorted.map(escapeWord).join("|") + ")\\b", "i");
+    }
+    function splitSections(text) {
+      const map = {};
+      let current = null;
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const h = /^#{1,6}\s*(.+?)\s*$/.exec(line);
+        if (h) {
+          current = h[1];
+          if (!map[current]) map[current] = [];
           continue;
         }
-        if (rec.visibility === 'priv' || rec.visibility === 'tut') {
-          const sameFile = !ctx || !ctx.path || !rec.file || ctx.path === rec.file;
-          const inside = sameFile && i + 1 >= rec.line && i + 1 <= rec.endLine;
-          if (!inside) push('warn', i + 1, '「' + name + '」是 ' + rec.visibility + '，只允许在自己文件的语块内引用');
-        }
-        /* 取这次调用的实参 */
-        const open = m.index + m[0].length - 1;
-        let depth = 0, close = -1;
-        for (let c = open; c < raw.length; c++) {
-          const ch = raw.charAt(c);
-          if (ch === '(') depth += 1;
-          else if (ch === ')') { depth -= 1; if (depth === 0) { close = c; break; } }
-        }
-        if (close < 0) continue;
-        const args = splitTop(raw.slice(open + 1, close));
-        const params = rec.params || [];
-        /* 只有显式 publ／consta 的形参才算「必须由调用方给出」；不写限定词的形参不苛求 */
-        const required = params.filter(function (p) {
-          const m = p.modifiers || [];
-          return m.indexOf('publ') >= 0 || m.indexOf('consta') >= 0;
-        }).length;
-        if (args.length > params.length) push('warn', i + 1, '「' + name + '」形参 ' + params.length + ' 个，这里给了 ' + args.length + ' 个');
-        else if (required > 0 && args.length < required) push('warn', i + 1, '「' + name + '」有必须给出的 publ／consta 形参（应 ' + required + ' 个，这里 ' + args.length + ' 个）');
-        for (let a = 0; a < args.length; a++) {
-          const lbl = /^([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/.exec(args[a]);
-          if (!lbl) continue;
-          const hit = params.filter(function (p) { return p.name === lbl[1] && (p.modifiers || []).indexOf('priv') >= 0; })[0];
-          if (hit) push('warn', i + 1, '「' + hit.name + '」是内部形参（priv），不该由调用方给出');
-        }
+        if (!current) continue;
+        const m = /^\|\s*([A-Za-z][A-Za-z0-9_-]{0,30})\s*\|/.exec(line);
+        if (m && !/^(word|key|root)$/i.test(m[1])) map[current].push(m[1]);
       }
+      return map;
     }
-    spells.forEach(function (rec, name) {
-      if (rec.visibility === 'consta' && rec.duplicates && rec.duplicates.length) {
-        push('warn', rec.line, '「' + name + '」是 consta，不能重复声明（另见第 ' +
-          rec.duplicates.map(function (d) { return d.line; }).join('、') + ' 行）');
+    function parseEntries(text) {
+      const out = /* @__PURE__ */ new Map();
+      let section = "";
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const h = /^#{1,6}\s*(.+?)\s*$/.exec(lines[i]);
+        if (h) {
+          section = h[1];
+          continue;
+        }
+        const m = /^\|\s*([A-Za-z][A-Za-z0-9_-]{0,30})\s*\|(.*)$/.exec(lines[i]);
+        if (!m) {
+          const c2 = /^\|\s*([^|]{1,14}?)\s*\|\s*([A-Za-z][A-Za-z0-9]{0,6})\s*\|/.exec(lines[i]);
+          if (c2) {
+            const code = c2[2];
+            const cn = c2[1].trim();
+            const k = code.toLowerCase();
+            if (cn && !out.has(k)) out.set(k, { word: code, pos: "\u5143\u7D20\u7801", meaning: cn, abbr: code });
+            if (cn) out.set(code, { word: code, pos: "\u5143\u7D20\u7801", meaning: cn, abbr: code });
+          }
+          continue;
+        }
+        const cells = m[2].split("|");
+        const meaning = (cells[0] || "").trim();
+        if (!meaning || meaning === "meaning" || meaning === "\u4E49" || meaning === "\u91CA\u4E49") continue;
+        const key = m[1].toLowerCase();
+        if (!out.has(key)) out.set(key, { word: m[1], pos: section, meaning, abbr: (cells[1] || "").trim() });
+        const abbr = (cells[1] || "").trim();
+        if (/^[A-Za-z][A-Za-z0-9]{1,6}$/.test(abbr) && !out.has(abbr.toLowerCase())) {
+          out.set(abbr.toLowerCase(), { word: abbr, pos: ELEMENTS.indexOf(abbr) >= 0 ? "\u5143\u7D20\u7801" : section + "\xB7\u7F29\u5199", meaning, abbr });
+        }
       }
-    });
-  }
-
-  return issues;
-}
-
-/* ---------- 悬停提示 ---------- */
-
-/* 一个 token 可能带多个类（如 typeParam + type），按语义优先级取第一个 */
-const CLASS_ORDER = ['rankRange', 'bracket', 'paren', 'brace', 'pointer', 'coordRun', 'negPrefix', 'modifier', 'declTarget', 'varUse', 'judge', 'clause', 'declaration', 'variable', 'type', 'element', 'unit', 'predicate', 'spellRef', 'function', 'keyword', 'pretium', 'degree', 'axis', 'number', 'comment', 'annotation', 'operator', 'punctuation', 'word'];
-
-const CLASS_LABEL = {
-  judge: '判断词',
-  clause: '条款',
-  modifier: '限定词',
-  declTarget: '声明目标',
-  negPrefix: '前置否定',
-  declaration: '术式名',
-  className: '类名',
-  filterKey: '筛选键',
-  filterValue: '筛选值',
-  dictKey: '字典键',
-  freqTag: '频段标签',
-  spellRef: '术式引用',
-  predicate: '谓词',
-  function: '谓词调用',
-  keyword: '',
-  type: '类型名',
-  element: '元素码',
-  unit: '单位',
-  number: '数值',
-  degree: '程度词',
-  axis: '缩放轴',
-  pretium: '代价'
-};
-
-/* 词典暂未收、但术式里在用的词（补一条即可） */
-const EXTRA_WORDS = {
-  in: { word: 'in', pos: '介词', meaning: '在……里（词典暂未收录，按术式用法补）', abbr: '' },
-  /* 第五章筛选键表：ordin= 的三个取值（词典未收，按表补） */
-  proxim: { word: 'proxim', pos: '筛选值', meaning: '近（ordin= 的取值）', abbr: '' },
-  procul: { word: 'procul', pos: '筛选值', meaning: '远（ordin= 的取值）', abbr: '' },
-  temer: { word: 'temer', pos: '筛选值', meaning: '随机（ordin= 的取值）', abbr: '' }
-};
-
-/* 个别类型词要补一句（词典释义只说词义，说不清它在类型里的职务） */
-const TYPE_NOTES = {
-  siro: 'void：无目标／无载体，可声明变量或直接占位'
-};
-
-/* 词典小节 → 真正的词性／类别；没有对应项时原样用小节名 */
-const SECTION_POS = {
-  '名词': '名词', '动词': '动词', '数词': '数词', '形容词': '形容词', '副词': '副词',
-  '介词': '介词', '助动词': '助动词', '判断词': '判断词', '限定词': '限定词',
-  '时间限定': '限定词', '数量与范围限定': '限定词', '指称限定': '限定词',
-  '顺序限定': '限定词', '程度限定': '副词',
-  '代词（人称）': '代词', '疑问词': '疑问词', '量词': '量词', '连接词与从句标记': '连接词',
-  '族名': '名词', '动物名': '名词', '族、血统与分类': '名词',
-  '地名与势力名': '专名', '地理 · 神宫 · 货币专名': '专名',
-  '根词': '词根', '后缀': '后缀', '复合词': '复合词', '高频补充词': '补充词',
-  '元素固定缩写': '元素', '术式关键词': '术式关键词', '单位': '单位'
-};
-
-function pickClass(classList) {
-  for (let i = 0; i < CLASS_ORDER.length; i++) {
-    if (classList.contains(CLASS_ORDER[i])) return CLASS_ORDER[i];
-  }
-  return null;
-}
-
-/* 已声明的变量，用在哪儿都按变量着色（C 风格：同名同色） */
-function markSpellRefs(html) {
-  /* 术式名有两种身份：声明（行尾收在 { 上）与引用（写在效果层，收在 ; 上）。
-     引用改用 function 类着色，与声明的黄色区分开；spellRef 便于提示区分。 */
-  return String(html).split('\n').map(function (line) {
-    if (line.indexOf('class="token declaration"') < 0) return line;
-    const plain = line.replace(/<[^>]+>/g, '');
-    if (/\{[ \t]*$/.test(plain)) return line;
-    return line.replace(/<span class="token declaration"/g, '<span class="token spellRef"');
-  }).join('\n');
-}
-
-function markVarUse(html, vars) {
-  if (!vars || !vars.size) return html;
-  /* 块内已声明的变量，出现在哪儿都按变量着色 —— 包括词性与术式关键词重名的
-     （metos 既是《词典》里的「对象、目标」，也常被当形参名用）。
-     只改「词」类 span：type／element／number 这些有明确语法身份的不动。 */
-  const CLAIMABLE = 'word|clause|judge|predicate|function|degree|axis|unit';
-  vars.forEach(function (binding, name) {
-    if (!name) return;
-    const safe = name.replace(/[^A-Za-z0-9_]/g, '\\$&');
-    html = html.replace(new RegExp('<span class="token (?:' + CLAIMABLE + ')( [^"]*)?">' + safe + '</span>', 'g'), '<span class="token varUse$1">' + name + '</span>');
-  });
-  return html;
-}
-function bracketKinds(text) {
-  const src = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\.[^\n]*$/gm, '');
-  const out = [];
-  for (let i = 0; i < src.length; i++) {
-    const ch = src.charAt(i);
-    if (ch === '(' || ch === '[' || ch === '{') {
-      let kind = '';
-      if (ch === '(') {
-        const before = src.slice(Math.max(0, i - 60), i);
-        const head = /(^|[;{}\n])\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(before);
-        const prev = src.charAt(i - 1);
-        if (head && /^[A-Z]/.test(head[2]) && prev !== ' ') kind = '参数表';
-        else if (/[A-Za-z0-9_]/.test(prev)) kind = '实参表';
-        else kind = '分组';
-      } else if (ch === '[') {
-        const close = src.indexOf(']', i);
-        const inner = close > 0 ? src.slice(i + 1, close) : '';
-        let back = i - 1;
-        while (back >= 0 && /[ \t]/.test(src.charAt(back))) back -= 1;
-        kind = src.charAt(back) === '=' ? '筛选值' : classifySquare(inner);
-      } else {
-        kind = '语块';
-      }
-      out.push(kind);
-    } else if (ch === ')' || ch === ']' || ch === '}') {
-      out.push('');
+      return out;
     }
-  }
-  return out;
-}
-
-/* 符号释义（取自术式语法 三、逻辑与运算 / 四、指针与寻址） */
-const SYMBOL_INFO = {
-  '!': { label: '运算符 !', body: '逻辑非（同 C；亦可用 ne）' },
-  '&&': { label: '运算符 &&', body: '合取（常写作 kon）' },
-  '||': { label: '运算符 ||', body: '包含或（常写作 aut）' },
-  '^': { label: '运算符 ^', body: '局部坐标：受术者三轴，须写全' },
-  '~': { label: '运算符 ~', body: '相对坐标：世界轴偏移，至少 X、Z' },
-  '==': { label: '运算符 ==', body: '相等（亦有判断词 aude）' },
-  '!=': { label: '运算符 !=', body: '不等' },
-  '<=': { label: '运算符 <=', body: '不超过' },
-  '>=': { label: '运算符 >=', body: '不少于' },
-  '<': { label: '运算符 <', body: '小于' },
-  '>': { label: '运算符 >', body: '大于' },
-  '=': { label: '赋值 =', body: '写入变量（系词 es 表判断）' },
-  '+=': { label: '复合算子 +=', body: '数值参数递增' },
-  '-=': { label: '复合算子 -=', body: '数值参数递减' },
-  '*=': { label: '复合算子 *=', body: '数值参数按倍率缩放' },
-  '/=': { label: '复合算子 /=', body: '数值参数按比例缩小' },
-  '+': { label: '运算符 +', body: '加' },
-  '-': { label: '运算符 -', body: '减' },
-  '*': { label: '运算符 *', body: '解引用（取地址用 &）' },
-  '/': { label: '运算符 /', body: '除法；亦为相变' },
-  '?': { label: '占位符 ?', body: '值在发动时定；作类型表待定' },
-  '..': { label: '区间 ..', body: '两端为闭区间；亦可只写上界或下界' },
-  '...': { label: '省略 ...', body: '列举未尽' },
-  ';': { label: '分号 ;', body: '子句分隔（同换行）' },
-  ',': { label: '逗号 ,', body: '并列；亦分隔形参' },
-  ':': { label: '冒号 :', body: '下一层开始；亦分「类型: 变量」' },
-  '&': { label: '取地址 &', body: '取得引用（地址即位置）' },
-  '*&': { label: '取地址后解引用', body: '仍指该物本身' },
-  '@': { label: '目标简写 @', body: '全形为 METOS[…]' }
-};
-
-/* 方括号里装的是什么（提示与语法检查共用这一套判定） */
-function classifySquare(inner) {
-  if (/=/.test(inner)) return '筛选键表';
-  if (/^\s*:/.test(inner)) return '列表类型';
-  if (/^\s*\d+\s*:/.test(inner)) return '位数声明';
-  if (/&/.test(inner)) return '点名列表';
-  if (/siro|\*/.test(inner)) return '目标集';
-  if (/\.\./.test(inner) || /^\s*\d+\s*$/.test(inner)) return '下标 · 秩';
-  return '列表';
-}
-
-const KIND_INFO = {
-  '参数表': { label: '圆括号 · 参数表', body: '术式的形参表。写法为「类型: 变量名」，逗号分隔；类型可省，省了由术式自判。' },
-  '实参表': { label: '圆括号 · 实参表', body: '调用谓词时给出的实参。谓词与实参平时靠并置，圆括号只在需要消歧时出现。' },
-  '分组': { label: '圆括号 · 分组／元组', body: '括号内以逗号分隔即成元组；也用来显式指定求值顺序。' },
-  '筛选值': { label: '方括号 · 筛选值', body: '筛选键的取值：列表或区间，按该键的规则解释。' },
-  '筛选键表': { label: '方括号 · 筛选键表', body: '内为「键=值」，按条件筛出对象集；键名与含义见《述无空语术式语法》筛选键一节。' },
-  '列表类型': { label: '方括号 · 列表类型', body: '方括号以冒号开头时表示列表容器，冒号后是元素类型。' },
-  '位数声明': { label: '方括号 · 位数：变量', body: '括号内的冒号交代「哪一位：叫什么」——冒号前是位数，冒号后是变量名。' },
-  '下标 · 秩': { label: '方括号 · 下标（秩）', body: '取该对象的第 n 秩；写成区间时指一段秩。' },
-  '点名列表': { label: '方括号 · 点名列表', body: '把已取地址的对象逐个列出，只作用于这些目标。' },
-  '目标集': { label: '方括号 · 目标集', body: 'siro 表示无目标（作用于环境），* 表示任意目标。' },
-  '列表': { label: '方括号 · 列表', body: '容器类型由括号自己声明：圆括号是元组、方括号是列表、花括号是字典。' },
-  '语块': { label: '花括号 · 语块', body: '划范围：触发、效果、能量、代价都写在里面。同一形状也兼作字典／映射。' }
-};
-
-function bracketTip(kind) {
-  return KIND_INFO[kind] || { label: '括号', body: kind || '' };
-}
-
-/* 参数表里的「类型: 变量名」→ 变量 → 类型（两种语序都认） */
-/* 从右侧写法推断这个变量是什么 */
-function inferKind(expr, known) {
-  const e = (expr || '').trim();
-  if (!e) return { kind: '未定' };
-  if (/^\*&/.test(e)) return { kind: '实体' };
-  if (/^&/.test(e)) return { kind: '地址' };
-  if (/^@/.test(e) || /^METOS\s*\[/.test(e)) return { kind: '对象集' };
-  if (/^\[/.test(e)) return { kind: '列表' };
-  if (/^\(/.test(e)) return { kind: '元组' };
-  if (/^\{/.test(e)) return { kind: '字典' };
-  if (/^\d/.test(e)) return { kind: '数值' };
-  const word = /^([A-Za-z_][A-Za-z0-9_]*)\s*([(=]?)/.exec(e);
-  if (word) {
-    const w = word[1];
-    if (ELEMENTS.indexOf(w) >= 0 || TYPES.indexOf(w) >= 0) return { kind: '元素或类型', ref: w };
-    if (word[2] === '(') return { kind: '调用' };
-    if (known && known.has(w)) return { kind: '同前', ref: w };
-  }
-  return { kind: '未定' };
-}
-
-/* 变量表：① 形参「类型: 变量名」（两种语序都认）；② 赋值 name = 表达式 按右侧推断 */
-function parseVarTypes(text, info) {
-  const out = new Map();
-  const isType = function (w) { return TYPES.indexOf(w) >= 0 || ELEMENTS.indexOf(w) >= 0; };
-  const scopes = text.match(/\([^()]*\)/g) || [];
-  for (let i = 0; i < scopes.length; i++) {
-    const parts = scopes[i].slice(1, -1).split(',');
-    for (let j = 0; j < parts.length; j++) {
-      const p = parts[j].trim();
-      /* 形参：类型 : [限定词…] 变量名 —— 限定词既可写在类型之前，也可写在变量名之前（等价） */
-      let m = /^((?:(?:priv|tut|publ|consta)[ \t]+)*)([A-Za-z_][A-Za-z0-9_]*)\s*:\s*((?:(?:priv|tut|publ|consta)[ \t]+)*)([A-Za-z_][A-Za-z0-9_]*)$/.exec(p);
-      if (m) {
-        const ty = m[2];
-        const name = m[4];
-        const mods = ((m[1] || '') + ' ' + (m[3] || '')).trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
-        let binding;
-        if (isType(ty) && !isType(name)) binding = { type: ty };
-        else if (!isType(ty) && isType(name)) binding = { type: name };
-        else if (ty.length === 1) binding = { type: name };
-        else binding = { type: ty };
-        if (mods.length) { binding.modifiers = mods; binding.modifier = mods[mods.length - 1]; }
-        out.set(name, binding);
-        continue;
-      }
-      m = /^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\[[^\]]*?(\d+)?\s*:?\s*([A-Za-z_][A-Za-z0-9_]*)\s*\]$/.exec(p);
-      if (m) { out.set(m[3], { type: m[1], container: '列表', length: m[2] || '' }); continue; }
-      m = /^\[[^\]]*?([A-Za-z_][A-Za-z0-9_]*)\s*\]\s*:\s*([A-Za-z_][A-Za-z0-9_]*)$/.exec(p);
-      if (m) { out.set(m[2], { type: m[1], container: '列表', length: '' }); continue; }
-    }
-  }
-  const assign = new RegExp('(^|[;\\n])[ \\t]*((?:(?:' + MODIFIERS.join('|') + ')[ \\t]+)*)([A-Za-z_][A-Za-z0-9_]*)[ \\t]*=(?!=)[ \\t]*([^\\n;]*)', 'g');
-  let a;
-  while ((a = assign.exec(text))) {
-    const name = a[3];
-    if (out.has(name)) continue;
-    const binding = inferKind(a[4], out);
-    binding.modifiers = (a[2] || '').trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
-    binding.modifier = binding.modifiers.length ? binding.modifiers[binding.modifiers.length - 1] : '';
-    out.set(name, binding);
-  }
-  return out;
-}
-
-/* 赋值绑定的类别说明（不举例子） */
-const BIND_KIND = {
-  '地址': '是个地址 —— & 取得的引用；设定里地址本身就是位置（第 1–3 秩）。',
-  '实体': '是顺着引用取回的那物本身。',
-  '对象集': '是目标对象集。',
-  '列表': '是列表容器。',
-  '元组': '是元组。',
-  '字典': '是字典／映射。',
-  '数值': '是数值。',
-  '调用': '取的是谓词调用的结果，类别由该谓词决定。',
-  '同前': '与右侧那个变量指同一物。',
-  '未定': '由 = 绑定，右侧写法未给出可判定的类别。'
-};
-
-/* 限定词在提示里的说法（与 C 相当） */
-const MOD_INFO = {
-  priv: '私有：仅当前语块可见',
-  tut: '受护：本语块及子块可见',
-  publ: '公开：整个术式内可见',
-  consta: '常数：不可再赋值'
-};
-
-function variableTip(name, binding, info) {
-  if (!binding) return null;
-  const mods = binding.modifiers || (binding.modifier ? [binding.modifier] : []);
-  const modParts = [];
-  for (let mi = 0; mi < mods.length; mi++) if (MOD_INFO[mods[mi]]) modParts.push(MOD_INFO[mods[mi]]);
-  const mod = modParts.length ? modParts.join('；') + '；' : '';
-  if (binding.type) {
-    const entry = info && info.get(String(binding.type).toLowerCase());
-    const detail = entry ? '（' + (entry.pos ? entry.pos + ' ' : '') + entry.meaning + '）' : '';
-    const shape = binding.container ? '，' + binding.container + '容器，' + (binding.length ? '长度 ' + binding.length : '长度未定') : '';
-    return { label: '变量 ' + name, body: mod + '类型 ' + binding.type + shape + detail };
-  }
-  if (binding.kind === '元素或类型') {
-    const entry = info && info.get(String(binding.ref || '').toLowerCase());
-    const detail = entry ? '（' + (entry.pos ? entry.pos + ' ' : '') + entry.meaning + '）' : '';
-    return { label: '变量 ' + name, body: mod + '取 ' + binding.ref + detail + ' 本身' };
-  }
-  return { label: '变量 ' + name, body: mod + (BIND_KIND[binding.kind] || BIND_KIND['未定']) };
-}
-
-/* ne 之后被否定的那段文字：顺着 DOM 兄弟节点走到子句边界 */
-function negScopeText(el) {
-  let out = '';
-  let node = el && el.nextSibling;
-  let guard = 0;
-  while (node && guard < 40) {
-    guard += 1;
-    const t = node.textContent || '';
-    const cut = /[;,\n]/.exec(t);
-    if (cut) { out += t.slice(0, cut.index); break; }
-    out += t;
-    node = node.nextSibling;
-  }
-  return out.replace(/\s+/g, ' ').trim();
-}
-
-/* 坐标串：拆出每一轴的取值 */
-const WORLD_AXES = ['X（东西）', 'Y（上下）', 'Z（南北）'];
-const LOCAL_AXES = ['左（X）', '上（Y）', '前（Z）'];
-
-function parseCoord(text) {
-  const sign = text.charAt(0) === '~' ? '~' : '^';
-  const parts = text.split(/[ \t]+(?=[~^])/);
-  const values = [];
-  for (let i = 0; i < parts.length; i++) {
-    const m = /^[~^][ \t]*([-+]?\d+(?:\.\d+)?)?/.exec(parts[i]);
-    values.push(m && m[1] ? m[1] : '0');
-  }
-  return { sign: sign, values: values };
-}
-
-/* 相对坐标 ~：世界轴，最多省到 (X, Z)；局部坐标 ^：朝向三轴，必须写全 */
-function coordTip(text) {
-  const c = parseCoord(text);
-  const n = c.values.length;
-  if (c.sign === '~') {
-    if (n < 2) return { label: '相对坐标 ~（' + n + ' 轴）', body: '至少给 X 与 Z' };
-    const names = n === 3 ? WORLD_AXES : (n === 2 ? [WORLD_AXES[0], WORLD_AXES[2]] : []);
-    const shown = [];
-    for (let i = 0; i < n; i++) shown.push((names[i] || ('第 ' + (i + 1) + ' 轴')) + ' ' + c.values[i]);
-    return {
-      label: '相对坐标 ~（' + n + ' 轴）',
-      body: '世界轴：' + shown.join(' · ') + '（不随朝向变）'
-    };
-  }
-  if (n !== 3) return { label: '局部坐标 ^（' + n + ' 轴）', body: '须写全三轴（左／上／前）' };
-  const shown = [];
-  for (let i = 0; i < 3; i++) shown.push(LOCAL_AXES[i] + ' ' + c.values[i]);
-  return { label: '局部坐标 ^（3 轴）', body: '受术者三轴：' + shown.join(' · ') + '（随朝向变）' };
-}
-
-/* 单个秩的定义：先找同名行，再找覆盖它的区间行（1–3 这类） */
-function rankDef(n, ranks) {
-  if (!ranks) return '';
-  const key = String(n);
-  if (ranks.has(key)) return ranks.get(key);
-  const num = parseInt(key, 10);
-  if (!num) return '';
-  let found = '';
-  ranks.forEach(function (value, k) {
-    if (found) return;
-    const m = /^(\d+)[–-](\d+)$/.exec(k);
-    if (m && num >= parseInt(m[1], 10) && num <= parseInt(m[2], 10)) found = value;
-  });
-  return found;
-}
-
-function rankSpan(a, b, ranks) {
-  const lo = parseInt(a, 10);
-  const hi = parseInt(b, 10);
-  if (!lo || !hi || hi < lo || hi - lo > 8) return '';
-  const parts = [];
-  for (let n = lo; n <= hi; n++) {
-    const r = ranks.get(String(n));
-    if (!r) return '';
-    const bits = String(r).split(' · ');
-    parts.push(bits.length > 1 ? bits[bits.length - 1] : String(r));
-  }
-  return parts.join('，');
-}
-
-/* 纯函数：给定 token 类别与文本，返回 { label, body } 或 null（不给提示） */
-/* 这些词虽登记在《词典》的「术式关键词」节，却不是条款 —— 悬停标签要分开 */
-const WORD_KIND = {
-  class: '语法词', hered: '语法词', campus: '结界类',
-  protocol: '协议条款', clav: '协议条目', frequent: '协议条目', erk: '相位', impo: '语法词'
-};
-function buildTip(cls, text, info, ranks) {
-  /* 术式引用：登记表里有就说明可见性与形参，没有就点明未登记 */
-  if (cls === 'spellRef' || cls === 'declaration') {
-    const rec = spellRegistry.get(String(text));
-    if (rec) {
-      const vis = rec.visibility ? rec.visibility : '默认（块内可见）';
-      const ps = (rec.params || []).map(function (p) {
-        return ((p.modifiers || []).join(' ') ? (p.modifiers || []).join(' ') + ' ' : '') + (p.type ? p.type + ':' : '') + p.name;
+    var GREEK = { theta: "\u03B8", lambda: "\u03BB", sigma: "\u03C3", Delta: "\u0394", varphi: "\u03C6", eta: "\u03B7", omega: "\u03C9", mu: "\u03BC", pi: "\u03C0", alpha: "\u03B1", beta: "\u03B2", gamma: "\u03B3", tau: "\u03C4", rho: "\u03C1" };
+    function cleanMath(s) {
+      let t = String(s);
+      t = t.replace(/\$([^$]*)\$/g, "$1");
+      t = t.replace(/\\mathrm\{([^}]*)\}/g, "$1");
+      t = t.replace(/\\text\{([^}]*)\}/g, "$1");
+      t = t.replace(/\\([a-zA-Z]+)/g, function(all, name) {
+        return GREEK[name] || name;
       });
-      return { label: (cls === 'spellRef' ? '术式引用' : '术式声明') + '：' + text,
-        body: (rec.visibility ? rec.visibility : '默认') + (ps.length ? ' · 形参 ' + ps.length + '：' + ps.join('、') : ' · 无形参') };
+      t = t.replace(/\\[,;!]/g, " ");
+      t = t.replace(/[{}]/g, "");
+      t = t.replace(/\\/g, "");
+      return t.replace(/\s+/g, " ").trim();
     }
-    if (cls === 'spellRef') return { label: '术式引用：' + text, body: '未登记' };
-  }  if (cls === 'element') {
-    const e = info.get(String(text)) || info.get(String(text).toLowerCase());
-    const mean = e && e.meaning ? e.meaning : '';
-    return { label: '元素码：' + text, body: (mean ? mean + ' · ' : '') + '类变量（单例）' };
-  }
-  if (cls === 'rankRange') {
-    const m = /^(\d*)\.\.(\d*)$/.exec(text);
-    const a = m ? m[1] : '';
-    const b = m ? m[2] : '';
-    if (a && b) {
-      const span = ranks.get(a + '–' + b) || rankSpan(a, b, ranks);
-      if (span) return { label: '秩 ' + a + '–' + b, body: span };
-      return { label: '区间 ' + a + '–' + b, body: '距离／角度／量值' };
-    }
-    if (b) return { label: '至 ' + b, body: '不超过该数（含）' };
-    if (a) return { label: '自 ' + a + ' 起', body: '自该处起（含）' };
-    return { label: '区间', body: '术式里的 .. 区间写法' };
-  }
-  if (cls === 'bracket') return { label: '方括号', body: '列表 ／ 下标 ／ 秩' };
-  if (cls === 'paren') return { label: '圆括号', body: '元组 · 分组 · 实参表' };
-  if (cls === 'brace') return { label: '花括号', body: '语块（兼作字典／映射）' };
-  if (cls === 'pointer') return { label: '指针', body: '& 取地址 · * 解引用 · @ 目标简写' };
-  if (cls === 'declaration') return { label: '术式名', body: '本术式的声明名，后面跟参数表与语块' };
-  if (!info) return null;
-  const entry = info.get(String(text).toLowerCase());
-  if (!entry) return null;
-  const head = WORD_KIND[String(text).toLowerCase()] || (entry.kind
-    ? '词根·' + entry.kind
-    : (CLASS_LABEL[cls] || SECTION_POS[entry.pos] || entry.pos || '词条'));
-  const raw = entry.abbr || '';
-  const showAbbr = raw && raw !== '—' && raw !== '-' && raw.toLowerCase() !== String(text).toLowerCase();
-  const note = TYPE_NOTES[String(text).toLowerCase()];
-  return { label: head, body: entry.meaning + (note ? '；' + note : '') };
-}
-
-const FALLBACK_CSS = "/* EpXsC Syntax 内置兜底样式（与 styles.css 第 1／2／3／5／6 节一致） */\nbody{--epx-comment:var(--text-faint);--epx-pretium:var(--color-red);--epx-keyword:var(--color-purple);--epx-judge:var(--color-purple);--epx-clause:var(--color-red);--epx-verb:var(--color-blue);--epx-decl:var(--color-yellow);--epx-element:var(--color-cyan);--epx-type:var(--color-cyan);--epx-unit:var(--color-orange);--epx-number:var(--color-orange);--epx-degree:var(--color-pink);--epx-axis:var(--color-green);--epx-pointer:var(--text-accent);--epx-operator:var(--text-muted);--epx-punct:var(--text-muted);--epx-paren:var(--text-muted);--epx-bracket:var(--text-muted);--epx-brace:var(--text-muted);--epx-rank:var(--color-orange);--epx-b2:var(--text-muted);--epx-b3:var(--text-muted);--epx-variable:var(--color-pink);--epx-modifier:var(--color-red)}\n.epx-pre{position:relative;padding:1.1em 1.15em 1.15em;background:var(--code-background);border:1px solid var(--background-modifier-border);border-left:3px solid var(--text-accent);border-radius:var(--radius-m)}\n.epx-pre::before{content:\"EpXsC\";position:absolute;inset:0 0 auto auto;padding:0 .7em;font-family:var(--font-interface);font-size:.62em;font-weight:600;letter-spacing:.09em;line-height:1.8;color:var(--text-on-accent);background:var(--text-accent);border-radius:0 var(--radius-m) 0 var(--radius-s);opacity:.85;pointer-events:none;user-select:none}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord){font-family:var(--font-monospace);font-size:.9em;line-height:1.65;tab-size:4;color:var(--code-normal,var(--text-normal));background:none;padding:0;text-shadow:none}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.comment{color:var(--epx-comment);font-style:italic}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.pretium{color:var(--epx-pretium);font-weight:700}:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.clause{color:var(--epx-clause);font-weight:700}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.keyword{color:var(--epx-keyword);font-weight:600}:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.judge{color:var(--epx-judge);font-weight:700}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.negPrefix{color:var(--epx-keyword);font-weight:700}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.function{color:var(--epx-verb)}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.spellRef{color:var(--epx-verb);font-weight:700}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.predicate{color:var(--epx-verb)}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.declaration{color:var(--epx-decl);font-weight:700}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.element{color:var(--epx-element);font-weight:600}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.type{color:var(--epx-type)}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.variable{color:var(--epx-variable);font-weight:600}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.unit{color:var(--epx-unit);font-style:italic}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.number{color:var(--epx-number)}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.rankRange{color:var(--epx-rank);font-weight:700}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.degree{color:var(--epx-degree);font-style:italic}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.axis{color:var(--epx-axis)}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.pointer{color:var(--epx-pointer);font-weight:700}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.coordRun{color:var(--text-muted);font-weight:600}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.modifier{color:var(--epx-modifier);font-style:italic;font-weight:600}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.declTarget{color:var(--epx-variable);font-weight:600}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.varUse{color:var(--epx-variable)}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.operator{color:var(--epx-operator)}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.bracket{color:var(--epx-bracket);color:color-mix(in srgb,var(--color-cyan) 40%,var(--text-muted));font-weight:600}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.paren{color:var(--epx-paren)}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.brace{color:var(--epx-brace)}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.punctuation{color:var(--epx-punct)}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.epx-d2{color:var(--epx-b2);color:color-mix(in srgb,var(--color-pink) 35%,var(--text-muted))}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.epx-d3{color:var(--epx-b3);color:color-mix(in srgb,var(--color-green) 35%,var(--text-muted))}\nbody.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.declaration{color:#7e691f;color:color-mix(in srgb,var(--color-yellow) 45%,var(--text-normal))}\nbody.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.element,body.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.type{color:#17797a;color:color-mix(in srgb,var(--color-cyan) 50%,var(--text-normal))}\nbody.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.unit,body.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.number,body.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.rankRange{color:#a05b16;color:color-mix(in srgb,var(--color-orange) 60%,var(--text-normal))}\nbody.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.axis{color:#197d44;color:color-mix(in srgb,var(--color-green) 55%,var(--text-normal))}\nbody.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.degree,body.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.variable,body.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.declTarget,body.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.varUse{color:#c4387c;color:color-mix(in srgb,var(--color-pink) 90%,var(--text-normal))}\nbody.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.pretium,body.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.clause,body.theme-light :is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.modifier{color:#cd3145;color:color-mix(in srgb,var(--color-red) 85%,var(--text-normal))}\n:is(code[class*=\"language-EpXsC\" i], .epx-ord) .token.epx-unknown{text-decoration:underline dotted var(--color-orange);text-underline-offset:.2em}\n.epx-tip{position:fixed;z-index:9999;max-width:340px;padding:7px 11px;border:1px solid var(--background-modifier-border);border-radius:var(--radius-s);background:var(--background-secondary);color:var(--text-normal);font-family:var(--font-interface);font-size:12px;line-height:1.5;box-shadow:var(--shadow-s);pointer-events:none;opacity:0}\n.epx-tip.is-visible{opacity:1}\n.epx-tip .epx-tip-head{font-weight:600;color:var(--text-accent)}\n.epx-tip .epx-tip-body{color:var(--text-muted)}\n/* 普通句块：外框 + 右上角语言签，跟术式块同形，只按模式换色（G 青 · T 橙）\n   外层是 code.language-EpXsC：token 配色与悬停沿用术式那套选择器，这里只管版面。 */\n.epx-ord {\n  --epx-ord-tint: var(--color-cyan);\n  display: block;\n  position: relative;\n  line-height: 1.9;\n  padding: 1.1em 1.15em 1.15em;\n  background: var(--code-background);\n  border: 1px solid var(--background-modifier-border);\n  border-left: 3px solid var(--epx-ord-tint);\n  border-radius: var(--radius-m);\n  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);\n}\n.epx-ord-T { --epx-ord-tint: var(--color-orange); }\n.epx-ord::before {\n  content: \"EpXsG\";\n  position: absolute;\n  inset: 0 0 auto auto;\n  padding: 0 0.7em;\n  font-family: var(--font-interface);\n  font-size: 0.62em;\n  font-weight: 600;\n  letter-spacing: 0.09em;\n  line-height: 1.8;\n  color: var(--epx-ord-tint);\n  background: var(--background-secondary);\n  background: color-mix(in srgb, var(--epx-ord-tint) 22%, var(--background-primary));\n  border-radius: 0 var(--radius-m) 0 var(--radius-s);\n  opacity: 0.95;\n  pointer-events: none;\n  user-select: none;\n}\n.epx-ord-T::before { content: \"EpXsT\"; }\n/* 词与词注都是 inline-block：必须 top 对齐，否则有词注的词被顶高、整行字上下跳。 */\n.epx-oline { display: block; margin: .18em 0; }\n.epx-gs { display: block; }\n.epx-gw { display: inline-block; text-align: center; margin: 0 .16em; vertical-align: top; }\n.epx-gsrc { display: block; line-height: 1.3; }\n.epx-ggl { display: block; font-size: .74em; line-height: 1.2; opacity: .7; font-family: var(--font-text); }\n.epx-tsrc { display: block; }\n.epx-tzh { display: block; font-family: var(--font-text); opacity: .78; font-size: .92em; }\n.epx-gap { display: block; height: .45em; }\n.epx-ord-wrap { display: block; }\n/* 有些主题会给块级元素继承首行缩进；T/G 是代码块，首行必须贴左 */\n.epx-ord, .epx-ord .epx-oline, .epx-ord .epx-tsrc, .epx-ord .epx-tzh { text-indent: 0; }\n.epx-ord { padding: 1.1em 1.15em 1.15em !important; }\n@media (max-width: 640px) { .epx-ord { padding: 0 0.9em 0.9em !important; } }\n.epx-ord > .epx-oline:first-child { margin-top: 0; }\n.epx-ord { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }\n@media (max-width:640px){.epx-ord,.epx-pre{white-space:pre-wrap;overflow-wrap:break-word;padding:0 .9em .9em}.epx-ord{line-height:1.8}.epx-ord::before,.epx-pre::before{position:static;display:block;margin:0 -.9em .75em;padding:.22em .9em;text-align:right;line-height:1.7;border-radius:var(--radius-m) var(--radius-m) 0 0;opacity:1}.epx-ggl{line-height:1.25}.epx-tzh{margin-top:.15em}}";
-
-const varTypesOf = new WeakMap();
-/* 术式登记表（refresh 时填充）：提示与检查都用它 */
-let spellRegistry = new Map();
-
-let tipNode = null;
-
-function ensureTipNode() {
-  if (tipNode && tipNode.parentNode) return tipNode;
-  tipNode = document.createElement('div');
-  tipNode.className = 'epx-tip';
-  const s = tipNode.style;
-  s.position = 'fixed';
-  s.zIndex = '9999';
-  s.pointerEvents = 'none';
-  s.opacity = '0';
-  /* 浮层的观感也自己带一份：外部样式表万一没生效，它就不会变成裸文本留在页面上 */
-  s.maxWidth = '340px';
-  s.padding = '7px 11px';
-  s.border = '1px solid var(--background-modifier-border)';
-  s.borderRadius = 'var(--radius-s, 6px)';
-  s.background = 'var(--background-secondary)';
-  s.color = 'var(--text-normal)';
-  s.fontFamily = 'var(--font-interface)';
-  s.fontSize = '12px';
-  s.lineHeight = '1.5';
-  s.boxShadow = 'var(--shadow-s, 0 2px 8px rgba(0,0,0,.25))';
-  s.transition = 'opacity 90ms ease';
-  document.body.appendChild(tipNode);
-  return tipNode;
-}
-
-/* 跟随光标摆位：默认右下，贴边就翻到另一侧 */
-function showTipAt(x, y, tip) {
-  const node = ensureTipNode();
-  node.innerHTML = '';
-  const head = document.createElement('div');
-  head.className = 'epx-tip-head';
-  head.textContent = tip.label;
-  node.appendChild(head);
-  if (tip.body) {
-    const bodyEl = document.createElement('div');
-    bodyEl.className = 'epx-tip-body';
-    bodyEl.textContent = tip.body;
-    node.appendChild(bodyEl);
-  }
-  node.style.opacity = '1';
-  node.classList.add('is-visible');
-  const nr = node.getBoundingClientRect();
-  const vw = window.innerWidth || 900;
-  const vh = window.innerHeight || 600;
-  let left = x + 14;
-  if (left + nr.width > vw - 8) left = x - nr.width - 14;
-  if (left < 8) left = 8;
-  let top = y + 18;
-  if (top + nr.height > vh - 8) top = y - nr.height - 12;
-  if (top < 8) top = 8;
-  node.style.left = Math.round(left) + 'px';
-  node.style.top = Math.round(top) + 'px';
-}
-
-function hideTip() {
-  if (tipNode) tipNode.style.opacity = '0';
-  if (tipNode) tipNode.classList.remove('is-visible');
-}
-
-/* 阅读视图：命中 token 就按它的类别给提示；括号看语境，变量看本块声明 */
-/* 相邻的 token 兄弟节点（跳过空白文本） */
-function prevToken(el) {
-  let n = el ? el.previousSibling : null;
-  while (n && !(n.nodeType === 1 && n.classList && n.classList.contains('token'))) n = n.previousSibling;
-  return n;
-}
-function nextToken(el) {
-  let n = el ? el.nextSibling : null;
-  while (n && !(n.nodeType === 1 && n.classList && n.classList.contains('token'))) n = n.nextSibling;
-  return n;
-}
-/* 形如 元素^n 的阶位：返回 { elem, n }，否则 null */
-function phaseOf(el) {
-  const caret = prevToken(el);
-  if (!caret || !caret.classList || !caret.classList.contains('operator') || String(caret.textContent).trim() !== '^') return null;
-  const elem = prevToken(caret);
-  if (!elem || !elem.classList || !elem.classList.contains('element')) return null;
-  const nx = nextToken(caret);
-  return { elem: String(elem.textContent || '').trim(), n: nx && nx.classList && nx.classList.contains('number') ? String(nx.textContent || '').trim() : '' };
-}
-
-function tipForElement(el, info, ranks) {
-  let cls = pickClass(el.classList);
-  if (cls === 'declTarget' || cls === 'varUse') cls = 'variable';
-  if (!cls) return null;
-  const text = el.textContent || '';
-  const kind = el.getAttribute ? el.getAttribute('data-epx-kind') : '';
-  if (kind && (cls === 'bracket' || cls === 'paren' || cls === 'brace')) return bracketTip(kind);
-  const code = el.closest ? el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)') : null;
-  const vars = code ? varTypesOf.get(code) : null;
-  if (vars && vars.has(text)) { const vt = variableTip(text, vars.get(text), info); if (vt) return vt; }
-  if (cls === 'negPrefix') {
-    const scope = negScopeText(el);
-    const shown = scope.length > 24 ? scope.slice(0, 24) + '…' : scope;
-    return {
-      label: '前置否定 ne',
-      body: '否定其后成分（同 !）' + (shown ? '：' + shown : '')
-    };
-  }
-  if (cls === 'coordRun') return coordTip(text);
-  /* ^ 有两种含义：跟在元素码之后是相位阶位，其余是局部坐标 */
-  if (cls === 'operator' && text === '^') {
-    /* ^ 本身：前面是元素码、后面跟数字，即为相位阶位 */
-    const prev = prevToken(el);
-    if (prev && prev.classList && prev.classList.contains('element')) {
-      const nx = nextToken(el);
-      const n = nx && nx.classList && nx.classList.contains('number') ? String(nx.textContent).trim() : '';
-      return { label: '相位 eRk', body: '第 ' + (n || 'n') + ' 阶（' + String(prev.textContent || '').trim() + '）' };
-    }
-  }
-  if (cls === 'number') {
-    const ph = phaseOf(el);
-    if (ph) return { label: '相位 eRk', body: '第 ' + String(text).trim() + ' 阶（' + ph.elem + '）' };
-  }
-  const sym = SYMBOL_INFO[text];
-  if (sym && (cls === 'operator' || cls === 'punctuation' || cls === 'pointer')) return sym;
-  if (cls === 'comment') return { label: '注释', body: '/* … */；// 不用（/ 是相变）' };
-  if (cls === 'annotation') return { label: '注解行', body: '. 开头，不参与解析' };
-  const group = el.closest ? el.closest('.token.indexGroup, .token.indexDecl') : null;
-  if (group && cls === 'number') {
-    const n = String(text).trim();
-    if (group.classList.contains('indexDecl')) {
-      return { label: '位数 ' + n, body: '列表容器的位数（长度）；冒号后是变量名。' };
-    }
-    const def = rankDef(n, ranks);
-    return { label: '下标 ' + n, body: def ? '第 ' + n + ' 位；作用于实体时即它的第 ' + n + ' 秩 —— ' + def + '。' : '第 ' + n + ' 位（秩只有 1–9）。' };
-  }
-  if (cls === 'number') return { label: '数值', body: '有实数的量可以直接写算式。' };
-  const tip = buildTip(cls, text, info, ranks);
-  if (tip) return tip;
-  if (cls === 'word' && text.length >= 4 && !/[0-9]/.test(text)) {
-    return { label: '未入典', body: '词典里没有这个词条' };
-  }
-  return null;
-}
-
-/* 光标下的那个词：实时预览里没有 token，只能按词查 */
-function wordAtPoint(x, y) {
-  let node = null;
-  let offset = 0;
-  if (document.caretRangeFromPoint) {
-    const r = document.caretRangeFromPoint(x, y);
-    if (r) { node = r.startContainer; offset = r.startOffset; }
-  } else if (document.caretPositionFromPoint) {
-    const p = document.caretPositionFromPoint(x, y);
-    if (p) { node = p.offsetNode; offset = p.offset; }
-  }
-  if (!node || node.nodeType !== 3) return null;
-  const text = node.nodeValue || '';
-  const isWordChar = function (c) { return /[A-Za-z0-9_]/.test(c); };
-  let i = offset;
-  if (i >= text.length || !isWordChar(text.charAt(i))) {
-    if (i > 0 && isWordChar(text.charAt(i - 1))) i -= 1;
-    else return null;
-  }
-  let a = i;
-  let b = i;
-  while (a > 0 && isWordChar(text.charAt(a - 1))) a -= 1;
-  while (b < text.length && isWordChar(text.charAt(b))) b += 1;
-  return text.slice(a, b) || null;
-}
-
-/* 悬停位置是不是落在「EpXsC 家族」的代码块里：
-   阅读视图看 language-EpXsC；实时预览沿代码行往回找围栏，只认 EpXsC/EpXsT/EpXsG。
-   其它语言的代码块、没有语言标注的代码块，一律不给词条提示。 */
-function epxFenceLang(text) {
-  const s = String(text || '').replace(/\u200b/g, '');
-  let i = 0;
-  while (i < s.length && (s.charAt(i) === ' ' || s.charAt(i) === '\t')) i++;
-  const ch = s.charAt(i);
-  if (ch !== String.fromCharCode(96) && ch !== '~') return '';
-  let j = i;
-  while (j < s.length && s.charAt(j) === ch) j++;
-  if (j - i < 3) return '';
-  while (j < s.length && (s.charAt(j) === ' ' || s.charAt(j) === '\t')) j++;
-  let k = j;
-  while (k < s.length && /[A-Za-z0-9_+-]/.test(s.charAt(k))) k++;
-  return s.slice(j, k).toLowerCase();
-}
-function liveCodeLang(el) {
-  let line = el.closest('.HyperMD-codeblock');
-  if (!line) return '';
-  let cur = line;
-  for (let n = 0; cur && n < 500; n++) {
-    if (cur.classList && cur.classList.contains('HyperMD-codeblock-begin')) {
-      return epxFenceLang(cur.textContent || '');
-    }
-    cur = cur.previousElementSibling;
-    if (!cur || !cur.classList || !cur.classList.contains('HyperMD-codeblock')) return '';
-  }
-  return '';
-}
-function inCodeContext(el) {
-  if (!el || !el.closest) return false;
-  if (el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)')) return true;
-  const lang = liveCodeLang(el);
-  return lang === 'epxsc' || lang === 'epxst' || lang === 'epxsg';
-}
-/* 检查结果面板：点一行跳到那一处 */
-class LintModal extends Modal {
-  constructor(app, file, issues, blocks) {
-    super(app);
-    this.file = file;
-    this.issues = issues;
-    this.blocks = blocks;
-  }
-
-  onOpen() {
-    const el = this.contentEl;
-    el.addClass('epx-lint');
-    el.createEl('h4', { text: 'EpXsC 语法检查 · ' + this.file.basename });
-    if (!this.issues.length) {
-      el.createEl('div', { class: 'epx-lint-summary', text: this.blocks + ' 个代码块 · 没有发现问题' });
-      return;
-    }
-    let errs = 0;
-    for (let i = 0; i < this.issues.length; i++) if (this.issues[i].level === 'error') errs += 1;
-    el.createEl('div', { class: 'epx-lint-summary', text: this.blocks + ' 个代码块 · ' + this.issues.length + ' 处（' + errs + ' 错误 / ' + (this.issues.length - errs) + ' 警告）· 点一行跳到该处' });
-    const list = el.createEl('div', { class: 'epx-lint-list' });
-    const self = this;
-    for (let i = 0; i < this.issues.length; i++) {
-      const it = this.issues[i];
-      const row = list.createEl('div', { class: 'epx-lint-row epx-lint-' + it.level });
-      row.createEl('span', { class: 'epx-lint-line', text: '第 ' + it.line + ' 行' });
-      row.createEl('span', { class: 'epx-lint-msg', text: it.message });
-      row.addEventListener('click', function () {
-        self.app.workspace.getLeaf(false).openFile(self.file, { eState: { line: Math.max(0, it.line - 1), ch: 0 } });
-        self.close();
-      });
-    }
-  }
-
-  onClose() { this.contentEl.empty(); }
-}
-
-/* ── 普通句：EpXsG（语法标记）与 EpXsT（句子对译）──────────────────────
-   两种都用同一套着色与悬停，但不做术式检查（不是术式）。
-   写法：原文一行一句；译文紧接它所译的那句，两种写法都认——
-     ① 以 > 开头的一行；② 紧跟原文行、含汉字的一行（「原文一行、译文一行」）。
-   EpXsG：每个词下方自动标出词类（取《词典》），再列出译文。
-   EpXsT：只做对译——原文一行、译文一行。
-   ─────────────────────────────────────────────────────────────── */
-const ORD_CLASS = 'language-EpXsC';          /* 沿用同一套 token 类，悬停与配色自动生效 */
-function ordTokens(line, grammar) {
-  const html = tokenizeText(line, grammar);
-  const out = [];
-  const re = /<span class="token ([a-zA-Z ]+)">([\s\S]*?)<\/span>/g;
-  let m;
-  while ((m = re.exec(html))) out.push({ cls: m[1], text: m[2].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>') });
-  return out;
-}
-function ordGlossOf(tok, info) {
-  const t = tok.text.trim();
-  if (!t || /^[\p{P}]$/u.test(t)) return '';
-  const e = info && (info.get(t) || info.get(t.toLowerCase()));
-  if (e) {
-    const raw = String(e.pos || '').replace('·缩写', '');
-    const pos = SECTION_POS[raw] || raw;
-    const num = String(e.meaning || '').replace(/[^\u4e00-\u9fa5]/g, '');
-    if (pos) return pos;
-    if (num) return num.slice(0, 4);
-  }
-  const map = { judge: '判断词', keyword: '功能词', modifier: '限定词', degree: '程度词', unit: '单位', predicate: '谓词', element: '元素码', type: '类型名', number: '数' };
-  for (const k in map) if (tok.cls.indexOf(k) >= 0) return map[k];
-  return '';
-}
-function renderOrdBlockInner(el, source, mode, grammar, info) {
-  const lines = String(source || '').replace(/\r/g, '').split('\n');
-  const wrap = document.createElement('div');
-  wrap.className = 'epx-ord-wrap';
-  const code = document.createElement('div');
-  code.className = 'epx-ord epx-ord-' + mode;
-  wrap.appendChild(code);
-  const appendHTML = function (parent, html) {
-    const tpl = document.createElement('template');
-    tpl.innerHTML = html;
-    parent.appendChild(tpl.content);
-  };
-  const lineEl = function () {
-    const d = document.createElement('div');
-    d.className = 'epx-oline';
-    return d;
-  };
-  let pending = null;
-  const flush = function (pair) {
-    if (!pair) return;
-    const line = lineEl();
-    if (mode === 'G') {
-      const gs = document.createElement('div');
-      gs.className = 'epx-gs';
-      const toks = ordTokens(pair.src, grammar);
-      for (let i = 0; i < toks.length; i++) {
-        const tok = toks[i];
-        const gl = ordGlossOf(tok, info);
-        const gw = document.createElement('span');
-        gw.className = 'epx-gw';
-        const srcEl = document.createElement('span');
-        srcEl.className = 'epx-gsrc token ' + tok.cls;
-        srcEl.textContent = tok.text;
-        gw.appendChild(srcEl);
-        if (gl) {
-          const gg = document.createElement('span');
-          gg.className = 'epx-ggl';
-          gg.textContent = gl;
-          gw.appendChild(gg);
+    function parseRanks(text) {
+      const out = /* @__PURE__ */ new Map();
+      const lines = text.split(/\r?\n/);
+      let started = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!started) {
+          if (/九个秩与维度的对应/.test(line)) started = true;
+          continue;
         }
-        gs.appendChild(gw);
-      }
-      line.appendChild(gs);
-    } else {
-      const srcEl = document.createElement('div');
-      srcEl.className = 'epx-tsrc';
-      appendHTML(srcEl, tokenizeText(pair.src, grammar));
-      line.appendChild(srcEl);
-    }
-    if (pair.zh) {
-      const zh = document.createElement('div');
-      zh.className = 'epx-tzh';
-      zh.textContent = pair.zh;
-      line.appendChild(zh);
-    }
-    code.appendChild(line);
-  };
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i];
-    const t = raw.trim();
-    if (!t) {
-      flush(pending); pending = null;
-      const gap = document.createElement('div');
-      gap.className = 'epx-gap';
-      code.appendChild(gap);
-      continue;
-    }
-    if (t.charAt(0) === '>') {
-      if (pending) pending.zh = t.slice(1).trim();
-      else {
-        const line = lineEl();
-        const zh = document.createElement('div');
-        zh.className = 'epx-tzh';
-        zh.textContent = t.slice(1).trim();
-        line.appendChild(zh);
-        code.appendChild(line);
-      }
-      continue;
-    }
-    /* 没写 > 时：紧跟原文行、含汉字的一行，当作上一句的译文 */
-    if (pending && !pending.zh && /[\u3400-\u9fff]/.test(t)) { pending.zh = t; continue; }
-    flush(pending);
-    pending = { src: t, zh: '' };
-  }
-  flush(pending);
-  /* 用 DOM 节点而不是 el.innerHTML：阅读视图会把插件写入的 HTML 字符串清成纯文本，
-     但不会拆掉已经 append 的节点。 */
-  el.textContent = '';
-  el.appendChild(wrap);
-}
-/* 包一层：普通句渲染出错时退化成普通代码块，不要变成 Obsidian 的「代码块渲染错误」。 */
-function renderOrdBlock(el, source, mode, grammar, info) {
-  try {
-    renderOrdBlockInner(el, source, mode, grammar, info);
-  } catch (err) {
-    console.warn('[EpXsC Syntax] 普通句渲染失败：', err);
-    try {
-      if (el && el.empty) el.empty();
-      if (el && el.createEl) el.createEl('pre', { text: String(source || '') });
-    } catch (e) { /* 兜底也失败就算了 */ }
-  }
-}
-
-/* 实时预览里，被「代码块处理器」渲染出来的块是一个部件：点它不会自动回到源码。
-   这里把光标送进块首，于是点一下（含双击的第一下）就能编辑；阅读视图不动。 */
-function bindClickToSource(target, app, el, ctx) {
-  if (!target || !target.style || !target.addEventListener) return;
-  target.style.cursor = 'text';
-  target.addEventListener('click', function () {
-    try {
-      const view = app.workspace.getActiveViewOfType(MarkdownView);
-      if (!view || !view.getMode || view.getMode() !== 'source' || !view.editor) return;
-      const info = ctx && ctx.getSectionInfo ? ctx.getSectionInfo(el) : null;
-      if (!info || typeof info.lineStart !== 'number') return;
-      const last = (typeof info.lineEnd === 'number') ? info.lineEnd : info.lineStart + 1;
-      view.editor.setCursor({ line: Math.min(info.lineStart + 1, last), ch: 0 });
-      view.editor.focus();
-    } catch (e) { /* 光标送不进去就算了，不影响渲染 */ }
-  });
-}
-
-class EpXsCSyntaxPlugin extends Plugin {
-  onload() {
-    const self = this;
-    this.grammar = makeGrammar(BASE_LISTS);
-    this.info = new Map();
-    this.ranks = new Map();
-    for (const w in EXTRA_WORDS) this.info.set(w, EXTRA_WORDS[w]);
-    this.install();
-    this.registerDomEvent(document, 'mouseover', function (ev) {
-      hideTip();
-      const el = ev.target;
-      if (!el || !el.closest) return;
-      const token = el.closest('span.token');
-      if (token && el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)')) {
-        const tip = tipForElement(token, self.info, self.ranks);
-        if (tip) { showTipAt(ev.clientX, ev.clientY, tip); return; }
-      }
-      if (!inCodeContext(el)) return;
-      const word = wordAtPoint(ev.clientX, ev.clientY);
-      if (!word) return;
-      const tip = buildTip('word', word, self.info, self.ranks);
-      if (tip) showTipAt(ev.clientX, ev.clientY, tip);
-    });
-    this.registerDomEvent(document, 'mouseout', hideTip);
-    this.registerDomEvent(document, 'scroll', hideTip, true);
-    this.addCommand({
-      id: 'reload-self',
-      name: '重载 EpXsC 插件（提示手动重载）',
-      callback: function () {
-        new Notice('请在 设置 → 社区插件 中关闭再启用 EpXsC Syntax。');
-      }
-    });
-    this.addCommand({
-      id: 'diagnose',
-      name: 'EpXsC 诊断报告（写进库根目录，便于整段复制）',
-      callback: function () { self.diagnose(); }
-    });
-    this.addCommand({
-      id: 'lint-note',
-      name: '检查当前笔记的 EpXsC 代码块',
-      callback: function () { self.lintActiveNote(); }
-    });
-    this.addCommand({
-      id: 'self-check',
-      name: 'EpXsC 自检（视图／token／颜色／样式表）',
-      callback: function () { self.selfCheck(); }
-    });
-    this.register(function () {
-      const Prism = window.Prism;
-      if (!Prism || !Prism.languages) return;
-      for (let i = 0; i < LANG_KEYS.length; i++) delete Prism.languages[LANG_KEYS[i]];
-    });
-    this.registerMarkdownPostProcessor(function (el) { self.highlightIn(el); });
-    /* 代码块处理器：Obsidian 的公开稳定 API（Mermaid／Dataview 同一条路），
-       阅读视图与实时预览都会走它。实时预览里代码块本就「光标不在其中时渲染、进去显示源码」，
-       所以这条路上色不需要碰 CodeMirror，也不受 CM6 版本变动影响。 */
-    const renderBlock = function (source, el, ctx) {
-      try {
-        if (el && el.empty) el.empty();
-        else if (el) el.textContent = '';
-        const pre = document.createElement('pre');
-        const code = document.createElement('code');
-        code.className = 'language-EpXsC';
-        code.textContent = source;
-        pre.appendChild(code);
-        el.appendChild(pre);
-        self.highlightOne(code);
-        bindClickToSource(pre, self.app, el, ctx);
-      } catch (err) {
-        console.warn('[EpXsC Syntax] 代码块渲染失败：', err);
-        if (el && el.createEl) el.createEl('pre', { text: source });
-      }
-    };
-    this.registerMarkdownCodeBlockProcessor('EpXsC', renderBlock);
-    this.registerMarkdownCodeBlockProcessor('epxsc', renderBlock);
-    this.registerMarkdownCodeBlockProcessor('EPXSC', renderBlock);
-    /* 普通句：语法标记 / 句子对译。
-       Obsidian 的代码块处理器签名是 (source, el, ctx) —— 第一个参数是源码、第二个才是容器元素。
-       这里必须按 (source, el) 接参数，否则 el 拿到的是字符串，innerHTML 赋值会在严格模式下抛
-       TypeError（表现为代码块显示「渲染错误」）。 */
-    const ord = function (source, el, ctx, mode) {
-      renderOrdBlock(el, source, mode, self.grammar, self.info);
-      bindClickToSource(el, self.app, el, ctx);
-    };
-    const ordG = (source, el, ctx) => ord(source, el, ctx, 'G');
-    const ordT = (source, el, ctx) => ord(source, el, ctx, 'T');
-    for (const lang of ['EpXsG', 'epxsg', 'EPXSG']) this.registerMarkdownCodeBlockProcessor(lang, ordG);
-    for (const lang of ['EpXsT', 'epxst', 'EPXST']) this.registerMarkdownCodeBlockProcessor(lang, ordT);
-    const isDataFile = function (file) {
-      if (!file || !file.path) return false;
-      return file.path === DICT_PATH || file.path === SYNTAX_PATH || file.path === RANK_PATH ||
-        file.path.indexOf(ROOTS_DIR) === 0 || file.path.indexOf(SPELL_DIR) === 0;
-    };
-    let refreshTimer = null;
-    const scheduleRefresh = function () {
-      if (refreshTimer) window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(function () { refreshTimer = null; self.refresh(); }, 300);
-    };
-    const onDataEvent = function (file) { if (isDataFile(file)) scheduleRefresh(); };
-    this.registerEvent(this.app.vault.on('modify', onDataEvent));
-    this.registerEvent(this.app.vault.on('create', onDataEvent));
-    this.registerEvent(this.app.vault.on('delete', onDataEvent));
-    this.registerEvent(this.app.vault.on('rename', function (file, oldPath) {
-      if (isDataFile(file) || (oldPath && isDataFile({ path: oldPath }))) scheduleRefresh();
-    }));
-    this.register(function () { if (refreshTimer) window.clearTimeout(refreshTimer); });
-    this.addCommand({
-      id: 'reload-lexicon',
-      name: '重新载入词表与释义',
-      callback: function () { self.refresh(); }
-    });
-    this.app.workspace.onLayoutReady(function () { self.refresh(); });
-    /* 启动期多补几次，之后靠事件与看门狗兜底 */
-    const early = [400, 1500];
-    for (let i = 0; i < early.length; i++) {
-      const t = window.setTimeout(function () { self.ensureRendered(); }, early[i]);
-      this.register(function () { window.clearTimeout(t); });
-    }
-    this.registerEvent(this.app.workspace.on('layout-change', function () { self.ensureRendered(); }));
-    this.registerEvent(this.app.workspace.on('active-leaf-change', function () { self.ensureRendered(); }));
-    this.registerInterval(window.setInterval(function () { self.ensureRendered(); }, 2500));
-  }
-
-  install() {
-    const Prism = window.Prism;
-    if (!Prism || !Prism.languages) return false;
-    for (let i = 0; i < LANG_KEYS.length; i++) Prism.languages[LANG_KEYS[i]] = this.grammar;
-    return true;
-  }
-
-  /* 只遍历指定目录（而不是 getFiles 全库枚举），降低插件对库的可见面 */
-  mdFilesUnder(dir) {
-    const folder = this.app.vault.getAbstractFileByPath(dir);
-    if (!(folder instanceof TFolder)) return [];
-    const out = [];
-    const walk = function (node) {
-      for (let i = 0; i < node.children.length; i++) {
-        const child = node.children[i];
-        if (child instanceof TFile && child.extension === 'md') out.push(child);
-        else if (child instanceof TFolder) walk(child);
-      }
-    };
-    walk(folder);
-    return out;
-  }
-
-  /* 读词典 → 重建词表 → 重新上色 */
-  /* 读库内文件；哪一份读不到（别人下载的库）就用内置快照兜底。
-     库内文件永远优先，所以词典一改，着色与释义就跟着改。 */
-  async refresh() {
-    const gen = (this._refreshGen = (this._refreshGen || 0) + 1);
-    const info = new Map();
-    for (const w in EXTRA_WORDS) info.set(w, EXTRA_WORDS[w]);
-    const roots = new Map();
-    const extraUnits = [];
-    const keyWords = new Set();
-    let lists = null;
-    let ranks = new Map();
-
-    const mergeInto = function (target, map) {
-      map.forEach(function (value, key) { if (!target.has(key)) target.set(key, value); });
-    };
-
-    try {
-      /* 1) 词典 → 词条 + 四类词表 */
-      const dictFile = this.app.vault.getAbstractFileByPath(DICT_PATH);
-      if (dictFile instanceof TFile) {
-        const text = await this.app.vault.cachedRead(dictFile);
-        mergeInto(info, parseEntries(text));
-        const map = splitSections(text);
-        lists = {
-          keyword: wordsFrom(map, SECTIONS.keyword, FALLBACK.keyword),
-          judge: wordsFrom(map, SECTIONS.judge, FALLBACK.judge),
-          clause: wordsFrom(map, SECTIONS.clause, FALLBACK.clause),
-          degree: wordsFrom(map, SECTIONS.degree, FALLBACK.degree),
-          predicate: wordsFrom(map, SECTIONS.predicate, FALLBACK.predicate),
-          unit: wordsFrom(map, SECTIONS.unit, FALLBACK.unit)
-        };
-      } else {
-        mergeInto(info, builtinMap('entries'));
-      }
-
-      /* 2) 术式语法 → 筛选键 + 单位表 */
-      const syntaxFile = this.app.vault.getAbstractFileByPath(SYNTAX_PATH);
-      if (syntaxFile instanceof TFile) {
-        const syntaxText = await this.app.vault.cachedRead(syntaxFile);
-        const keyMap = parseFilterKeys(syntaxText);
-        mergeInto(info, keyMap);
-        keyMap.forEach(function (v, k) { keyWords.add(String(k).toLowerCase()); });
-        const unitMap = parseUnits(syntaxText);
-        mergeInto(info, unitMap);
-        unitMap.forEach(function (v) { extraUnits.push(v.word); });
-      } else {
-        const keyMap = builtinMap('keys');
-        mergeInto(info, keyMap);
-        keyMap.forEach(function (v, k) { keyWords.add(String(k).toLowerCase()); });
-        mergeInto(info, builtinMap('units'));
-      }
-
-      /* 3) 维度模型 → 秩表 */
-      const rankFile = this.app.vault.getAbstractFileByPath(RANK_PATH);
-      ranks = rankFile instanceof TFile ? parseRanks(await this.app.vault.cachedRead(rankFile)) : builtinRanks();
-
-      /* 4) 词根表分册 → 词根释义；动-根同时进谓词表 */
-      const rootFiles = this.mdFilesUnder(ROOTS_DIR);
-      if (rootFiles.length) {
-        for (let i = 0; i < rootFiles.length; i++) {
-          mergeInto(roots, parseRoots(await this.app.vault.cachedRead(rootFiles[i])));
+        if (!/^\s*\|/.test(line)) {
+          if (out.size) break;
+          else continue;
         }
-      } else {
-        mergeInto(roots, builtinRoots());
+        const m = /^\s*\|\s*(\d{1,2}(?:[–-]\d{1,2})?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|/.exec(line);
+        if (!m) continue;
+        const rank = m[1].replace("-", "\u2013");
+        const parts = [];
+        const comp = cleanMath(m[2]);
+        if (comp) parts.push(comp);
+        if (m[3].trim()) parts.push(m[3].trim());
+        if (parts.length) out.set(rank, parts.join(" \xB7 "));
       }
-      roots.forEach(function (v, k) { if (v.kind === '动' || !info.has(k)) info.set(k, v); });
-    } catch (err) {
-      console.warn('[EpXsC Syntax] 读取库内词库失败，改用内置快照：', err);
-      mergeInto(info, builtinMap('entries'));
-      mergeInto(info, builtinMap('keys'));
-      mergeInto(info, builtinMap('units'));
-      mergeInto(roots, builtinRoots());
-      roots.forEach(function (v, k) { if (v.kind === '动' || !info.has(k)) info.set(k, v); });
-      if (!ranks.size) ranks = builtinRanks();
+      return out;
     }
-
-    const verbRoots = [];
-    roots.forEach(function (v) { if (v.kind === '动') verbRoots.push(v.word); });
-    if (lists) {
-      lists.predicate = lists.predicate.concat(verbRoots);
-      lists.unit = lists.unit.concat(extraUnits);
-    } else {
-      lists = builtinLists(verbRoots);
-    }
-
-    /* 术式登记表：《魔法》目录 ＋ 术式语法里的声明（读不到就是空表，检查相应放宽） */
-    const spells = new Map();
-    try {
-      const spellFiles = this.mdFilesUnder(SPELL_DIR);
-      const syntaxFile = this.app.vault.getAbstractFileByPath(SYNTAX_PATH);
-      if (syntaxFile instanceof TFile) spellFiles.push(syntaxFile);
-      for (let i = 0; i < spellFiles.length; i++) {
-        collectSpells(await this.app.vault.cachedRead(spellFiles[i]), spells, spellFiles[i].path);
+    function parseFilterKeys(text) {
+      const out = /* @__PURE__ */ new Map();
+      const lines = text.split(/\r?\n/);
+      let started = false;
+      let rows = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!started) {
+          if (/^#{2,6}\s*筛选键\s*$/.test(line)) started = true;
+          continue;
+        }
+        if (!/^\s*\|/.test(line)) {
+          if (rows) break;
+          else continue;
+        }
+        const m = /^\s*\|\s*\x60?\s*([A-Za-z][A-Za-z0-9_-]{0,30})\s*\x60?\s*\|\s*([^|]*?)\s*\|/.exec(line);
+        if (!m) continue;
+        rows += 1;
+        out.set(m[1].toLowerCase(), { word: m[1], pos: "\u7B5B\u9009\u952E", meaning: m[2].replace(/\x60/g, "").trim(), abbr: "" });
       }
-    } catch (err) { /* 保持空表 */ }
-    if (gen !== this._refreshGen) return;
-    this.spells = spells;
-    spellRegistry = spells;
-
-    this.info = info;
-    this.ranks = ranks;
-    this.roots = roots;
-    this.units = new Set();
-    for (let i = 0; i < lists.unit.length; i++) this.units.add(String(lists.unit[i]).toLowerCase());
-    this.keys = new Set();
-    const keySet = this.keys;
-    /* 以《术式语法》的筛选键表为准：同一个词也可能另有词性（如 limit 兼作术式关键词），
-       只按词性反推会漏掉它 */
-    keyWords.forEach(function (k) { keySet.add(String(k).toLowerCase()); });
-    info.forEach(function (v, k) { if (v.pos === '筛选键') keySet.add(String(k).toLowerCase()); });
-    this.grammar = makeGrammar(lists, Array.from(keyWords));
-    /* 语法层用词（class／hered／campus／protocol／clav／frequent／eRk）另立名目，别一律叫「条款」 */
-    this.install();
-    if (window.__epxscDebug) console.log('[EpXsC Syntax] 词条 ' + info.size + ' · 词根 ' + roots.size + ' · 秩 ' + ranks.size + '（' + (lists.predicate.length) + ' 个谓词）');
-    await Promise.race([
-      this.ensureStyles(),
-      new Promise(function (resolve) { window.setTimeout(function () { resolve('样式步骤超时，跳过'); }, 2000); })
-    ]);
-    this.rehighlight();
-  }
-
-  /* 样式兜底：外部 styles.css 没被加载时（颜色、右上角 EpXsC 标记、未入典点线、
-     悬停浮层样式会一起消失），自己把样式塞进页面。先试读插件目录里的 styles.css，读不到就用内置那份。 */
-  async ensureStyles() {
-    if (this._styleState) return this._styleState;
-    /* 第一步：无条件把内置配色挂上去 —— 不依赖任何读取，绝不空手而归。
-       这样即使读文件卡住或失败，颜色、代码块标记、浮层样式也一定在。 */
-    let el = null;
-    try {
-      el = document.getElementById('epxsc-styles');
-      if (!el) { el = document.createElement('style'); el.id = 'epxsc-styles'; document.head.appendChild(el); }
-      el.textContent = FALLBACK_CSS;
-      this._styleState = '已注入内置配色';
-    } catch (e) {
-      this._styleState = '注入失败：' + (e && e.message);
-      return this._styleState;
+      return out;
     }
-    /* 第二步：若能读到插件目录里的 styles.css（更完整，含语法检查面板等），就换成它。
-       1.5 秒读不到就算了 —— 内置那份已经在生效。 */
-    try {
-      const dir = (this.manifest && this.manifest.dir) || '.obsidian/plugins/epxsc-syntax';
-      const css = await Promise.race([
-        this.app.vault.adapter.read(dir + '/styles.css'),
-        new Promise(function (resolve) { window.setTimeout(function () { resolve(''); }, 1500); })
-      ]);
-      if (css && css.indexOf('.epx-tip') >= 0) {
-        el.textContent = css;
-        this._styleState = '已用插件目录里的 styles.css';
+    function cleanCell(s) {
+      return String(s).replace(/\*\*/g, "").replace(/\x60/g, "").trim();
+    }
+    function parseUnits(text) {
+      const out = /* @__PURE__ */ new Map();
+      const lines = text.split(/\r?\n/);
+      let started = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!started) {
+          if (/^#{2,6}\s*六、单位/.test(line)) started = true;
+          continue;
+        }
+        if (/^#{2,6}\s/.test(line) && !/其他单位/.test(line)) break;
+        if (!/^\s*\|/.test(line)) continue;
+        const cells = line.split("|").map(cleanCell);
+        if (cells.length < 5) continue;
+        const energy = /^[?？]?\s*([A-Z]{2,4})$/.exec(cells[1]);
+        if (energy) {
+          const luss = cells[4] || "";
+          const note = /锁存/.test(luss) ? "\u5199\u5B83\u5373\u4E3A\u9501\u5B58\uFF08\u89E6\u53D1\u5F0F\u672F\u5F0F\uFF09" : /不得/.test(luss) ? "\u529F\u7387\u53E3\u5F84\uFF0C\u4E0D\u5F97\u914D luss\uFF08\u6301\u7EED\u53D1\u52A8\uFF09" : "";
+          const ekey = energy[1].toLowerCase();
+          if (!out.has(ekey)) out.set(ekey, { word: energy[1], pos: "\u80FD\u91CF\u5355\u4F4D", meaning: cells[2] + (note ? "\uFF1B" + note : ""), abbr: "" });
+          continue;
+        }
+        const amount = cells[1];
+        const names = (cells[3] || "").match(/[A-Za-z][A-Za-z0-9]*/g) || [];
+        const labels = (cells[2] || "").split("\xB7").map(function(s) {
+          return s.trim();
+        });
+        for (let j = 0; j < names.length; j++) {
+          const key = names[j].toLowerCase();
+          if (out.has(key)) continue;
+          const label = labels.length === names.length ? labels[j] : names.length === 1 ? labels[0] : "";
+          out.set(key, { word: names[j], pos: amount, meaning: label || cells[2], abbr: "" });
+        }
       }
-    } catch (e) { /* 保持内置那份 */ }
-    return this._styleState;
-  }
-  /* 生成诊断报告，写进库里，便于整段复制出来 */
-  async diagnose() {
-    const L = [];
-    const add = function (s) { L.push(s); };
-    add('# EpXsC 诊断报告');
-    add('');
-    add('- 代码版本（BUILD）：' + BUILD);
-    add('- manifest 版本：' + ((this.manifest && this.manifest.version) || '?'));
-    add('- 插件目录：' + ((this.manifest && this.manifest.dir) || '?'));
-    add('- 生成时间：' + new Date().toLocaleString());
-    let mode = '非笔记视图';
-    try {
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (view) mode = view.getMode() === 'preview' ? '阅读视图' : '实时预览／源码';
-    } catch (e) { /* 忽略 */ }
-    add('- 当前视图：**' + mode + '**');
-    add('- 词表：词条 ' + this.info.size + ' · 词根 ' + (this.roots ? this.roots.size : '-') + ' · 秩 ' + this.ranks.size + ' · 谓词 ' + this.grammar.predicate.source.length + ' 字符');
-    add('- 自带切词器：已装（不依赖 window.Prism）');
-    add('- Prism：' + (window.Prism ? '有' : '**没有**') + ' · 语法 EpXsC：' + (window.Prism && window.Prism.languages && window.Prism.languages.EpXsC ? '已装' : '**缺失**'));
-    add('');
-    const codes = document.querySelectorAll(':is(code[class*="language-EpXsC" i], .epx-ord)');
-    add('## 代码块（' + codes.length + ' 个）');
-    for (let i = 0; i < codes.length && i < 6; i++) {
-      const el = codes[i];
-      let tokens = 0;
-      let color = '-';
-      try {
-        tokens = el.querySelectorAll('span.token').length;
-        const first = el.querySelector('span.token');
-        if (first && window.getComputedStyle) color = window.getComputedStyle(first).color;
-      } catch (e) { color = '(测不到)'; }
-      add('- 第 ' + (i + 1) + ' 个：class="' + (el.className || '') + '" · token ' + tokens + ' 个 · 首个 token 颜色 ' + color);
+      return out;
     }
-    add('');
-    add('## 样式表');
-    let ourRules = 0;
-    try {
-      const sheets = document.styleSheets || [];
-      add('- 共 ' + sheets.length + ' 张');
-      for (let i = 0; i < sheets.length; i++) {
-        let n = 0;
-        let ours = 0;
-        let rules = null;
-        try { rules = sheets[i].cssRules; } catch (e) { add('- 第 ' + (i + 1) + ' 张：读不到（跨源）' + (sheets[i].href ? ' href=' + sheets[i].href : '')); continue; }
-        if (rules) {
-          n = rules.length;
-          for (let j = 0; j < rules.length; j++) {
-            const sel = rules[j].selectorText || '';
-            if (sel.indexOf('.epx-') >= 0 || sel.indexOf('.token.') >= 0) ours += 1;
+    function parseRoots(text) {
+      const out = /* @__PURE__ */ new Map();
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const m = /^\|\s*([A-Za-z][A-Za-z0-9-]{0,20})\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|/.exec(lines[i]);
+        if (!m || /^(根|word|词根)$/.test(m[1])) continue;
+        const key = m[1].toLowerCase();
+        if (!out.has(key)) out.set(key, { word: m[1], pos: "\u8BCD\u6839\xB7" + m[5].trim(), meaning: m[2].trim(), kind: m[5].trim() });
+      }
+      return out;
+    }
+    function builtinMap(part) {
+      const out = /* @__PURE__ */ new Map();
+      const source = BUILTIN_LEXICON[part] || {};
+      for (const key in source) {
+        const v = source[key];
+        out.set(key, { word: v[0], pos: v[1], meaning: v[2], abbr: v[3] || "" });
+      }
+      return out;
+    }
+    function builtinRanks() {
+      const out = /* @__PURE__ */ new Map();
+      const source = BUILTIN_LEXICON.ranks || {};
+      for (const key in source) out.set(key, source[key]);
+      return out;
+    }
+    function builtinRoots() {
+      const out = /* @__PURE__ */ new Map();
+      const source = BUILTIN_LEXICON.roots || {};
+      for (const key in source) out.set(key, { word: source[key][2] || key, pos: "\u8BCD\u6839\xB7" + source[key][1], meaning: source[key][0], kind: source[key][1] });
+      return out;
+    }
+    function builtinLists(verbRoots) {
+      const bySection = {};
+      const e = BUILTIN_LEXICON.entries || {};
+      for (const key in e) {
+        const pos = e[key][1];
+        (bySection[pos] = bySection[pos] || []).push(e[key][0]);
+      }
+      const units = Object.keys(BUILTIN_LEXICON.units || {});
+      return {
+        keyword: wordsFrom(bySection, SECTIONS.keyword, FALLBACK.keyword),
+        judge: wordsFrom(bySection, SECTIONS.judge, FALLBACK.judge),
+        clause: wordsFrom(bySection, SECTIONS.clause, FALLBACK.clause),
+        degree: wordsFrom(bySection, SECTIONS.degree, FALLBACK.degree),
+        predicate: wordsFrom(bySection, SECTIONS.predicate, FALLBACK.predicate).concat(verbRoots || []),
+        unit: wordsFrom(bySection, SECTIONS.unit, FALLBACK.unit).concat(units)
+      };
+    }
+    function wordsFrom(map, names, fallback) {
+      const out = [];
+      for (let i = 0; i < names.length; i++) {
+        const list = map[names[i]] || [];
+        for (let j = 0; j < list.length; j++) out.push(list[j]);
+      }
+      for (let k = 0; k < fallback.length; k++) out.push(fallback[k]);
+      return Array.from(new Set(out));
+    }
+    function makeGrammar(lists, keys) {
+      const keyList = Array.isArray(keys) ? keys.slice() : [];
+      return {
+        comment: /\/\*[\s\S]*?\*\//,
+        annotation: /^[ \t]*\.[A-Za-z_][\w-]*(?:[ \t]+[^\n]*)?$/m,
+        /* 导入：块首声明要引用的他处术式（第十二章规则 12.6） */
+        importDecl: {
+          pattern: /^[ \t]*impo[ \t]+[^\n;]*/m,
+          inside: {
+            keyword: /\bimpo\b/,
+            spellRef: /[A-Z][A-Za-z0-9_]*/,
+            punctuation: /[,;]/
+          }
+        },
+        /* 频段标签：协议里 frequent: #… 的 # 之后，直到条目结束（, ; } 或换行） */
+        freqTag: /#[^\n,;}]*/,
+        /* 变量名：紧跟「类型:」的那个词（含 [2:变量] 这类位数写法）。
+           必须排在 type / number 之前——否则冒号左边先被它们吃掉，右边这个词就轮不到这里了。 */
+        variable: {
+          pattern: /([([,][ \t]*(?:(?:priv|tut|publ|consta)[ \t]+)*[A-Za-z0-9_]+:[ \t]*(?:(?:priv|tut|publ|consta)[ \t]+)*)([A-Za-z_][A-Za-z0-9_]*)/,
+          lookbehind: true
+        },
+        /* 位数声明组：[2:名] —— 冒号前是位数、冒号后是变量名（列表容器的声明） */
+        indexDecl: {
+          pattern: /\[[ \t]*\d+[ \t]*:[^\]\n]*\]/,
+          inside: {
+            variable: /[A-Za-z_][A-Za-z0-9_]*/,
+            number: /\d+/,
+            punctuation: /:/,
+            bracket: /[\[\]]/
+          }
+        },
+        /* 下标组：[1] / [1..3] —— 里面的数字按「第 n 位／第 n 秩」解释 */
+        indexGroup: {
+          pattern: /\[[ \t]*\d+[ \t]*(?:\.\.[ \t]*\d*)?[ \t]*\]/,
+          inside: {
+            rankRange: /(?:\d+\.\.\d*|\d*\.\.\d+)(?!\.)/,
+            number: /\d+/,
+            operator: /\.\./,
+            bracket: /[\[\]]/
+          }
+        },
+        pretium: /\bpretium\b/i,
+        /* 秩区间：1..3、..10、2..（要求至少一边有数字，且后面不再跟点，避免吃掉省略号 ...） */
+        rankRange: /(?:\d+\.\.\d*|\d*\.\.\d+)(?!\.)/,
+        number: /\b\d+(?:\.\d+)?\b/,
+        /* 筛选键：genus= / intervall( 这类。放在 declTarget 之前 —— 否则行首的 genus= 会被当成赋值目标 */
+        filterKey: { pattern: new RegExp("\\b(?:" + keyList.map(escapeWord).join("|") + ")\\b(?=[ \\t]*[=(])", "i") },
+        /* 筛选值：ordin= 的三个取值（见第五章筛选键表：proxim 近／procul 远／temer 随机） */
+        filterValue: /\b(?:proxim|procul|temer)\b/i,
+        /* 限定词：作用域与可见性（与 C 的 private／protected／public／const 相当）。
+           放在 unit／predicate 之前 —— tut 这类词兼作动词，靠「后面跟着一个名字」区分 */
+        modifier: /\b(?:priv|tut|publ|consta)\b(?=[ \t]+[A-Za-z_])/,
+        unit: wordPattern(lists.unit),
+        element: new RegExp("\\b(?:" + ELEMENTS.join("|") + ")\\b"),
+        type: new RegExp("\\b(?:" + TYPES.join("|") + ")\\b"),
+        /* 参数表里的类型位：紧跟在 ( 或 , 之后、后面是冒号的词（单个小写字母按变量名处理）。
+           用 Prism 的 lookbehind 写法，避免原生 (?<=) 在旧 iOS Safari 上解析即报错。 */
+        typeParam: {
+          pattern: /([(,]\s*)(?![a-z]\s*:)[A-Za-z_][A-Za-z0-9_]*(?=\s*:(?!:))/,
+          lookbehind: true,
+          alias: "type"
+        },
+        axis: wordPattern(AXES),
+        degree: wordPattern(lists.degree),
+        /* 前置否定：ne 紧跟一个词时，等同 !（逻辑非），否定后面那个成分 */
+        negPrefix: /\bne(?=[ \t]+[A-Za-z_&*@?(\[])/i,
+        /* 声明目标：赋值语句左边的那个名字（前面可带限定词） */
+        declTarget: {
+          pattern: /((?:^|[;\n])[ \t]*(?:(?:priv|tut|publ|consta|om|tot)[ \t]+)*)([A-Za-z_][A-Za-z0-9_]*)(?=[ \t]*=(?!=))/,
+          lookbehind: true
+        },
+        /* 判断词（if／elif／else 一族）与术式关键词（块内条款）各自一色 */
+        judge: wordPattern(lists.judge),
+        clause: wordPattern(lists.clause),
+        keyword: wordPattern(lists.keyword),
+        /* 术式名：大写开头且后面紧跟 ( { [ ，或下划线复合名（Gramakipo_Aepaus） */
+        /* 类名：Class::member 里 :: 前那个名字（排在 declaration 之前，否则被当成术式名） */
+        classUse: { pattern: /[A-Z][A-Za-z0-9_]*(?=[ \t]*::)/, alias: "className" },
+        className: { pattern: /(\bclass[ \t]+)([A-Z][A-Za-z0-9_]*)/, lookbehind: true, alias: "className" },
+        declaration: /\b(?:[A-Z][A-Za-z0-9_]*(?=\s*[({\[])|[A-Z][A-Za-z0-9]*_[A-Za-z0-9_]+)/,
+        predicate: wordPattern(lists.predicate),
+        function: /\b[a-z][A-Za-z0-9_]*(?=\s*\()/,
+        pointer: /\*&|&|@[A-Za-z][A-Za-z0-9_]*|@/,
+        /* 坐标串：同一符号连写两个以上才算坐标（~ 世界轴 / ^ 朝向前三轴） */
+        coordRun: {
+          pattern: /(?:~(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)(?:[ \t]+~(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)+|(?:\^(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)(?:[ \t]+\^(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)+/,
+          greedy: true
+        },
+        classOp: { pattern: /::/, alias: "operator" },
+        operator: /(?:\+=|-=|\*=|\/=|<=|>=|==|!=|\.{2,3})|\+|-|\*|%|\/|=|<|>|\^|~|\?|!/,
+        /* 括号分三类：() 分组 · [] 方括号（列表 / 下标 / 秩）· {} 花括号（语块）；其余标点归 punctuation */
+        paren: /[()]/,
+        bracket: /[\[\]]/,
+        brace: /[{}]/,
+        punctuation: /[;:,]/,
+        /* 兜底：其余标识符也切成 token，只为挂悬停释义；CSS 不给它上色 */
+        word: /\b[A-Za-z_][A-Za-z0-9_]*\b/
+      };
+    }
+    var BASE_LISTS = {
+      keyword: FALLBACK.keyword.slice(),
+      judge: FALLBACK.judge.slice(),
+      clause: FALLBACK.clause.slice(),
+      degree: FALLBACK.degree.slice(),
+      predicate: FALLBACK.predicate.slice(),
+      unit: FALLBACK.unit.slice()
+    };
+    var GLOBAL_RE_CACHE = /* @__PURE__ */ new WeakMap();
+    var SPELL_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u9B54\u6CD5";
+    var MOD_WORDS = "priv|tut|publ|consta";
+    function parseParamList(text) {
+      const out = [];
+      const s = String(text || "");
+      const parts = [];
+      let depth = 0, cur = "";
+      for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (ch === "[" || ch === "(" || ch === "{") depth += 1;
+        else if (ch === "]" || ch === ")" || ch === "}") depth -= 1;
+        if (ch === "," && depth === 0) {
+          parts.push(cur);
+          cur = "";
+          continue;
+        }
+        cur += ch;
+      }
+      if (cur.trim()) parts.push(cur);
+      const mods = "(?:(?:" + MOD_WORDS + ")[ \\t]+)*";
+      const simple = new RegExp("^(" + mods + ")([A-Za-z_][A-Za-z0-9_]*)[ \\t]*:[ \\t]*(" + mods + ")([A-Za-z_][A-Za-z0-9_]*)$");
+      const boxed = new RegExp("^(" + mods + ")([A-Za-z_][A-Za-z0-9_]*)[ \\t]*:[ \\t]*\\[[^\\]]*?([A-Za-z_][A-Za-z0-9_]*)[ \\t]*\\]$");
+      const bare = new RegExp("^(" + mods + ")([A-Za-z_][A-Za-z0-9_]*)$");
+      for (let i = 0; i < parts.length; i++) {
+        const p = parts[i].trim();
+        if (!p) continue;
+        let m = simple.exec(p);
+        if (m) {
+          const list = ((m[1] || "") + " " + (m[3] || "")).trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
+          out.push({ type: m[2], name: m[4], modifiers: list });
+          continue;
+        }
+        m = boxed.exec(p);
+        if (m) {
+          const list = (m[1] || "").trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
+          out.push({ type: m[2], name: m[3], container: true, modifiers: list });
+          continue;
+        }
+        m = bare.exec(p);
+        if (m) out.push({ name: m[2], modifiers: (m[1] || "").trim().toLowerCase().split(/[ \t]+/).filter(Boolean) });
+        else out.push({ name: p, modifiers: [] });
+      }
+      return out;
+    }
+    function collectSpells(text, out, file) {
+      const lines = String(text || "").split("\n");
+      const decl = new RegExp("^(?:De\\b[^{;]*?)?\\s*((?:(?:" + MOD_WORDS + ")[ \\t]+)*)([A-Z][A-Za-z0-9_]*)\\s*\\(([^)]*)\\)[ \\t]*\\{");
+      for (let i = 0; i < lines.length; i++) {
+        const m = decl.exec(lines[i]);
+        if (!m) continue;
+        let depth = 0, end = i, opened = false;
+        for (let j = i; j < lines.length; j++) {
+          const t = lines[j];
+          for (let k = 0; k < t.length; k++) {
+            if (t[k] === "{") {
+              depth += 1;
+              opened = true;
+            } else if (t[k] === "}") depth -= 1;
+          }
+          if (opened && depth <= 0) {
+            end = j;
+            break;
           }
         }
-        ourRules += ours;
-        add('- 第 ' + (i + 1) + ' 张：' + n + ' 条规则，其中我们的 ' + ours + ' 条' + (sheets[i].href ? ' · href=' + sheets[i].href : ''));
+        const mods = (m[1] || "").trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
+        const name = m[2];
+        const rec = { name, visibility: mods.length ? mods[mods.length - 1] : "", modifiers: mods, params: parseParamList(m[3]), file, line: i + 1, endLine: end + 1 };
+        if (out.has(name)) {
+          const old = out.get(name);
+          if (!old.duplicates) old.duplicates = [];
+          old.duplicates.push(rec);
+        } else out.set(name, rec);
       }
-    } catch (e) { add('- 读样式表出错：' + (e && e.message)); }
-    add('- 命中我们选择器的规则合计：' + ourRules);
-    add('- 兜底状态：' + (this._styleState || '(还没跑)'));
-    add('');
-    add('## 插件目录里的 styles.css');
-    try {
-      const dir = (this.manifest && this.manifest.dir) || '.obsidian/plugins/epxsc-syntax';
-      const css = await this.app.vault.adapter.read(dir + '/styles.css');
-      const lines = String(css).split('\n');
-      add('- 读到 ' + css.length + ' 字符 · 含 .epx-tip：' + (css.indexOf('.epx-tip') >= 0 ? '是' : '**否**') + ' · 含 --epx-modifier：' + (css.indexOf('--epx-modifier') >= 0 ? '是' : '否'));
-      add('- 前 3 行：');
-      for (let i = 0; i < 3 && i < lines.length; i++) add('    ' + (i + 1) + '. ' + lines[i]);
-    } catch (e) { add('- **读不到**：' + (e && e.message)); }
-    add('');
-    add('## 样例代码块（下面这块在阅读视图里应当有颜色）');
-    add('');
-    add('\x60\x60\x60EpXsC');
-    add('Purificatio(priv locus: zone) {');
-    add('\tconsta lit = 3 MU;');
-    add('\tpriv x = &zone;');
-    add('\tpubl consta total = lit;');
-    add('\tne navis *&zone');
-    add('\tluss lit;');
-    add('}');
-    add('\x60\x60\x60');
-    const text = L.join('\n');
-    try {
-      await this.app.vault.adapter.write('EpXsC 诊断报告.md', text);
-      new Notice('诊断报告已写入库根目录：EpXsC 诊断报告.md（代码版本 ' + BUILD + '）', 12000);
-    } catch (e) {
-      new Notice('写报告失败：' + (e && e.message));
+      return out;
     }
-    return text;
-  }
-
-  /* 检查当前笔记里的 EpXsC 代码块 */
-  async lintActiveNote() {
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!view || !view.file) { new Notice('先打开一篇笔记再检查。'); return; }
-    const file = view.file;
-    const text = await this.app.vault.cachedRead(file);
-    /* 带上术式登记表与当前笔记路径：越权检查要按「同一文件且同一行范围」判定 */
-    const ctx = { info: this.info, units: this.units, keys: this.keys, spells: this.spells, path: file.path };
-    const blocksFound = extractEpXsCBlocks(text);
-    const blocks = blocksFound.length;
-    const issues = [];
-    for (let b = 0; b < blocksFound.length; b++) {
-      const found = lintText(blocksFound[b].source, ctx);
-      for (let i = 0; i < found.length; i++) {
-        issues.push({ level: found[i].level, line: blocksFound[b].line + found[i].line, message: found[i].message });
+    var MAX_HIGHLIGHT_LINES = 50;
+    function asGlobalRe(re) {
+      if (re.global) return re;
+      let g = GLOBAL_RE_CACHE.get(re);
+      if (!g) {
+        g = new RegExp(re.source, re.flags + "g");
+        GLOBAL_RE_CACHE.set(re, g);
       }
+      return g;
     }
-    if (!blocks) { new Notice('这一页没有 EpXsC 代码块。'); return; }
-    new LintModal(this.app, file, issues, blocks).open();
-  }
-
-  /* 把 ne 之后、直到子句末尾的 token 标出来：被否定的范围 */
-  markNegation(code) {
-    const heads = code.querySelectorAll('span.token.negPrefix');
-    for (let i = 0; i < heads.length; i++) {
-      let node = heads[i].nextSibling;
+    function escHtml(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    function tokenizeText(text, grammar) {
+      let out = "";
+      let pos = 0;
+      while (pos < text.length) {
+        let best = null;
+        for (const name in grammar) {
+          const rule2 = grammar[name];
+          const pattern = rule2 instanceof RegExp ? rule2 : rule2 && rule2.pattern;
+          if (!(pattern instanceof RegExp)) continue;
+          const re = asGlobalRe(pattern);
+          const lb = !(rule2 instanceof RegExp) && rule2.lookbehind;
+          re.lastIndex = lb ? 0 : pos;
+          let m = re.exec(text);
+          let index = 0;
+          let content = "";
+          if (m) {
+            index = m.index;
+            content = m[0];
+            if (lb && m[1]) {
+              index += m[1].length;
+              content = m[0].slice(m[1].length);
+            }
+            if (lb && index < pos) {
+              let guard = 0;
+              while (m && index < pos && guard < 200) {
+                re.lastIndex = index + content.length;
+                m = re.exec(text);
+                if (!m) break;
+                index = m.index;
+                content = m[0];
+                if (m[1]) {
+                  index += m[1].length;
+                  content = m[0].slice(m[1].length);
+                }
+                guard += 1;
+              }
+            }
+          }
+          if (!m || !content) continue;
+          if (index < pos) continue;
+          if (!best || index < best.index) best = { index, content, name, rule: rule2 };
+        }
+        if (!best) {
+          out += escHtml(text.slice(pos));
+          break;
+        }
+        if (best.index > pos) out += escHtml(text.slice(pos, best.index));
+        const rule = best.rule;
+        const cls = best.name + (!(rule instanceof RegExp) && rule.alias ? " " + rule.alias : "");
+        const inner = !(rule instanceof RegExp) && rule.inside ? tokenizeText(best.content, rule.inside) : escHtml(best.content);
+        out += '<span class="token ' + cls + '">' + inner + "</span>";
+        pos = best.index + best.content.length;
+      }
+      return out;
+    }
+    var BRANCH_WORDS = ["keal", "keol", "tam", "dum", "nisi", "quan"];
+    function lintText(text, ctx) {
+      const issues = [];
+      const lines = text.split("\n");
+      const push = function(level, line, message) {
+        issues.push({ level, line, message });
+      };
+      const units = ctx && ctx.units || /* @__PURE__ */ new Set();
+      const keys = ctx && ctx.keys || /* @__PURE__ */ new Set();
+      let prose = false;
+      for (let i = 0; i < lines.length; i++) {
+        if (/\.\s*(\/\*.*)?$/.test(lines[i].replace(/[ \t]+$/, ""))) {
+          prose = true;
+          break;
+        }
+      }
+      const stack = [];
+      const pairOf = { ")": "(", "]": "[", "}": "{" };
+      let inComment = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        let clean = "";
+        for (let c = 0; c < line.length; c++) {
+          const ch = line.charAt(c);
+          if (inComment) {
+            if (ch === "*" && line.charAt(c + 1) === "/") {
+              inComment = false;
+              c += 1;
+            }
+            continue;
+          }
+          if (ch === "/" && line.charAt(c + 1) === "*") {
+            inComment = true;
+            c += 1;
+            continue;
+          }
+          clean += ch;
+        }
+        for (let c = 0; c < clean.length; c++) {
+          const ch = clean.charAt(c);
+          if (ch === "(" || ch === "[" || ch === "{") stack.push({ ch, line: i + 1 });
+          else if (ch === ")" || ch === "]" || ch === "}") {
+            const top = stack.pop();
+            if (!top) push("error", i + 1, "\u591A\u51FA\u4E00\u4E2A\u300C" + ch + "\u300D\uFF0C\u524D\u9762\u6CA1\u6709\u4E0E\u4E4B\u5BF9\u5E94\u7684\u300C" + pairOf[ch] + "\u300D");
+            else if (top.ch !== pairOf[ch]) push("error", i + 1, "\u62EC\u53F7\u5BF9\u4E0D\u4E0A\uFF1A\u8FD9\u91CC\u662F\u300C" + ch + "\u300D\uFF0C\u4F46\u6700\u8FD1\u672A\u95ED\u5408\u7684\u662F\u300C" + top.ch + "\u300D\uFF08\u7B2C " + top.line + " \u884C\uFF09");
+          }
+        }
+        if (!prose && /:$/.test(clean.replace(/[ \t]+$/, "")) && clean.trim()) {
+          let j = i + 1;
+          while (j < lines.length && !lines[j].trim()) j += 1;
+          if (j >= lines.length) push("error", i + 1, "\u5192\u53F7\u5F00\u7684\u5757\u6CA1\u6709\u5757\u4F53");
+          else {
+            const base = (lines[i].match(/^[ \t]*/) || [""])[0].length;
+            const next = (lines[j].match(/^[ \t]*/) || [""])[0].length;
+            if (next <= base) push("error", j + 1, "\u5757\u4F53\u6CA1\u6709\u7F29\u8FDB\uFF1A\u5192\u53F7\u5F00\u7684\u5757\uFF0C\u8FD9\u4E00\u884C\u8981\u6BD4\u5757\u5934\u66F4\u6DF1");
+          }
+        }
+      }
+      for (let i = 0; i < stack.length; i++) push("error", stack[i].line, "\u300C" + stack[i].ch + "\u300D\u6CA1\u6709\u95ED\u5408");
+      if (prose) return issues;
+      const lead = function(s) {
+        return (s.match(/^[ \t]*/) || [""])[0].length;
+      };
+      const clauseRank = function(line) {
+        const t = line.replace(/\/\*[\s\S]*?\*\//g, "").trim();
+        if (!t || t === "}" || t === "{") return 0;
+        if (/^impo\b/.test(t)) return 0;
+        if (/^protocol\b/.test(t)) return 8;
+        if (/^(?:(?:priv|tut|publ|consta)[	 ]+)?(clav|eRk|frequent)[	 ]*:/.test(t)) return 8;
+        if (/\{$/.test(t)) return 1;
+        if (/^limit\s*:/.test(t)) return 2;
+        if (/^pretium\s*:/.test(t)) return 3;
+        if (/^(keal|keol|tam|dum|nisi|quan)\b/.test(t)) return 4;
+        if (/^(luss\b|[?(]|\d)/.test(t) && /\b(MUW|EUW|MU|EU)\b/.test(t)) return 6;
+        if (/^(solum|hauri)\b/.test(t)) return 7;
+        return 5;
+      };
+      let firstLine = "";
+      for (let k = 0; k < lines.length; k++) {
+        if (lines[k].trim()) {
+          firstLine = lines[k].trim();
+          break;
+        }
+      }
+      const isSpell = !/^\s*class\b/.test(firstLine) && (/\{$/.test(firstLine) || /^De\b/.test(firstLine));
+      let lastRank = 0;
+      let lastRankLine = 0;
+      let li = 0;
+      while (isSpell && li < lines.length) {
+        const l = lines[li];
+        if (!l.trim()) {
+          li += 1;
+          continue;
+        }
+        const r = clauseRank(l);
+        if (r === 0) {
+          li += 1;
+          continue;
+        }
+        if (r === 1 && lastRank >= 1) {
+          lastRank = 1;
+          lastRankLine = li + 1;
+          li += 1;
+          continue;
+        }
+        if (r < lastRank) {
+          push("warn", li + 1, "\u6761\u6B3E\u6B21\u5E8F\uFF1A\u5E94\u4E3A \u8F7D\u4F53\u5236 \u2192 \u5BF9\u8C61 \u2192 \u9650\u5236 \u2192 \u4EE3\u4EF7 \u2192 \u89E6\u53D1 \u2192 \u6548\u679C \u2192 \u80FD\u91CF \u2192 \u534F\u8BAE\uFF08\u7B2C " + lastRankLine + " \u884C\u4E4B\u540E\u518D\u51FA\u73B0\u66F4\u9760\u524D\u7684\u6761\u6B3E\uFF09");
+          break;
+        }
+        lastRank = r;
+        lastRankLine = li + 1;
+        const opensBlock = /:[ \t]*$/.test(l.replace(/\/\*[\s\S]*?\*\//g, "").trim());
+        const indent = lead(l);
+        li += 1;
+        while (opensBlock && li < lines.length) {
+          const l2 = lines[li];
+          if (!l2.trim()) {
+            li += 1;
+            continue;
+          }
+          if (lead(l2) > indent) {
+            li += 1;
+            continue;
+          }
+          if (/^[ \t]*[{}][ \t]*$/.test(l2)) {
+            li += 1;
+            continue;
+          }
+          break;
+        }
+      }
+      for (let i = 0; i < lines.length; i++) {
+        const lm = /^([ \t]*)limit[ \t]*:(.*)$/.exec(lines[i]);
+        if (!lm) continue;
+        const base = lm[1].length;
+        const items = [{ text: lm[2], line: i + 1 }];
+        let j = i + 1;
+        while (j < lines.length) {
+          const l = lines[j];
+          if (!l.trim()) {
+            j += 1;
+            continue;
+          }
+          const ind = (l.match(/^[ \t]*/) || [""])[0].length;
+          if (ind <= base) break;
+          items.push({ text: l, line: j + 1 });
+          j += 1;
+        }
+        for (let k = 0; k < items.length; k++) {
+          const body = items[k].text.replace(/\/\*[\s\S]*?\*\//g, "").trim();
+          if (!body) continue;
+          const symbolCmp = /(<=|>=|==|!=|<|>)/.test(body);
+          const wordCmp = /(^|[^A-Za-z_])(aude|kon|aut|dis|ne|vero|re|exo)([^A-Za-z_]|$)/.test(body);
+          if (!symbolCmp && !wordCmp) {
+            push("warn", items[k].line, "\u9650\u5236\u6761\u6B3E\uFF08limit\uFF09\u91CC\u7684\u6BCF\u4E00\u6761\u90FD\u5E94\u5F53\u662F\u5224\u5B9A\u5F0F \u2014\u2014 \u6BD4\u8F83\u5F0F\uFF08\u5982 <= 66 miteas\uFF09\u6216\u8BCD\u5F62\u5224\u5B9A\uFF08aude \u76F8\u7B49\uFF0Fkon \u5408\u53D6\uFF0Faut \u5305\u542B\u6216\uFF0Fdis \u4E92\u65A5\u6216\uFF0Fne \u5426\u5B9A\uFF09");
+          }
+        }
+      }
+      for (let i = 0; i < lines.length; i++) {
+        if (!/(^|[^A-Za-z_])solum([^A-Za-z_]|$)/.test(lines[i])) continue;
+        let top = i;
+        for (let j = i; j >= 0; j--) {
+          if (/\{[ \t]*$/.test(lines[j].replace(/\/\*[\s\S]*?\*\//g, "").trimEnd())) {
+            top = j;
+            break;
+          }
+        }
+        let depth = 0, bottom = lines.length - 1;
+        for (let j = top; j < lines.length; j++) {
+          const t = lines[j];
+          for (let c = 0; c < t.length; c++) {
+            if (t.charAt(c) === "{") depth += 1;
+            else if (t.charAt(c) === "}") depth -= 1;
+          }
+          if (depth <= 0 && j >= top) {
+            bottom = j;
+            break;
+          }
+        }
+        for (let j = top; j <= bottom; j++) {
+          if (/^[ \t]*limit[ \t]*:/.test(lines[j]) && /(^|[^A-Za-z_])voluntas([^A-Za-z_]|$)/.test(lines[j])) {
+            push("warn", j + 1, "\u58F0\u660E\u4E86 solum \u7684\u672F\u5F0F\u4E0D\u5E26\u610F\u5FD7\u8C31\uFF1A\u4E0D\u80FD\u4EE5\u65BD\u672F\u8005\u610F\u5FD7\uFF08voluntas\uFF09\u4F5C\u4E3A\u8FDE\u63A5\u6761\u4EF6\uFF08\u4EE3\u4EF7\u5728\u5236\u4F5C\u65F6\u4ED8\u51FA\uFF0C\u4E0D\u53D7\u6B64\u9650\uFF09");
+          }
+        }
+      }
+      const constDecl = /(^|[;\n])[ \t]*(?:(?:priv|tut|publ)[ \t]+)?consta[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*=(?!=)/g;
+      const consts = [];
+      let cdecl;
+      while (cdecl = constDecl.exec(text)) consts.push({ name: cdecl[2], line: text.slice(0, cdecl.index + (cdecl[1] || "").length).split("\n").length });
+      for (let i = 0; i < consts.length; i++) {
+        const again = new RegExp("(^|[;\\n])[ \\t]*(?:(?:priv|tut|publ|consta|om|tot)[ \\t]+)?" + consts[i].name + "[ \\t]*=(?!=)", "g");
+        let m2;
+        while (m2 = again.exec(text)) {
+          const line = text.slice(0, m2.index + (m2[1] || "").length).split("\n").length;
+          if (line > consts[i].line) {
+            push("error", line, "\u5E38\u91CF\u300C" + consts[i].name + "\u300D\u5728\u7B2C " + consts[i].line + " \u884C\u4EE5 consta \u58F0\u660E\uFF0C\u5199\u5165\u540E\u4E0D\u53EF\u518D\u8D4B\u503C");
+            break;
+          }
+        }
+      }
+      const coordRe = /(?:~(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)(?:[ \t]+~(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)+|(?:\^(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)(?:[ \t]+\^(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)+/g;
+      let cd;
+      while (cd = coordRe.exec(text)) {
+        const line = text.slice(0, cd.index).split("\n").length;
+        const c = parseCoord(cd[0]);
+        if (c.values.length > 3) push("warn", line, "\u5750\u6807\u6700\u591A\u4E09\u8F74\uFF0C\u8FD9\u91CC\u5199\u4E86 " + c.values.length + " \u4E2A");
+        else if (c.sign === "^" && c.values.length !== 3) push("error", line, "\u5C40\u90E8\u5750\u6807\u5FC5\u987B\u5199\u5168\u4E09\u8F74\uFF08\u5DE6\uFF0F\u4E0A\uFF0F\u524D\uFF09\uFF0C\u8FD9\u91CC\u53EA\u6709 " + c.values.length + " \u4E2A");
+      }
+      for (let i = 0; i < lines.length; i++) {
+        const m = /^[ \t]*([A-Za-z_][A-Za-z0-9_]*)/.exec(lines[i]);
+        if (!m || BRANCH_WORDS.indexOf(m[1].toLowerCase()) < 0) continue;
+        if (lines[i].indexOf(":") < 0 && lines[i].indexOf("{") < 0) {
+          push("warn", i + 1, "\u5224\u65AD\u8BCD\u300C" + m[1] + "\u300D\u8981\u5E26\u5757\uFF1A\u884C\u5C3E\u5199\u5192\u53F7\u52A0\u7F29\u8FDB\uFF0C\u6216\u7528\u82B1\u62EC\u53F7");
+        }
+      }
+      for (let i = 0; i < lines.length; i++) {
+        const re = /(\d)[ \t]*([A-Za-z_][A-Za-z0-9_]*)/g;
+        let m;
+        while (m = re.exec(lines[i])) {
+          if (units.has(m[2].toLowerCase())) continue;
+          push("warn", i + 1, "\u300C" + m[1] + " " + m[2] + "\u300D\u2014\u2014" + m[2] + " \u4E0D\u662F\u767B\u8BB0\u8FC7\u7684\u5355\u4F4D");
+        }
+      }
+      for (let i = 0; i < lines.length; i++) {
+        const bare = lines[i].replace(/\/\*[\s\S]*?\*\//g, "");
+        if (/\bluss\b/i.test(bare) && /\b(MUW|EUW)\b/.test(bare)) {
+          push("error", i + 1, "\u5199 MUW\uFF0FEUW \u5373\u6301\u7EED\u53D1\u52A8\uFF08\u529F\u7387\u53E3\u5F84\uFF09\uFF0C\u4E0D\u5F97\u518D\u5199 luss\uFF08\u9501\u5B58\uFF09");
+        }
+      }
+      for (let i = 0; i < lines.length; i++) {
+        if (/\blic\s+(magis|minus)\b/i.test(lines[i]) && lines[i].indexOf("?") < 0) {
+          push("warn", i + 1, "\u300Clic magis\uFF0Flic minus\u300D\u7528\u6765\u8BF4\u660E\u7531\u300C?\u300D\u58F0\u660E\u7684\u91CF\u53EF\u589E\uFF0F\u53EF\u51CF\uFF0C\u8FD9\u4E00\u884C\u6CA1\u6709\u300C?\u300D");
+        }
+      }
+      const sq = /\[([^\]\n]*)\]/g;
+      let b;
+      while (b = sq.exec(text)) {
+        const before = text.slice(0, b.index);
+        const line = before.split("\n").length;
+        const inner = b[1];
+        let back = b.index - 1;
+        while (back >= 0 && /[ \t]/.test(text.charAt(back))) back -= 1;
+        if (text.charAt(back) === "=") continue;
+        const kind = classifySquare(inner);
+        if (kind === "\u7B5B\u9009\u952E\u8868") {
+          const kr = /([A-Za-z_][A-Za-z0-9_]*)\s*=/g;
+          let k;
+          while (k = kr.exec(inner)) {
+            if (!keys.has(k[1].toLowerCase())) push("warn", line, "\u7B5B\u9009\u952E\u300C" + k[1] + "\u300D\u4E0D\u5728\u767B\u8BB0\u8868\u91CC");
+          }
+        } else if (kind === "\u4E0B\u6807 \xB7 \u79E9") {
+          const nums = inner.match(/\d+/g) || [];
+          for (let n = 0; n < nums.length; n++) {
+            const v = parseInt(nums[n], 10);
+            if (v < 1 || v > 9) push("warn", line, "\u79E9\u53EA\u6709 1\u20139\uFF0C\u8FD9\u91CC\u7684\u300C" + nums[n] + "\u300D\u8D85\u51FA\u8303\u56F4");
+          }
+        }
+      }
+      const imported = [];
+      for (let i = 0; i < lines.length; i++) {
+        const im = /^[ \t]*impo[ \t]+([^;\n]*)/.exec(lines[i]);
+        if (!im) continue;
+        const names = im[1].split(",");
+        for (let k = 0; k < names.length; k++) {
+          const nm = names[k].trim();
+          if (nm) imported.push(nm);
+        }
+      }
+      const spells = ctx && ctx.spells || spellRegistry;
+      if (spells && spells.size) {
+        const splitTop = function(s) {
+          const out = [];
+          let depth = 0, cur = "";
+          for (let i = 0; i < s.length; i++) {
+            const ch = s.charAt(i);
+            if (ch === "(" || ch === "[" || ch === "{") depth += 1;
+            else if (ch === ")" || ch === "]" || ch === "}") depth -= 1;
+            if (ch === "," && depth === 0) {
+              out.push(cur);
+              cur = "";
+              continue;
+            }
+            cur += ch;
+          }
+          if (cur.trim()) out.push(cur);
+          return out.map(function(x) {
+            return x.trim();
+          }).filter(Boolean);
+        };
+        for (let i = 0; i < lines.length; i++) {
+          const raw = lines[i];
+          const trimmed = raw.trim();
+          if (!trimmed) continue;
+          if (/\{[ \t]*$/.test(trimmed)) continue;
+          if (/^\|/.test(trimmed) || /^\/\//.test(trimmed)) continue;
+          const callRe = /\b([A-Z][A-Za-z0-9_]*)[ \t]*\(/g;
+          let m;
+          while (m = callRe.exec(raw)) {
+            const name = m[1];
+            if (raw.slice(Math.max(0, m.index - 2), m.index) === "::") continue;
+            const rec = spells.get(name);
+            if (!rec) {
+              if (imported.indexOf(name) >= 0) continue;
+              push("warn", i + 1, "\u5F15\u7528\u4E86\u672A\u767B\u8BB0\u7684\u672F\u5F0F\u300C" + name + "\u300D\u2014\u2014 \u82E5\u5B83\u5B9A\u4E49\u5728\u4ED6\u5904\uFF0C\u8BF7\u5728\u5757\u9996\u5199 impo " + name + ";");
+              continue;
+            }
+            if (rec.visibility === "priv" || rec.visibility === "tut") {
+              const sameFile = !ctx || !ctx.path || !rec.file || ctx.path === rec.file;
+              const inside = sameFile && i + 1 >= rec.line && i + 1 <= rec.endLine;
+              if (!inside) push("warn", i + 1, "\u300C" + name + "\u300D\u662F " + rec.visibility + "\uFF0C\u53EA\u5141\u8BB8\u5728\u81EA\u5DF1\u6587\u4EF6\u7684\u8BED\u5757\u5185\u5F15\u7528");
+            }
+            const open = m.index + m[0].length - 1;
+            let depth = 0, close = -1;
+            for (let c = open; c < raw.length; c++) {
+              const ch = raw.charAt(c);
+              if (ch === "(") depth += 1;
+              else if (ch === ")") {
+                depth -= 1;
+                if (depth === 0) {
+                  close = c;
+                  break;
+                }
+              }
+            }
+            if (close < 0) continue;
+            const args = splitTop(raw.slice(open + 1, close));
+            const params = rec.params || [];
+            const required = params.filter(function(p) {
+              const m2 = p.modifiers || [];
+              return m2.indexOf("publ") >= 0 || m2.indexOf("consta") >= 0;
+            }).length;
+            if (args.length > params.length) push("warn", i + 1, "\u300C" + name + "\u300D\u5F62\u53C2 " + params.length + " \u4E2A\uFF0C\u8FD9\u91CC\u7ED9\u4E86 " + args.length + " \u4E2A");
+            else if (required > 0 && args.length < required) push("warn", i + 1, "\u300C" + name + "\u300D\u6709\u5FC5\u987B\u7ED9\u51FA\u7684 publ\uFF0Fconsta \u5F62\u53C2\uFF08\u5E94 " + required + " \u4E2A\uFF0C\u8FD9\u91CC " + args.length + " \u4E2A\uFF09");
+            for (let a = 0; a < args.length; a++) {
+              const lbl = /^([A-Za-z_][A-Za-z0-9_]*)[ \t]*:/.exec(args[a]);
+              if (!lbl) continue;
+              const hit = params.filter(function(p) {
+                return p.name === lbl[1] && (p.modifiers || []).indexOf("priv") >= 0;
+              })[0];
+              if (hit) push("warn", i + 1, "\u300C" + hit.name + "\u300D\u662F\u5185\u90E8\u5F62\u53C2\uFF08priv\uFF09\uFF0C\u4E0D\u8BE5\u7531\u8C03\u7528\u65B9\u7ED9\u51FA");
+            }
+          }
+        }
+        spells.forEach(function(rec, name) {
+          if (rec.visibility === "consta" && rec.duplicates && rec.duplicates.length) {
+            push("warn", rec.line, "\u300C" + name + "\u300D\u662F consta\uFF0C\u4E0D\u80FD\u91CD\u590D\u58F0\u660E\uFF08\u53E6\u89C1\u7B2C " + rec.duplicates.map(function(d) {
+              return d.line;
+            }).join("\u3001") + " \u884C\uFF09");
+          }
+        });
+      }
+      return issues;
+    }
+    var CLASS_ORDER = ["rankRange", "bracket", "paren", "brace", "pointer", "coordRun", "negPrefix", "modifier", "declTarget", "varUse", "judge", "clause", "declaration", "variable", "type", "element", "unit", "predicate", "spellRef", "function", "keyword", "pretium", "degree", "axis", "number", "comment", "annotation", "operator", "punctuation", "word"];
+    var CLASS_LABEL = {
+      judge: "\u5224\u65AD\u8BCD",
+      clause: "\u6761\u6B3E",
+      modifier: "\u9650\u5B9A\u8BCD",
+      declTarget: "\u58F0\u660E\u76EE\u6807",
+      negPrefix: "\u524D\u7F6E\u5426\u5B9A",
+      declaration: "\u672F\u5F0F\u540D",
+      className: "\u7C7B\u540D",
+      filterKey: "\u7B5B\u9009\u952E",
+      filterValue: "\u7B5B\u9009\u503C",
+      dictKey: "\u5B57\u5178\u952E",
+      freqTag: "\u9891\u6BB5\u6807\u7B7E",
+      spellRef: "\u672F\u5F0F\u5F15\u7528",
+      predicate: "\u8C13\u8BCD",
+      function: "\u8C13\u8BCD\u8C03\u7528",
+      keyword: "",
+      type: "\u7C7B\u578B\u540D",
+      element: "\u5143\u7D20\u7801",
+      unit: "\u5355\u4F4D",
+      number: "\u6570\u503C",
+      degree: "\u7A0B\u5EA6\u8BCD",
+      axis: "\u7F29\u653E\u8F74",
+      pretium: "\u4EE3\u4EF7"
+    };
+    var EXTRA_WORDS = {
+      in: { word: "in", pos: "\u4ECB\u8BCD", meaning: "\u5728\u2026\u2026\u91CC\uFF08\u8BCD\u5178\u6682\u672A\u6536\u5F55\uFF0C\u6309\u672F\u5F0F\u7528\u6CD5\u8865\uFF09", abbr: "" },
+      /* 第五章筛选键表：ordin= 的三个取值（词典未收，按表补） */
+      proxim: { word: "proxim", pos: "\u7B5B\u9009\u503C", meaning: "\u8FD1\uFF08ordin= \u7684\u53D6\u503C\uFF09", abbr: "" },
+      procul: { word: "procul", pos: "\u7B5B\u9009\u503C", meaning: "\u8FDC\uFF08ordin= \u7684\u53D6\u503C\uFF09", abbr: "" },
+      temer: { word: "temer", pos: "\u7B5B\u9009\u503C", meaning: "\u968F\u673A\uFF08ordin= \u7684\u53D6\u503C\uFF09", abbr: "" }
+    };
+    var TYPE_NOTES = {
+      siro: "void\uFF1A\u65E0\u76EE\u6807\uFF0F\u65E0\u8F7D\u4F53\uFF0C\u53EF\u58F0\u660E\u53D8\u91CF\u6216\u76F4\u63A5\u5360\u4F4D"
+    };
+    var SECTION_POS = {
+      "\u540D\u8BCD": "\u540D\u8BCD",
+      "\u52A8\u8BCD": "\u52A8\u8BCD",
+      "\u6570\u8BCD": "\u6570\u8BCD",
+      "\u5F62\u5BB9\u8BCD": "\u5F62\u5BB9\u8BCD",
+      "\u526F\u8BCD": "\u526F\u8BCD",
+      "\u4ECB\u8BCD": "\u4ECB\u8BCD",
+      "\u52A9\u52A8\u8BCD": "\u52A9\u52A8\u8BCD",
+      "\u5224\u65AD\u8BCD": "\u5224\u65AD\u8BCD",
+      "\u9650\u5B9A\u8BCD": "\u9650\u5B9A\u8BCD",
+      "\u65F6\u95F4\u9650\u5B9A": "\u9650\u5B9A\u8BCD",
+      "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A": "\u9650\u5B9A\u8BCD",
+      "\u6307\u79F0\u9650\u5B9A": "\u9650\u5B9A\u8BCD",
+      "\u987A\u5E8F\u9650\u5B9A": "\u9650\u5B9A\u8BCD",
+      "\u7A0B\u5EA6\u9650\u5B9A": "\u526F\u8BCD",
+      "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09": "\u4EE3\u8BCD",
+      "\u7591\u95EE\u8BCD": "\u7591\u95EE\u8BCD",
+      "\u91CF\u8BCD": "\u91CF\u8BCD",
+      "\u8FDE\u63A5\u8BCD\u4E0E\u4ECE\u53E5\u6807\u8BB0": "\u8FDE\u63A5\u8BCD",
+      "\u65CF\u540D": "\u540D\u8BCD",
+      "\u52A8\u7269\u540D": "\u540D\u8BCD",
+      "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B": "\u540D\u8BCD",
+      "\u5730\u540D\u4E0E\u52BF\u529B\u540D": "\u4E13\u540D",
+      "\u5730\u7406 \xB7 \u795E\u5BAB \xB7 \u8D27\u5E01\u4E13\u540D": "\u4E13\u540D",
+      "\u6839\u8BCD": "\u8BCD\u6839",
+      "\u540E\u7F00": "\u540E\u7F00",
+      "\u590D\u5408\u8BCD": "\u590D\u5408\u8BCD",
+      "\u9AD8\u9891\u8865\u5145\u8BCD": "\u8865\u5145\u8BCD",
+      "\u5143\u7D20\u56FA\u5B9A\u7F29\u5199": "\u5143\u7D20",
+      "\u672F\u5F0F\u5173\u952E\u8BCD": "\u672F\u5F0F\u5173\u952E\u8BCD",
+      "\u5355\u4F4D": "\u5355\u4F4D"
+    };
+    function pickClass(classList) {
+      for (let i = 0; i < CLASS_ORDER.length; i++) {
+        if (classList.contains(CLASS_ORDER[i])) return CLASS_ORDER[i];
+      }
+      return null;
+    }
+    function markSpellRefs(html) {
+      return String(html).split("\n").map(function(line) {
+        if (line.indexOf('class="token declaration"') < 0) return line;
+        const plain = line.replace(/<[^>]+>/g, "");
+        if (/\{[ \t]*$/.test(plain)) return line;
+        return line.replace(/<span class="token declaration"/g, '<span class="token spellRef"');
+      }).join("\n");
+    }
+    function markVarUse(html, vars) {
+      if (!vars || !vars.size) return html;
+      const CLAIMABLE = "word|clause|judge|predicate|function|degree|axis|unit";
+      vars.forEach(function(binding, name) {
+        if (!name) return;
+        const safe = name.replace(/[^A-Za-z0-9_]/g, "\\$&");
+        html = html.replace(new RegExp('<span class="token (?:' + CLAIMABLE + ')( [^"]*)?">' + safe + "</span>", "g"), '<span class="token varUse$1">' + name + "</span>");
+      });
+      return html;
+    }
+    function bracketKinds(text) {
+      const src = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\.[^\n]*$/gm, "");
+      const out = [];
+      for (let i = 0; i < src.length; i++) {
+        const ch = src.charAt(i);
+        if (ch === "(" || ch === "[" || ch === "{") {
+          let kind = "";
+          if (ch === "(") {
+            const before = src.slice(Math.max(0, i - 60), i);
+            const head = /(^|[;{}\n])\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/.exec(before);
+            const prev = src.charAt(i - 1);
+            if (head && /^[A-Z]/.test(head[2]) && prev !== " ") kind = "\u53C2\u6570\u8868";
+            else if (/[A-Za-z0-9_]/.test(prev)) kind = "\u5B9E\u53C2\u8868";
+            else kind = "\u5206\u7EC4";
+          } else if (ch === "[") {
+            const close = src.indexOf("]", i);
+            const inner = close > 0 ? src.slice(i + 1, close) : "";
+            let back = i - 1;
+            while (back >= 0 && /[ \t]/.test(src.charAt(back))) back -= 1;
+            kind = src.charAt(back) === "=" ? "\u7B5B\u9009\u503C" : classifySquare(inner);
+          } else {
+            kind = "\u8BED\u5757";
+          }
+          out.push(kind);
+        } else if (ch === ")" || ch === "]" || ch === "}") {
+          out.push("");
+        }
+      }
+      return out;
+    }
+    var SYMBOL_INFO = {
+      "!": { label: "\u8FD0\u7B97\u7B26 !", body: "\u903B\u8F91\u975E\uFF08\u540C C\uFF1B\u4EA6\u53EF\u7528 ne\uFF09" },
+      "&&": { label: "\u8FD0\u7B97\u7B26 &&", body: "\u5408\u53D6\uFF08\u5E38\u5199\u4F5C kon\uFF09" },
+      "||": { label: "\u8FD0\u7B97\u7B26 ||", body: "\u5305\u542B\u6216\uFF08\u5E38\u5199\u4F5C aut\uFF09" },
+      "^": { label: "\u8FD0\u7B97\u7B26 ^", body: "\u5C40\u90E8\u5750\u6807\uFF1A\u53D7\u672F\u8005\u4E09\u8F74\uFF0C\u987B\u5199\u5168" },
+      "~": { label: "\u8FD0\u7B97\u7B26 ~", body: "\u76F8\u5BF9\u5750\u6807\uFF1A\u4E16\u754C\u8F74\u504F\u79FB\uFF0C\u81F3\u5C11 X\u3001Z" },
+      "==": { label: "\u8FD0\u7B97\u7B26 ==", body: "\u76F8\u7B49\uFF08\u4EA6\u6709\u5224\u65AD\u8BCD aude\uFF09" },
+      "!=": { label: "\u8FD0\u7B97\u7B26 !=", body: "\u4E0D\u7B49" },
+      "<=": { label: "\u8FD0\u7B97\u7B26 <=", body: "\u4E0D\u8D85\u8FC7" },
+      ">=": { label: "\u8FD0\u7B97\u7B26 >=", body: "\u4E0D\u5C11\u4E8E" },
+      "<": { label: "\u8FD0\u7B97\u7B26 <", body: "\u5C0F\u4E8E" },
+      ">": { label: "\u8FD0\u7B97\u7B26 >", body: "\u5927\u4E8E" },
+      "=": { label: "\u8D4B\u503C =", body: "\u5199\u5165\u53D8\u91CF\uFF08\u7CFB\u8BCD es \u8868\u5224\u65AD\uFF09" },
+      "+=": { label: "\u590D\u5408\u7B97\u5B50 +=", body: "\u6570\u503C\u53C2\u6570\u9012\u589E" },
+      "-=": { label: "\u590D\u5408\u7B97\u5B50 -=", body: "\u6570\u503C\u53C2\u6570\u9012\u51CF" },
+      "*=": { label: "\u590D\u5408\u7B97\u5B50 *=", body: "\u6570\u503C\u53C2\u6570\u6309\u500D\u7387\u7F29\u653E" },
+      "/=": { label: "\u590D\u5408\u7B97\u5B50 /=", body: "\u6570\u503C\u53C2\u6570\u6309\u6BD4\u4F8B\u7F29\u5C0F" },
+      "+": { label: "\u8FD0\u7B97\u7B26 +", body: "\u52A0" },
+      "-": { label: "\u8FD0\u7B97\u7B26 -", body: "\u51CF" },
+      "*": { label: "\u8FD0\u7B97\u7B26 *", body: "\u89E3\u5F15\u7528\uFF08\u53D6\u5730\u5740\u7528 &\uFF09" },
+      "/": { label: "\u8FD0\u7B97\u7B26 /", body: "\u9664\u6CD5\uFF1B\u4EA6\u4E3A\u76F8\u53D8" },
+      "?": { label: "\u5360\u4F4D\u7B26 ?", body: "\u503C\u5728\u53D1\u52A8\u65F6\u5B9A\uFF1B\u4F5C\u7C7B\u578B\u8868\u5F85\u5B9A" },
+      "..": { label: "\u533A\u95F4 ..", body: "\u4E24\u7AEF\u4E3A\u95ED\u533A\u95F4\uFF1B\u4EA6\u53EF\u53EA\u5199\u4E0A\u754C\u6216\u4E0B\u754C" },
+      "...": { label: "\u7701\u7565 ...", body: "\u5217\u4E3E\u672A\u5C3D" },
+      ";": { label: "\u5206\u53F7 ;", body: "\u5B50\u53E5\u5206\u9694\uFF08\u540C\u6362\u884C\uFF09" },
+      ",": { label: "\u9017\u53F7 ,", body: "\u5E76\u5217\uFF1B\u4EA6\u5206\u9694\u5F62\u53C2" },
+      ":": { label: "\u5192\u53F7 :", body: "\u4E0B\u4E00\u5C42\u5F00\u59CB\uFF1B\u4EA6\u5206\u300C\u7C7B\u578B: \u53D8\u91CF\u300D" },
+      "&": { label: "\u53D6\u5730\u5740 &", body: "\u53D6\u5F97\u5F15\u7528\uFF08\u5730\u5740\u5373\u4F4D\u7F6E\uFF09" },
+      "*&": { label: "\u53D6\u5730\u5740\u540E\u89E3\u5F15\u7528", body: "\u4ECD\u6307\u8BE5\u7269\u672C\u8EAB" },
+      "@": { label: "\u76EE\u6807\u7B80\u5199 @", body: "\u5168\u5F62\u4E3A METOS[\u2026]" }
+    };
+    function classifySquare(inner) {
+      if (/=/.test(inner)) return "\u7B5B\u9009\u952E\u8868";
+      if (/^\s*:/.test(inner)) return "\u5217\u8868\u7C7B\u578B";
+      if (/^\s*\d+\s*:/.test(inner)) return "\u4F4D\u6570\u58F0\u660E";
+      if (/&/.test(inner)) return "\u70B9\u540D\u5217\u8868";
+      if (/siro|\*/.test(inner)) return "\u76EE\u6807\u96C6";
+      if (/\.\./.test(inner) || /^\s*\d+\s*$/.test(inner)) return "\u4E0B\u6807 \xB7 \u79E9";
+      return "\u5217\u8868";
+    }
+    var KIND_INFO = {
+      "\u53C2\u6570\u8868": { label: "\u5706\u62EC\u53F7 \xB7 \u53C2\u6570\u8868", body: "\u672F\u5F0F\u7684\u5F62\u53C2\u8868\u3002\u5199\u6CD5\u4E3A\u300C\u7C7B\u578B: \u53D8\u91CF\u540D\u300D\uFF0C\u9017\u53F7\u5206\u9694\uFF1B\u7C7B\u578B\u53EF\u7701\uFF0C\u7701\u4E86\u7531\u672F\u5F0F\u81EA\u5224\u3002" },
+      "\u5B9E\u53C2\u8868": { label: "\u5706\u62EC\u53F7 \xB7 \u5B9E\u53C2\u8868", body: "\u8C03\u7528\u8C13\u8BCD\u65F6\u7ED9\u51FA\u7684\u5B9E\u53C2\u3002\u8C13\u8BCD\u4E0E\u5B9E\u53C2\u5E73\u65F6\u9760\u5E76\u7F6E\uFF0C\u5706\u62EC\u53F7\u53EA\u5728\u9700\u8981\u6D88\u6B67\u65F6\u51FA\u73B0\u3002" },
+      "\u5206\u7EC4": { label: "\u5706\u62EC\u53F7 \xB7 \u5206\u7EC4\uFF0F\u5143\u7EC4", body: "\u62EC\u53F7\u5185\u4EE5\u9017\u53F7\u5206\u9694\u5373\u6210\u5143\u7EC4\uFF1B\u4E5F\u7528\u6765\u663E\u5F0F\u6307\u5B9A\u6C42\u503C\u987A\u5E8F\u3002" },
+      "\u7B5B\u9009\u503C": { label: "\u65B9\u62EC\u53F7 \xB7 \u7B5B\u9009\u503C", body: "\u7B5B\u9009\u952E\u7684\u53D6\u503C\uFF1A\u5217\u8868\u6216\u533A\u95F4\uFF0C\u6309\u8BE5\u952E\u7684\u89C4\u5219\u89E3\u91CA\u3002" },
+      "\u7B5B\u9009\u952E\u8868": { label: "\u65B9\u62EC\u53F7 \xB7 \u7B5B\u9009\u952E\u8868", body: "\u5185\u4E3A\u300C\u952E=\u503C\u300D\uFF0C\u6309\u6761\u4EF6\u7B5B\u51FA\u5BF9\u8C61\u96C6\uFF1B\u952E\u540D\u4E0E\u542B\u4E49\u89C1\u300A\u8FF0\u65E0\u7A7A\u8BED\u672F\u5F0F\u8BED\u6CD5\u300B\u7B5B\u9009\u952E\u4E00\u8282\u3002" },
+      "\u5217\u8868\u7C7B\u578B": { label: "\u65B9\u62EC\u53F7 \xB7 \u5217\u8868\u7C7B\u578B", body: "\u65B9\u62EC\u53F7\u4EE5\u5192\u53F7\u5F00\u5934\u65F6\u8868\u793A\u5217\u8868\u5BB9\u5668\uFF0C\u5192\u53F7\u540E\u662F\u5143\u7D20\u7C7B\u578B\u3002" },
+      "\u4F4D\u6570\u58F0\u660E": { label: "\u65B9\u62EC\u53F7 \xB7 \u4F4D\u6570\uFF1A\u53D8\u91CF", body: "\u62EC\u53F7\u5185\u7684\u5192\u53F7\u4EA4\u4EE3\u300C\u54EA\u4E00\u4F4D\uFF1A\u53EB\u4EC0\u4E48\u300D\u2014\u2014\u5192\u53F7\u524D\u662F\u4F4D\u6570\uFF0C\u5192\u53F7\u540E\u662F\u53D8\u91CF\u540D\u3002" },
+      "\u4E0B\u6807 \xB7 \u79E9": { label: "\u65B9\u62EC\u53F7 \xB7 \u4E0B\u6807\uFF08\u79E9\uFF09", body: "\u53D6\u8BE5\u5BF9\u8C61\u7684\u7B2C n \u79E9\uFF1B\u5199\u6210\u533A\u95F4\u65F6\u6307\u4E00\u6BB5\u79E9\u3002" },
+      "\u70B9\u540D\u5217\u8868": { label: "\u65B9\u62EC\u53F7 \xB7 \u70B9\u540D\u5217\u8868", body: "\u628A\u5DF2\u53D6\u5730\u5740\u7684\u5BF9\u8C61\u9010\u4E2A\u5217\u51FA\uFF0C\u53EA\u4F5C\u7528\u4E8E\u8FD9\u4E9B\u76EE\u6807\u3002" },
+      "\u76EE\u6807\u96C6": { label: "\u65B9\u62EC\u53F7 \xB7 \u76EE\u6807\u96C6", body: "siro \u8868\u793A\u65E0\u76EE\u6807\uFF08\u4F5C\u7528\u4E8E\u73AF\u5883\uFF09\uFF0C* \u8868\u793A\u4EFB\u610F\u76EE\u6807\u3002" },
+      "\u5217\u8868": { label: "\u65B9\u62EC\u53F7 \xB7 \u5217\u8868", body: "\u5BB9\u5668\u7C7B\u578B\u7531\u62EC\u53F7\u81EA\u5DF1\u58F0\u660E\uFF1A\u5706\u62EC\u53F7\u662F\u5143\u7EC4\u3001\u65B9\u62EC\u53F7\u662F\u5217\u8868\u3001\u82B1\u62EC\u53F7\u662F\u5B57\u5178\u3002" },
+      "\u8BED\u5757": { label: "\u82B1\u62EC\u53F7 \xB7 \u8BED\u5757", body: "\u5212\u8303\u56F4\uFF1A\u89E6\u53D1\u3001\u6548\u679C\u3001\u80FD\u91CF\u3001\u4EE3\u4EF7\u90FD\u5199\u5728\u91CC\u9762\u3002\u540C\u4E00\u5F62\u72B6\u4E5F\u517C\u4F5C\u5B57\u5178\uFF0F\u6620\u5C04\u3002" }
+    };
+    function bracketTip(kind) {
+      return KIND_INFO[kind] || { label: "\u62EC\u53F7", body: kind || "" };
+    }
+    function inferKind(expr, known) {
+      const e = (expr || "").trim();
+      if (!e) return { kind: "\u672A\u5B9A" };
+      if (/^\*&/.test(e)) return { kind: "\u5B9E\u4F53" };
+      if (/^&/.test(e)) return { kind: "\u5730\u5740" };
+      if (/^@/.test(e) || /^METOS\s*\[/.test(e)) return { kind: "\u5BF9\u8C61\u96C6" };
+      if (/^\[/.test(e)) return { kind: "\u5217\u8868" };
+      if (/^\(/.test(e)) return { kind: "\u5143\u7EC4" };
+      if (/^\{/.test(e)) return { kind: "\u5B57\u5178" };
+      if (/^\d/.test(e)) return { kind: "\u6570\u503C" };
+      const word = /^([A-Za-z_][A-Za-z0-9_]*)\s*([(=]?)/.exec(e);
+      if (word) {
+        const w = word[1];
+        if (ELEMENTS.indexOf(w) >= 0 || TYPES.indexOf(w) >= 0) return { kind: "\u5143\u7D20\u6216\u7C7B\u578B", ref: w };
+        if (word[2] === "(") return { kind: "\u8C03\u7528" };
+        if (known && known.has(w)) return { kind: "\u540C\u524D", ref: w };
+      }
+      return { kind: "\u672A\u5B9A" };
+    }
+    function parseVarTypes(text, info) {
+      const out = /* @__PURE__ */ new Map();
+      const isType = function(w) {
+        return TYPES.indexOf(w) >= 0 || ELEMENTS.indexOf(w) >= 0;
+      };
+      const scopes = text.match(/\([^()]*\)/g) || [];
+      for (let i = 0; i < scopes.length; i++) {
+        const parts = scopes[i].slice(1, -1).split(",");
+        for (let j = 0; j < parts.length; j++) {
+          const p = parts[j].trim();
+          let m = /^((?:(?:priv|tut|publ|consta)[ \t]+)*)([A-Za-z_][A-Za-z0-9_]*)\s*:\s*((?:(?:priv|tut|publ|consta)[ \t]+)*)([A-Za-z_][A-Za-z0-9_]*)$/.exec(p);
+          if (m) {
+            const ty = m[2];
+            const name = m[4];
+            const mods = ((m[1] || "") + " " + (m[3] || "")).trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
+            let binding;
+            if (isType(ty) && !isType(name)) binding = { type: ty };
+            else if (!isType(ty) && isType(name)) binding = { type: name };
+            else if (ty.length === 1) binding = { type: name };
+            else binding = { type: ty };
+            if (mods.length) {
+              binding.modifiers = mods;
+              binding.modifier = mods[mods.length - 1];
+            }
+            out.set(name, binding);
+            continue;
+          }
+          m = /^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*\[[^\]]*?(\d+)?\s*:?\s*([A-Za-z_][A-Za-z0-9_]*)\s*\]$/.exec(p);
+          if (m) {
+            out.set(m[3], { type: m[1], container: "\u5217\u8868", length: m[2] || "" });
+            continue;
+          }
+          m = /^\[[^\]]*?([A-Za-z_][A-Za-z0-9_]*)\s*\]\s*:\s*([A-Za-z_][A-Za-z0-9_]*)$/.exec(p);
+          if (m) {
+            out.set(m[2], { type: m[1], container: "\u5217\u8868", length: "" });
+            continue;
+          }
+        }
+      }
+      const assign = new RegExp("(^|[;\\n])[ \\t]*((?:(?:" + MODIFIERS.join("|") + ")[ \\t]+)*)([A-Za-z_][A-Za-z0-9_]*)[ \\t]*=(?!=)[ \\t]*([^\\n;]*)", "g");
+      let a;
+      while (a = assign.exec(text)) {
+        const name = a[3];
+        if (out.has(name)) continue;
+        const binding = inferKind(a[4], out);
+        binding.modifiers = (a[2] || "").trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
+        binding.modifier = binding.modifiers.length ? binding.modifiers[binding.modifiers.length - 1] : "";
+        out.set(name, binding);
+      }
+      return out;
+    }
+    var BIND_KIND = {
+      "\u5730\u5740": "\u662F\u4E2A\u5730\u5740 \u2014\u2014 & \u53D6\u5F97\u7684\u5F15\u7528\uFF1B\u8BBE\u5B9A\u91CC\u5730\u5740\u672C\u8EAB\u5C31\u662F\u4F4D\u7F6E\uFF08\u7B2C 1\u20133 \u79E9\uFF09\u3002",
+      "\u5B9E\u4F53": "\u662F\u987A\u7740\u5F15\u7528\u53D6\u56DE\u7684\u90A3\u7269\u672C\u8EAB\u3002",
+      "\u5BF9\u8C61\u96C6": "\u662F\u76EE\u6807\u5BF9\u8C61\u96C6\u3002",
+      "\u5217\u8868": "\u662F\u5217\u8868\u5BB9\u5668\u3002",
+      "\u5143\u7EC4": "\u662F\u5143\u7EC4\u3002",
+      "\u5B57\u5178": "\u662F\u5B57\u5178\uFF0F\u6620\u5C04\u3002",
+      "\u6570\u503C": "\u662F\u6570\u503C\u3002",
+      "\u8C03\u7528": "\u53D6\u7684\u662F\u8C13\u8BCD\u8C03\u7528\u7684\u7ED3\u679C\uFF0C\u7C7B\u522B\u7531\u8BE5\u8C13\u8BCD\u51B3\u5B9A\u3002",
+      "\u540C\u524D": "\u4E0E\u53F3\u4FA7\u90A3\u4E2A\u53D8\u91CF\u6307\u540C\u4E00\u7269\u3002",
+      "\u672A\u5B9A": "\u7531 = \u7ED1\u5B9A\uFF0C\u53F3\u4FA7\u5199\u6CD5\u672A\u7ED9\u51FA\u53EF\u5224\u5B9A\u7684\u7C7B\u522B\u3002"
+    };
+    var MOD_INFO = {
+      priv: "\u79C1\u6709\uFF1A\u4EC5\u5F53\u524D\u8BED\u5757\u53EF\u89C1",
+      tut: "\u53D7\u62A4\uFF1A\u672C\u8BED\u5757\u53CA\u5B50\u5757\u53EF\u89C1",
+      publ: "\u516C\u5F00\uFF1A\u6574\u4E2A\u672F\u5F0F\u5185\u53EF\u89C1",
+      consta: "\u5E38\u6570\uFF1A\u4E0D\u53EF\u518D\u8D4B\u503C"
+    };
+    function variableTip(name, binding, info) {
+      if (!binding) return null;
+      const mods = binding.modifiers || (binding.modifier ? [binding.modifier] : []);
+      const modParts = [];
+      for (let mi = 0; mi < mods.length; mi++) if (MOD_INFO[mods[mi]]) modParts.push(MOD_INFO[mods[mi]]);
+      const mod = modParts.length ? modParts.join("\uFF1B") + "\uFF1B" : "";
+      if (binding.type) {
+        const entry = info && info.get(String(binding.type).toLowerCase());
+        const detail = entry ? "\uFF08" + (entry.pos ? entry.pos + " " : "") + entry.meaning + "\uFF09" : "";
+        const shape = binding.container ? "\uFF0C" + binding.container + "\u5BB9\u5668\uFF0C" + (binding.length ? "\u957F\u5EA6 " + binding.length : "\u957F\u5EA6\u672A\u5B9A") : "";
+        return { label: "\u53D8\u91CF " + name, body: mod + "\u7C7B\u578B " + binding.type + shape + detail };
+      }
+      if (binding.kind === "\u5143\u7D20\u6216\u7C7B\u578B") {
+        const entry = info && info.get(String(binding.ref || "").toLowerCase());
+        const detail = entry ? "\uFF08" + (entry.pos ? entry.pos + " " : "") + entry.meaning + "\uFF09" : "";
+        return { label: "\u53D8\u91CF " + name, body: mod + "\u53D6 " + binding.ref + detail + " \u672C\u8EAB" };
+      }
+      return { label: "\u53D8\u91CF " + name, body: mod + (BIND_KIND[binding.kind] || BIND_KIND["\u672A\u5B9A"]) };
+    }
+    function negScopeText(el) {
+      let out = "";
+      let node = el && el.nextSibling;
       let guard = 0;
       while (node && guard < 40) {
         guard += 1;
-        const t = node.textContent || '';
-        if (/[;,\n]/.test(t)) break;
-        if (node.nodeType === 1 && node.classList && node.classList.contains('token')) node.classList.add('epx-neg-scope');
+        const t = node.textContent || "";
+        const cut = /[;,\n]/.exec(t);
+        if (cut) {
+          out += t.slice(0, cut.index);
+          break;
+        }
+        out += t;
         node = node.nextSibling;
       }
+      return out.replace(/\s+/g, " ").trim();
     }
-  }
-
-  /* 词典里查不到的词加一层点线，提示未入典 */
-  markUnknown(code) {
-    const spans = code.querySelectorAll('span.token.word');
-    for (let i = 0; i < spans.length; i++) {
-      const w = (spans[i].textContent || '').toLowerCase();
-      if (w.length < 4 || /[0-9]/.test(w)) continue;
-      if (this.info.has(w)) continue;
-      spans[i].classList.add('epx-unknown');
+    var WORLD_AXES = ["X\uFF08\u4E1C\u897F\uFF09", "Y\uFF08\u4E0A\u4E0B\uFF09", "Z\uFF08\u5357\u5317\uFF09"];
+    var LOCAL_AXES = ["\u5DE6\uFF08X\uFF09", "\u4E0A\uFF08Y\uFF09", "\u524D\uFF08Z\uFF09"];
+    function parseCoord(text) {
+      const sign = text.charAt(0) === "~" ? "~" : "^";
+      const parts = text.split(/[ \t]+(?=[~^])/);
+      const values = [];
+      for (let i = 0; i < parts.length; i++) {
+        const m = /^[~^][ \t]*([-+]?\d+(?:\.\d+)?)?/.exec(parts[i]);
+        values.push(m && m[1] ? m[1] : "0");
+      }
+      return { sign, values };
     }
-  }
-
-  /* 自检：当前视图里到底有没有 token、词表读进来没有 */
-  selfCheck() {
-    let mode = '非笔记视图';
-    try {
-      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (view) mode = view.getMode() === 'preview' ? '阅读视图' : '实时预览／源码';
-    } catch (err) { /* 忽略 */ }
-    const codes = document.querySelectorAll(':is(code[class*="language-EpXsC" i], .epx-ord)');
-    let tokened = 0;
-    let ordBlocks = 0;
-    for (let i = 0; i < codes.length; i++) {
-      if (codes[i].classList && codes[i].classList.contains('epx-ord')) ordBlocks += 1;
-      if (codes[i].querySelector('span.token')) tokened += 1;
+    function coordTip(text) {
+      const c = parseCoord(text);
+      const n = c.values.length;
+      if (c.sign === "~") {
+        if (n < 2) return { label: "\u76F8\u5BF9\u5750\u6807 ~\uFF08" + n + " \u8F74\uFF09", body: "\u81F3\u5C11\u7ED9 X \u4E0E Z" };
+        const names = n === 3 ? WORLD_AXES : n === 2 ? [WORLD_AXES[0], WORLD_AXES[2]] : [];
+        const shown2 = [];
+        for (let i = 0; i < n; i++) shown2.push((names[i] || "\u7B2C " + (i + 1) + " \u8F74") + " " + c.values[i]);
+        return {
+          label: "\u76F8\u5BF9\u5750\u6807 ~\uFF08" + n + " \u8F74\uFF09",
+          body: "\u4E16\u754C\u8F74\uFF1A" + shown2.join(" \xB7 ") + "\uFF08\u4E0D\u968F\u671D\u5411\u53D8\uFF09"
+        };
+      }
+      if (n !== 3) return { label: "\u5C40\u90E8\u5750\u6807 ^\uFF08" + n + " \u8F74\uFF09", body: "\u987B\u5199\u5168\u4E09\u8F74\uFF08\u5DE6\uFF0F\u4E0A\uFF0F\u524D\uFF09" };
+      const shown = [];
+      for (let i = 0; i < 3; i++) shown.push(LOCAL_AXES[i] + " " + c.values[i]);
+      return { label: "\u5C40\u90E8\u5750\u6807 ^\uFF083 \u8F74\uFF09", body: "\u53D7\u672F\u8005\u4E09\u8F74\uFF1A" + shown.join(" \xB7 ") + "\uFF08\u968F\u671D\u5411\u53D8\uFF09" };
     }
-    const lines = document.querySelectorAll('.HyperMD-codeblock').length;
-    /* 决定性三问：token 有没有、算出来的颜色是什么、样式表载入没有 */
-    let firstClass = '(没有代码块)';
-    let tokenCount = 0;
-    let color = '(未测)';
-    if (codes[0]) {
-      firstClass = codes[0].className || '(空)';
-      tokenCount = codes[0].querySelectorAll('span.token').length;
-      const first = codes[0].querySelector('span.token');
-      try { if (first && window.getComputedStyle) color = window.getComputedStyle(first).color; } catch (e) { color = '(读不到)'; }
+    function rankDef(n, ranks) {
+      if (!ranks) return "";
+      const key = String(n);
+      if (ranks.has(key)) return ranks.get(key);
+      const num = parseInt(key, 10);
+      if (!num) return "";
+      let found = "";
+      ranks.forEach(function(value, k) {
+        if (found) return;
+        const m = /^(\d+)[–-](\d+)$/.exec(k);
+        if (m && num >= parseInt(m[1], 10) && num <= parseInt(m[2], 10)) found = value;
+      });
+      return found;
     }
-    let styleState = '未知';
-    try {
-      let n = 0;
-      const sheets = document.styleSheets || [];
-      for (let i = 0; i < sheets.length; i++) {
-        let rules = null;
-        try { rules = sheets[i].cssRules; } catch (e) { continue; }
-        if (!rules) continue;
-        for (let j = 0; j < rules.length; j++) {
-          const sel = rules[j].selectorText || '';
-          if (sel.indexOf('.token.') >= 0 || sel.indexOf('.epx-tip') >= 0) n += 1;
+    function rankSpan(a, b, ranks) {
+      const lo = parseInt(a, 10);
+      const hi = parseInt(b, 10);
+      if (!lo || !hi || hi < lo || hi - lo > 8) return "";
+      const parts = [];
+      for (let n = lo; n <= hi; n++) {
+        const r = ranks.get(String(n));
+        if (!r) return "";
+        const bits = String(r).split(" \xB7 ");
+        parts.push(bits.length > 1 ? bits[bits.length - 1] : String(r));
+      }
+      return parts.join("\uFF0C");
+    }
+    var WORD_KIND = {
+      class: "\u8BED\u6CD5\u8BCD",
+      hered: "\u8BED\u6CD5\u8BCD",
+      campus: "\u7ED3\u754C\u7C7B",
+      protocol: "\u534F\u8BAE\u6761\u6B3E",
+      clav: "\u534F\u8BAE\u6761\u76EE",
+      frequent: "\u534F\u8BAE\u6761\u76EE",
+      erk: "\u76F8\u4F4D",
+      impo: "\u8BED\u6CD5\u8BCD"
+    };
+    function buildTip(cls, text, info, ranks) {
+      if (cls === "spellRef" || cls === "declaration") {
+        const rec = spellRegistry.get(String(text));
+        if (rec) {
+          const vis = rec.visibility ? rec.visibility : "\u9ED8\u8BA4\uFF08\u5757\u5185\u53EF\u89C1\uFF09";
+          const ps = (rec.params || []).map(function(p) {
+            return ((p.modifiers || []).join(" ") ? (p.modifiers || []).join(" ") + " " : "") + (p.type ? p.type + ":" : "") + p.name;
+          });
+          return {
+            label: (cls === "spellRef" ? "\u672F\u5F0F\u5F15\u7528" : "\u672F\u5F0F\u58F0\u660E") + "\uFF1A" + text,
+            body: (rec.visibility ? rec.visibility : "\u9ED8\u8BA4") + (ps.length ? " \xB7 \u5F62\u53C2 " + ps.length + "\uFF1A" + ps.join("\u3001") : " \xB7 \u65E0\u5F62\u53C2")
+          };
+        }
+        if (cls === "spellRef") return { label: "\u672F\u5F0F\u5F15\u7528\uFF1A" + text, body: "\u672A\u767B\u8BB0" };
+      }
+      if (cls === "element") {
+        const e = info.get(String(text)) || info.get(String(text).toLowerCase());
+        const mean = e && e.meaning ? e.meaning : "";
+        return { label: "\u5143\u7D20\u7801\uFF1A" + text, body: (mean ? mean + " \xB7 " : "") + "\u7C7B\u53D8\u91CF\uFF08\u5355\u4F8B\uFF09" };
+      }
+      if (cls === "rankRange") {
+        const m = /^(\d*)\.\.(\d*)$/.exec(text);
+        const a = m ? m[1] : "";
+        const b = m ? m[2] : "";
+        if (a && b) {
+          const span = ranks.get(a + "\u2013" + b) || rankSpan(a, b, ranks);
+          if (span) return { label: "\u79E9 " + a + "\u2013" + b, body: span };
+          return { label: "\u533A\u95F4 " + a + "\u2013" + b, body: "\u8DDD\u79BB\uFF0F\u89D2\u5EA6\uFF0F\u91CF\u503C" };
+        }
+        if (b) return { label: "\u81F3 " + b, body: "\u4E0D\u8D85\u8FC7\u8BE5\u6570\uFF08\u542B\uFF09" };
+        if (a) return { label: "\u81EA " + a + " \u8D77", body: "\u81EA\u8BE5\u5904\u8D77\uFF08\u542B\uFF09" };
+        return { label: "\u533A\u95F4", body: "\u672F\u5F0F\u91CC\u7684 .. \u533A\u95F4\u5199\u6CD5" };
+      }
+      if (cls === "bracket") return { label: "\u65B9\u62EC\u53F7", body: "\u5217\u8868 \uFF0F \u4E0B\u6807 \uFF0F \u79E9" };
+      if (cls === "paren") return { label: "\u5706\u62EC\u53F7", body: "\u5143\u7EC4 \xB7 \u5206\u7EC4 \xB7 \u5B9E\u53C2\u8868" };
+      if (cls === "brace") return { label: "\u82B1\u62EC\u53F7", body: "\u8BED\u5757\uFF08\u517C\u4F5C\u5B57\u5178\uFF0F\u6620\u5C04\uFF09" };
+      if (cls === "pointer") return { label: "\u6307\u9488", body: "& \u53D6\u5730\u5740 \xB7 * \u89E3\u5F15\u7528 \xB7 @ \u76EE\u6807\u7B80\u5199" };
+      if (cls === "declaration") return { label: "\u672F\u5F0F\u540D", body: "\u672C\u672F\u5F0F\u7684\u58F0\u660E\u540D\uFF0C\u540E\u9762\u8DDF\u53C2\u6570\u8868\u4E0E\u8BED\u5757" };
+      if (!info) return null;
+      const entry = info.get(String(text).toLowerCase());
+      if (!entry) return null;
+      const head = WORD_KIND[String(text).toLowerCase()] || (entry.kind ? "\u8BCD\u6839\xB7" + entry.kind : CLASS_LABEL[cls] || SECTION_POS[entry.pos] || entry.pos || "\u8BCD\u6761");
+      const raw = entry.abbr || "";
+      const showAbbr = raw && raw !== "\u2014" && raw !== "-" && raw.toLowerCase() !== String(text).toLowerCase();
+      const note = TYPE_NOTES[String(text).toLowerCase()];
+      return { label: head, body: entry.meaning + (note ? "\uFF1B" + note : "") };
+    }
+    var FALLBACK_CSS = '/* EpXsC Syntax \u5185\u7F6E\u515C\u5E95\u6837\u5F0F\uFF08\u4E0E styles.css \u7B2C 1\uFF0F2\uFF0F3\uFF0F5\uFF0F6 \u8282\u4E00\u81F4\uFF09 */\nbody{--epx-comment:var(--text-faint);--epx-pretium:var(--color-red);--epx-keyword:var(--color-purple);--epx-judge:var(--color-purple);--epx-clause:var(--color-red);--epx-verb:var(--color-blue);--epx-decl:var(--color-yellow);--epx-element:var(--color-cyan);--epx-type:var(--color-cyan);--epx-unit:var(--color-orange);--epx-number:var(--color-orange);--epx-degree:var(--color-pink);--epx-axis:var(--color-green);--epx-pointer:var(--text-accent);--epx-operator:var(--text-muted);--epx-punct:var(--text-muted);--epx-paren:var(--text-muted);--epx-bracket:var(--text-muted);--epx-brace:var(--text-muted);--epx-rank:var(--color-orange);--epx-b2:var(--text-muted);--epx-b3:var(--text-muted);--epx-variable:var(--color-pink);--epx-modifier:var(--color-red)}\n.epx-pre{position:relative;padding:1.1em 1.15em 1.15em;background:var(--code-background);border:1px solid var(--background-modifier-border);border-left:3px solid var(--text-accent);border-radius:var(--radius-m)}\n.epx-pre::before{content:"EpXsC";position:absolute;inset:0 0 auto auto;padding:0 .7em;font-family:var(--font-interface);font-size:.62em;font-weight:600;letter-spacing:.09em;line-height:1.8;color:var(--text-on-accent);background:var(--text-accent);border-radius:0 var(--radius-m) 0 var(--radius-s);opacity:.85;pointer-events:none;user-select:none}\n:is(code[class*="language-EpXsC" i], .epx-ord){font-family:var(--font-monospace);font-size:.9em;line-height:1.65;tab-size:4;color:var(--code-normal,var(--text-normal));background:none;padding:0;text-shadow:none}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.comment{color:var(--epx-comment);font-style:italic}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.pretium{color:var(--epx-pretium);font-weight:700}:is(code[class*="language-EpXsC" i], .epx-ord) .token.clause{color:var(--epx-clause);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.keyword{color:var(--epx-keyword);font-weight:600}:is(code[class*="language-EpXsC" i], .epx-ord) .token.judge{color:var(--epx-judge);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.negPrefix{color:var(--epx-keyword);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.function{color:var(--epx-verb)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.spellRef{color:var(--epx-verb);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.predicate{color:var(--epx-verb)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.declaration{color:var(--epx-decl);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.element{color:var(--epx-element);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.type{color:var(--epx-type)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.variable{color:var(--epx-variable);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.unit{color:var(--epx-unit);font-style:italic}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.number{color:var(--epx-number)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.rankRange{color:var(--epx-rank);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.degree{color:var(--epx-degree);font-style:italic}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.axis{color:var(--epx-axis)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.pointer{color:var(--epx-pointer);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.coordRun{color:var(--text-muted);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier{color:var(--epx-modifier);font-style:italic;font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.declTarget{color:var(--epx-variable);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.varUse{color:var(--epx-variable)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.operator{color:var(--epx-operator)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.bracket{color:var(--epx-bracket);color:color-mix(in srgb,var(--color-cyan) 40%,var(--text-muted));font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.paren{color:var(--epx-paren)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.brace{color:var(--epx-brace)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.punctuation{color:var(--epx-punct)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-d2{color:var(--epx-b2);color:color-mix(in srgb,var(--color-pink) 35%,var(--text-muted))}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-d3{color:var(--epx-b3);color:color-mix(in srgb,var(--color-green) 35%,var(--text-muted))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.declaration{color:#7e691f;color:color-mix(in srgb,var(--color-yellow) 45%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.element,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.type{color:#17797a;color:color-mix(in srgb,var(--color-cyan) 50%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.unit,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.number,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.rankRange{color:#a05b16;color:color-mix(in srgb,var(--color-orange) 60%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.axis{color:#197d44;color:color-mix(in srgb,var(--color-green) 55%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.degree,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.variable,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.declTarget,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.varUse{color:#c4387c;color:color-mix(in srgb,var(--color-pink) 90%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.pretium,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.clause,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier{color:#cd3145;color:color-mix(in srgb,var(--color-red) 85%,var(--text-normal))}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-unknown{text-decoration:underline dotted var(--color-orange);text-underline-offset:.2em}\n.epx-tip{position:fixed;z-index:9999;max-width:340px;padding:7px 11px;border:1px solid var(--background-modifier-border);border-radius:var(--radius-s);background:var(--background-secondary);color:var(--text-normal);font-family:var(--font-interface);font-size:12px;line-height:1.5;box-shadow:var(--shadow-s);pointer-events:none;opacity:0}\n.epx-tip.is-visible{opacity:1}\n.epx-tip .epx-tip-head{font-weight:600;color:var(--text-accent)}\n.epx-tip .epx-tip-body{color:var(--text-muted)}\n/* \u666E\u901A\u53E5\u5757\uFF1A\u5916\u6846 + \u53F3\u4E0A\u89D2\u8BED\u8A00\u7B7E\uFF0C\u8DDF\u672F\u5F0F\u5757\u540C\u5F62\uFF0C\u53EA\u6309\u6A21\u5F0F\u6362\u8272\uFF08G \u9752 \xB7 T \u6A59\uFF09\n   \u5916\u5C42\u662F code.language-EpXsC\uFF1Atoken \u914D\u8272\u4E0E\u60AC\u505C\u6CBF\u7528\u672F\u5F0F\u90A3\u5957\u9009\u62E9\u5668\uFF0C\u8FD9\u91CC\u53EA\u7BA1\u7248\u9762\u3002 */\n.epx-ord {\n  --epx-ord-tint: var(--color-cyan);\n  display: block;\n  position: relative;\n  line-height: 1.9;\n  padding: 1.1em 1.15em 1.15em;\n  background: var(--code-background);\n  border: 1px solid var(--background-modifier-border);\n  border-left: 3px solid var(--epx-ord-tint);\n  border-radius: var(--radius-m);\n  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);\n}\n.epx-ord-T { --epx-ord-tint: var(--color-orange); }\n.epx-ord::before {\n  content: "EpXsG";\n  position: absolute;\n  inset: 0 0 auto auto;\n  padding: 0 0.7em;\n  font-family: var(--font-interface);\n  font-size: 0.62em;\n  font-weight: 600;\n  letter-spacing: 0.09em;\n  line-height: 1.8;\n  color: var(--epx-ord-tint);\n  background: var(--background-secondary);\n  background: color-mix(in srgb, var(--epx-ord-tint) 22%, var(--background-primary));\n  border-radius: 0 var(--radius-m) 0 var(--radius-s);\n  opacity: 0.95;\n  pointer-events: none;\n  user-select: none;\n}\n.epx-ord-T::before { content: "EpXsT"; }\n/* \u8BCD\u4E0E\u8BCD\u6CE8\u90FD\u662F inline-block\uFF1A\u5FC5\u987B top \u5BF9\u9F50\uFF0C\u5426\u5219\u6709\u8BCD\u6CE8\u7684\u8BCD\u88AB\u9876\u9AD8\u3001\u6574\u884C\u5B57\u4E0A\u4E0B\u8DF3\u3002 */\n.epx-oline { display: block; margin: .18em 0; }\n.epx-gs { display: block; }\n.epx-gw { display: inline-block; text-align: center; margin: 0 .16em; vertical-align: top; }\n.epx-gsrc { display: block; line-height: 1.3; }\n.epx-ggl { display: block; font-size: .74em; line-height: 1.2; opacity: .7; font-family: var(--font-text); }\n.epx-tsrc { display: block; }\n.epx-tzh { display: block; font-family: var(--font-text); opacity: .78; font-size: .92em; }\n.epx-gap { display: block; height: .45em; }\n.epx-ord-wrap { display: block; }\n/* \u6709\u4E9B\u4E3B\u9898\u4F1A\u7ED9\u5757\u7EA7\u5143\u7D20\u7EE7\u627F\u9996\u884C\u7F29\u8FDB\uFF1BT/G \u662F\u4EE3\u7801\u5757\uFF0C\u9996\u884C\u5FC5\u987B\u8D34\u5DE6 */\n.epx-ord, .epx-ord .epx-oline, .epx-ord .epx-tsrc, .epx-ord .epx-tzh { text-indent: 0; }\n.epx-ord { padding: 1.1em 1.15em 1.15em !important; }\n@media (max-width: 640px) { .epx-ord { padding: 0 0.9em 0.9em !important; } }\n.epx-ord > .epx-oline:first-child { margin-top: 0; }\n.epx-ord { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }\n@media (max-width:640px){.epx-ord,.epx-pre{white-space:pre-wrap;overflow-wrap:break-word;padding:0 .9em .9em}.epx-ord{line-height:1.8}.epx-ord::before,.epx-pre::before{position:static;display:block;margin:0 -.9em .75em;padding:.22em .9em;text-align:right;line-height:1.7;border-radius:var(--radius-m) var(--radius-m) 0 0;opacity:1}.epx-ggl{line-height:1.25}.epx-tzh{margin-top:.15em}}';
+    var varTypesOf = /* @__PURE__ */ new WeakMap();
+    var spellRegistry = /* @__PURE__ */ new Map();
+    var tipNode = null;
+    function ensureTipNode() {
+      if (tipNode && tipNode.parentNode) return tipNode;
+      tipNode = document.createElement("div");
+      tipNode.className = "epx-tip";
+      const s = tipNode.style;
+      s.position = "fixed";
+      s.zIndex = "9999";
+      s.pointerEvents = "none";
+      s.opacity = "0";
+      s.maxWidth = "340px";
+      s.padding = "7px 11px";
+      s.border = "1px solid var(--background-modifier-border)";
+      s.borderRadius = "var(--radius-s, 6px)";
+      s.background = "var(--background-secondary)";
+      s.color = "var(--text-normal)";
+      s.fontFamily = "var(--font-interface)";
+      s.fontSize = "12px";
+      s.lineHeight = "1.5";
+      s.boxShadow = "var(--shadow-s, 0 2px 8px rgba(0,0,0,.25))";
+      s.transition = "opacity 90ms ease";
+      document.body.appendChild(tipNode);
+      return tipNode;
+    }
+    function showTipAt(x, y, tip) {
+      const node = ensureTipNode();
+      node.innerHTML = "";
+      const head = document.createElement("div");
+      head.className = "epx-tip-head";
+      head.textContent = tip.label;
+      node.appendChild(head);
+      if (tip.body) {
+        const bodyEl = document.createElement("div");
+        bodyEl.className = "epx-tip-body";
+        bodyEl.textContent = tip.body;
+        node.appendChild(bodyEl);
+      }
+      node.style.opacity = "1";
+      node.classList.add("is-visible");
+      const nr = node.getBoundingClientRect();
+      const vw = window.innerWidth || 900;
+      const vh = window.innerHeight || 600;
+      let left = x + 14;
+      if (left + nr.width > vw - 8) left = x - nr.width - 14;
+      if (left < 8) left = 8;
+      let top = y + 18;
+      if (top + nr.height > vh - 8) top = y - nr.height - 12;
+      if (top < 8) top = 8;
+      node.style.left = Math.round(left) + "px";
+      node.style.top = Math.round(top) + "px";
+    }
+    function hideTip() {
+      if (tipNode) tipNode.style.opacity = "0";
+      if (tipNode) tipNode.classList.remove("is-visible");
+    }
+    function prevToken(el) {
+      let n = el ? el.previousSibling : null;
+      while (n && !(n.nodeType === 1 && n.classList && n.classList.contains("token"))) n = n.previousSibling;
+      return n;
+    }
+    function nextToken(el) {
+      let n = el ? el.nextSibling : null;
+      while (n && !(n.nodeType === 1 && n.classList && n.classList.contains("token"))) n = n.nextSibling;
+      return n;
+    }
+    function phaseOf(el) {
+      const caret = prevToken(el);
+      if (!caret || !caret.classList || !caret.classList.contains("operator") || String(caret.textContent).trim() !== "^") return null;
+      const elem = prevToken(caret);
+      if (!elem || !elem.classList || !elem.classList.contains("element")) return null;
+      const nx = nextToken(caret);
+      return { elem: String(elem.textContent || "").trim(), n: nx && nx.classList && nx.classList.contains("number") ? String(nx.textContent || "").trim() : "" };
+    }
+    function tipForElement(el, info, ranks) {
+      let cls = pickClass(el.classList);
+      if (cls === "declTarget" || cls === "varUse") cls = "variable";
+      if (!cls) return null;
+      const text = el.textContent || "";
+      const kind = el.getAttribute ? el.getAttribute("data-epx-kind") : "";
+      if (kind && (cls === "bracket" || cls === "paren" || cls === "brace")) return bracketTip(kind);
+      const code = el.closest ? el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)') : null;
+      const vars = code ? varTypesOf.get(code) : null;
+      if (vars && vars.has(text)) {
+        const vt = variableTip(text, vars.get(text), info);
+        if (vt) return vt;
+      }
+      if (cls === "negPrefix") {
+        const scope = negScopeText(el);
+        const shown = scope.length > 24 ? scope.slice(0, 24) + "\u2026" : scope;
+        return {
+          label: "\u524D\u7F6E\u5426\u5B9A ne",
+          body: "\u5426\u5B9A\u5176\u540E\u6210\u5206\uFF08\u540C !\uFF09" + (shown ? "\uFF1A" + shown : "")
+        };
+      }
+      if (cls === "coordRun") return coordTip(text);
+      if (cls === "operator" && text === "^") {
+        const prev = prevToken(el);
+        if (prev && prev.classList && prev.classList.contains("element")) {
+          const nx = nextToken(el);
+          const n = nx && nx.classList && nx.classList.contains("number") ? String(nx.textContent).trim() : "";
+          return { label: "\u76F8\u4F4D eRk", body: "\u7B2C " + (n || "n") + " \u9636\uFF08" + String(prev.textContent || "").trim() + "\uFF09" };
         }
       }
-      styleState = n ? '已载入 ' + n + ' 条着色规则' : '未载入 ✗（styles.css 没生效）';
-    } catch (e) { styleState = '读不到'; }
-    new Notice([
-      'EpXsC 自检 · 代码版本 ' + BUILD,
-      '词条 ' + this.info.size + ' · 秩 ' + this.ranks.size + ' · 语法' + (this.grammar ? '已装' : '缺失') + ' · 切词器：自带（Prism ' + (window.Prism ? '有' : '没有') + '）',
-      '当前视图：' + mode,
-      'EpXsC 代码块 ' + (codes.length - ordBlocks) + ' 个 · 普通句块（G／T）' + ordBlocks + ' 个 · 带 token 的 ' + tokened + ' 个 · 实时预览代码行 ' + lines + ' 行',
-      (codes.length > 0 && tokened === 0 && mode === '阅读视图' ? '⚠ 阅读视图里这些块没有 token —— 渲染没跑起来，请把这几行发我' : '渲染：' + (tokened > 0 ? '正常' : '无代码块')),
-      '首个块 class：' + firstClass,
-      '首个块 token 数：' + tokenCount + ' · 首个 token 颜色：' + color,
-      '样式表：' + styleState + (this._styleState ? ' · 兜底：' + this._styleState : '')
-    ].join('\n'), 15000);
-  }
-
-  rehighlight() {
-    this.highlightIn(document);
-  }
-
-  highlightIn(root) {
-    if (!root || !root.querySelectorAll) return;
-    const nodes = root.querySelectorAll(CODE_SELECTOR);
-    for (let i = 0; i < nodes.length; i++) this.highlightOne(nodes[i]);
-  }
-
-  /* 自愈：启动时首屏可能早于插件加载、或 window.Prism 尚未就绪，
-     也可能被 Obsidian 的 Prism 初始化覆盖掉注册的语法。
-     这里确认两件事：语法还在不在、该上色的块有没有 token。 */
-  ensureRendered() {
-    if (document.hidden) return;
-    /* 自带切词器，不需要 window.Prism；若 Obsidian 恰好有 Prism，顺手把语法也注册上去 */
-    if (window.Prism && window.Prism.languages && window.Prism.languages.EpXsC !== this.grammar) this.install();
-    const nodes = document.querySelectorAll(CODE_SELECTOR);
-    for (let i = 0; i < nodes.length; i++) {
-      const code = nodes[i];
-      if (code.classList && code.classList.contains('epx-ord')) continue;
-      if (code.querySelector('span.token')) continue;
-      if (!(code.textContent || '').trim()) continue;
-      this.highlightOne(code);
-    }
-  }
-
-  highlightOne(code) {
-    try {
-      if (code.parentElement && code.parentElement.tagName === 'PRE' && /language-EpXsC/i.test(code.className || '')) code.parentElement.classList.add('epx-pre');
-    } catch (e) {}
-    /* 普通句块（EpXsG／EpXsT）自己就是最终渲染结果，别当术式再过一遍切词，否则词表与对译会被冲掉 */
-    if (code && code.classList && code.classList.contains('epx-ord')) return;
-    try {
-      const text = code.textContent || '';
-      /* 50 行以上不着色：再长也看不清，还会拖慢输入 */
-      if ((text.match(/\n/g) || []).length >= MAX_HIGHLIGHT_LINES) {
-        if (code.classList) code.classList.add('language-EpXsC');
-        return;
+      if (cls === "number") {
+        const ph = phaseOf(el);
+        if (ph) return { label: "\u76F8\u4F4D eRk", body: "\u7B2C " + String(text).trim() + " \u9636\uFF08" + ph.elem + "\uFF09" };
       }
-      const found = /language-(\w+)/.exec(code.className || '');
-      /* 样式选的是 language-EpXsC：万一 Obsidian 没给这个 class，token 会出来但不上色。
-         补一个，让着色不悬在外部 class 上。 */
-      if (!found && code.classList) code.classList.add('language-EpXsC');
-      const grammar = this.grammar;
-      if (!grammar) return;
-      let html = markBracketDepth(tokenizeText(text, grammar), bracketKinds(text));
-      const vars = parseVarTypes(text, this.info);
-      varTypesOf.set(code, vars);
-      html = markVarUse(html, vars);
-      html = markDictKeys(html);
-      html = markSpellRefs(html);
-      code.innerHTML = html;
-      this.markUnknown(code);
-      this.markNegation(code);
-    } catch (err) {
-      console.warn('[EpXsC Syntax]', err);
+      const sym = SYMBOL_INFO[text];
+      if (sym && (cls === "operator" || cls === "punctuation" || cls === "pointer")) return sym;
+      if (cls === "comment") return { label: "\u6CE8\u91CA", body: "/* \u2026 */\uFF1B// \u4E0D\u7528\uFF08/ \u662F\u76F8\u53D8\uFF09" };
+      if (cls === "annotation") return { label: "\u6CE8\u89E3\u884C", body: ". \u5F00\u5934\uFF0C\u4E0D\u53C2\u4E0E\u89E3\u6790" };
+      const group = el.closest ? el.closest(".token.indexGroup, .token.indexDecl") : null;
+      if (group && cls === "number") {
+        const n = String(text).trim();
+        if (group.classList.contains("indexDecl")) {
+          return { label: "\u4F4D\u6570 " + n, body: "\u5217\u8868\u5BB9\u5668\u7684\u4F4D\u6570\uFF08\u957F\u5EA6\uFF09\uFF1B\u5192\u53F7\u540E\u662F\u53D8\u91CF\u540D\u3002" };
+        }
+        const def = rankDef(n, ranks);
+        return { label: "\u4E0B\u6807 " + n, body: def ? "\u7B2C " + n + " \u4F4D\uFF1B\u4F5C\u7528\u4E8E\u5B9E\u4F53\u65F6\u5373\u5B83\u7684\u7B2C " + n + " \u79E9 \u2014\u2014 " + def + "\u3002" : "\u7B2C " + n + " \u4F4D\uFF08\u79E9\u53EA\u6709 1\u20139\uFF09\u3002" };
+      }
+      if (cls === "number") return { label: "\u6570\u503C", body: "\u6709\u5B9E\u6570\u7684\u91CF\u53EF\u4EE5\u76F4\u63A5\u5199\u7B97\u5F0F\u3002" };
+      const tip = buildTip(cls, text, info, ranks);
+      if (tip) return tip;
+      if (cls === "word" && text.length >= 4 && !/[0-9]/.test(text)) {
+        return { label: "\u672A\u5165\u5178", body: "\u8BCD\u5178\u91CC\u6CA1\u6709\u8FD9\u4E2A\u8BCD\u6761" };
+      }
+      return null;
     }
+    function wordAtPoint(x, y) {
+      let node = null;
+      let offset = 0;
+      if (document.caretRangeFromPoint) {
+        const r = document.caretRangeFromPoint(x, y);
+        if (r) {
+          node = r.startContainer;
+          offset = r.startOffset;
+        }
+      } else if (document.caretPositionFromPoint) {
+        const p = document.caretPositionFromPoint(x, y);
+        if (p) {
+          node = p.offsetNode;
+          offset = p.offset;
+        }
+      }
+      if (!node || node.nodeType !== 3) return null;
+      const text = node.nodeValue || "";
+      const isWordChar = function(c) {
+        return /[A-Za-z0-9_]/.test(c);
+      };
+      let i = offset;
+      if (i >= text.length || !isWordChar(text.charAt(i))) {
+        if (i > 0 && isWordChar(text.charAt(i - 1))) i -= 1;
+        else return null;
+      }
+      let a = i;
+      let b = i;
+      while (a > 0 && isWordChar(text.charAt(a - 1))) a -= 1;
+      while (b < text.length && isWordChar(text.charAt(b))) b += 1;
+      return text.slice(a, b) || null;
+    }
+    function epxFenceLang(text) {
+      const s = String(text || "").replace(/\u200b/g, "");
+      let i = 0;
+      while (i < s.length && (s.charAt(i) === " " || s.charAt(i) === "	")) i++;
+      const ch = s.charAt(i);
+      if (ch !== String.fromCharCode(96) && ch !== "~") return "";
+      let j = i;
+      while (j < s.length && s.charAt(j) === ch) j++;
+      if (j - i < 3) return "";
+      while (j < s.length && (s.charAt(j) === " " || s.charAt(j) === "	")) j++;
+      let k = j;
+      while (k < s.length && /[A-Za-z0-9_+-]/.test(s.charAt(k))) k++;
+      return s.slice(j, k).toLowerCase();
+    }
+    function liveCodeLang(el) {
+      let line = el.closest(".HyperMD-codeblock");
+      if (!line) return "";
+      let cur = line;
+      for (let n = 0; cur && n < 500; n++) {
+        if (cur.classList && cur.classList.contains("HyperMD-codeblock-begin")) {
+          return epxFenceLang(cur.textContent || "");
+        }
+        cur = cur.previousElementSibling;
+        if (!cur || !cur.classList || !cur.classList.contains("HyperMD-codeblock")) return "";
+      }
+      return "";
+    }
+    function inCodeContext(el) {
+      if (!el || !el.closest) return false;
+      if (el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)')) return true;
+      const lang = liveCodeLang(el);
+      return lang === "epxsc" || lang === "epxst" || lang === "epxsg";
+    }
+    var LintModal = class extends Modal {
+      constructor(app, file, issues, blocks) {
+        super(app);
+        this.file = file;
+        this.issues = issues;
+        this.blocks = blocks;
+      }
+      onOpen() {
+        const el = this.contentEl;
+        el.addClass("epx-lint");
+        el.createEl("h4", { text: "EpXsC \u8BED\u6CD5\u68C0\u67E5 \xB7 " + this.file.basename });
+        if (!this.issues.length) {
+          el.createEl("div", { class: "epx-lint-summary", text: this.blocks + " \u4E2A\u4EE3\u7801\u5757 \xB7 \u6CA1\u6709\u53D1\u73B0\u95EE\u9898" });
+          return;
+        }
+        let errs = 0;
+        for (let i = 0; i < this.issues.length; i++) if (this.issues[i].level === "error") errs += 1;
+        el.createEl("div", { class: "epx-lint-summary", text: this.blocks + " \u4E2A\u4EE3\u7801\u5757 \xB7 " + this.issues.length + " \u5904\uFF08" + errs + " \u9519\u8BEF / " + (this.issues.length - errs) + " \u8B66\u544A\uFF09\xB7 \u70B9\u4E00\u884C\u8DF3\u5230\u8BE5\u5904" });
+        const list = el.createEl("div", { class: "epx-lint-list" });
+        const self = this;
+        for (let i = 0; i < this.issues.length; i++) {
+          const it = this.issues[i];
+          const row = list.createEl("div", { class: "epx-lint-row epx-lint-" + it.level });
+          row.createEl("span", { class: "epx-lint-line", text: "\u7B2C " + it.line + " \u884C" });
+          row.createEl("span", { class: "epx-lint-msg", text: it.message });
+          row.addEventListener("click", function() {
+            self.app.workspace.getLeaf(false).openFile(self.file, { eState: { line: Math.max(0, it.line - 1), ch: 0 } });
+            self.close();
+          });
+        }
+      }
+      onClose() {
+        this.contentEl.empty();
+      }
+    };
+    function ordTokens(line, grammar) {
+      const html = tokenizeText(line, grammar);
+      const out = [];
+      const re = /<span class="token ([a-zA-Z ]+)">([\s\S]*?)<\/span>/g;
+      let m;
+      while (m = re.exec(html)) out.push({ cls: m[1], text: m[2].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">") });
+      return out;
+    }
+    function ordGlossOf(tok, info) {
+      const t = tok.text.trim();
+      if (!t || /^[\p{P}]$/u.test(t)) return "";
+      const e = info && (info.get(t) || info.get(t.toLowerCase()));
+      if (e) {
+        const raw = String(e.pos || "").replace("\xB7\u7F29\u5199", "");
+        const pos = SECTION_POS[raw] || raw;
+        const num = String(e.meaning || "").replace(/[^\u4e00-\u9fa5]/g, "");
+        if (pos) return pos;
+        if (num) return num.slice(0, 4);
+      }
+      const map = { judge: "\u5224\u65AD\u8BCD", keyword: "\u529F\u80FD\u8BCD", modifier: "\u9650\u5B9A\u8BCD", degree: "\u7A0B\u5EA6\u8BCD", unit: "\u5355\u4F4D", predicate: "\u8C13\u8BCD", element: "\u5143\u7D20\u7801", type: "\u7C7B\u578B\u540D", number: "\u6570" };
+      for (const k in map) if (tok.cls.indexOf(k) >= 0) return map[k];
+      return "";
+    }
+    function renderOrdBlockInner(el, source, mode, grammar, info) {
+      const lines = String(source || "").replace(/\r/g, "").split("\n");
+      const wrap = document.createElement("div");
+      wrap.className = "epx-ord-wrap";
+      const code = document.createElement("div");
+      code.className = "epx-ord epx-ord-" + mode;
+      wrap.appendChild(code);
+      const appendHTML = function(parent, html) {
+        const tpl = document.createElement("template");
+        tpl.innerHTML = html;
+        parent.appendChild(tpl.content);
+      };
+      const lineEl = function() {
+        const d = document.createElement("div");
+        d.className = "epx-oline";
+        return d;
+      };
+      let pending = null;
+      const flush = function(pair) {
+        if (!pair) return;
+        const line = lineEl();
+        if (mode === "G") {
+          const gs = document.createElement("div");
+          gs.className = "epx-gs";
+          const toks = ordTokens(pair.src, grammar);
+          for (let i = 0; i < toks.length; i++) {
+            const tok = toks[i];
+            const gl = ordGlossOf(tok, info);
+            const gw = document.createElement("span");
+            gw.className = "epx-gw";
+            const srcEl = document.createElement("span");
+            srcEl.className = "epx-gsrc token " + tok.cls;
+            srcEl.textContent = tok.text;
+            gw.appendChild(srcEl);
+            if (gl) {
+              const gg = document.createElement("span");
+              gg.className = "epx-ggl";
+              gg.textContent = gl;
+              gw.appendChild(gg);
+            }
+            gs.appendChild(gw);
+          }
+          line.appendChild(gs);
+        } else {
+          const srcEl = document.createElement("div");
+          srcEl.className = "epx-tsrc";
+          appendHTML(srcEl, tokenizeText(pair.src, grammar));
+          line.appendChild(srcEl);
+        }
+        if (pair.zh) {
+          const zh = document.createElement("div");
+          zh.className = "epx-tzh";
+          zh.textContent = pair.zh;
+          line.appendChild(zh);
+        }
+        code.appendChild(line);
+      };
+      for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        const t = raw.trim();
+        if (!t) {
+          flush(pending);
+          pending = null;
+          const gap = document.createElement("div");
+          gap.className = "epx-gap";
+          code.appendChild(gap);
+          continue;
+        }
+        if (t.charAt(0) === ">") {
+          if (pending) pending.zh = t.slice(1).trim();
+          else {
+            const line = lineEl();
+            const zh = document.createElement("div");
+            zh.className = "epx-tzh";
+            zh.textContent = t.slice(1).trim();
+            line.appendChild(zh);
+            code.appendChild(line);
+          }
+          continue;
+        }
+        if (pending && !pending.zh && /[\u3400-\u9fff]/.test(t)) {
+          pending.zh = t;
+          continue;
+        }
+        flush(pending);
+        pending = { src: t, zh: "" };
+      }
+      flush(pending);
+      el.textContent = "";
+      el.appendChild(wrap);
+    }
+    function renderOrdBlock(el, source, mode, grammar, info) {
+      try {
+        renderOrdBlockInner(el, source, mode, grammar, info);
+      } catch (err) {
+        console.warn("[EpXsC Syntax] \u666E\u901A\u53E5\u6E32\u67D3\u5931\u8D25\uFF1A", err);
+        try {
+          if (el && el.empty) el.empty();
+          if (el && el.createEl) el.createEl("pre", { text: String(source || "") });
+        } catch (e) {
+        }
+      }
+    }
+    function bindClickToSource(target, app, el, ctx) {
+      if (!target || !target.style || !target.addEventListener) return;
+      target.style.cursor = "text";
+      target.addEventListener("click", function() {
+        try {
+          const view = app.workspace.getActiveViewOfType(MarkdownView);
+          if (!view || !view.getMode || view.getMode() !== "source" || !view.editor) return;
+          const info = ctx && ctx.getSectionInfo ? ctx.getSectionInfo(el) : null;
+          if (!info || typeof info.lineStart !== "number") return;
+          const last = typeof info.lineEnd === "number" ? info.lineEnd : info.lineStart + 1;
+          view.editor.setCursor({ line: Math.min(info.lineStart + 1, last), ch: 0 });
+          view.editor.focus();
+        } catch (e) {
+        }
+      });
+    }
+    var EpXsCSyntaxPlugin = class extends Plugin2 {
+      onload() {
+        const self = this;
+        this.grammar = makeGrammar(BASE_LISTS);
+        this.info = /* @__PURE__ */ new Map();
+        this.ranks = /* @__PURE__ */ new Map();
+        for (const w in EXTRA_WORDS) this.info.set(w, EXTRA_WORDS[w]);
+        this.install();
+        this.registerDomEvent(document, "mouseover", function(ev) {
+          hideTip();
+          const el = ev.target;
+          if (!el || !el.closest) return;
+          const token = el.closest("span.token");
+          if (token && el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)')) {
+            const tip2 = tipForElement(token, self.info, self.ranks);
+            if (tip2) {
+              showTipAt(ev.clientX, ev.clientY, tip2);
+              return;
+            }
+          }
+          if (!inCodeContext(el)) return;
+          const word = wordAtPoint(ev.clientX, ev.clientY);
+          if (!word) return;
+          const tip = buildTip("word", word, self.info, self.ranks);
+          if (tip) showTipAt(ev.clientX, ev.clientY, tip);
+        });
+        this.registerDomEvent(document, "mouseout", hideTip);
+        this.registerDomEvent(document, "scroll", hideTip, true);
+        this.addCommand({
+          id: "reload-self",
+          name: "\u91CD\u8F7D EpXsC \u63D2\u4EF6\uFF08\u63D0\u793A\u624B\u52A8\u91CD\u8F7D\uFF09",
+          callback: function() {
+            new Notice("\u8BF7\u5728 \u8BBE\u7F6E \u2192 \u793E\u533A\u63D2\u4EF6 \u4E2D\u5173\u95ED\u518D\u542F\u7528 EpXsC Syntax\u3002");
+          }
+        });
+        this.addCommand({
+          id: "diagnose",
+          name: "EpXsC \u8BCA\u65AD\u62A5\u544A\uFF08\u5199\u8FDB\u5E93\u6839\u76EE\u5F55\uFF0C\u4FBF\u4E8E\u6574\u6BB5\u590D\u5236\uFF09",
+          callback: function() {
+            self.diagnose();
+          }
+        });
+        this.addCommand({
+          id: "lint-note",
+          name: "\u68C0\u67E5\u5F53\u524D\u7B14\u8BB0\u7684 EpXsC \u4EE3\u7801\u5757",
+          callback: function() {
+            self.lintActiveNote();
+          }
+        });
+        this.addCommand({
+          id: "self-check",
+          name: "EpXsC \u81EA\u68C0\uFF08\u89C6\u56FE\uFF0Ftoken\uFF0F\u989C\u8272\uFF0F\u6837\u5F0F\u8868\uFF09",
+          callback: function() {
+            self.selfCheck();
+          }
+        });
+        this.register(function() {
+          const Prism = window.Prism;
+          if (!Prism || !Prism.languages) return;
+          for (let i = 0; i < LANG_KEYS.length; i++) delete Prism.languages[LANG_KEYS[i]];
+        });
+        this.registerMarkdownPostProcessor(function(el) {
+          self.highlightIn(el);
+        });
+        const renderBlock = function(source, el, ctx) {
+          try {
+            if (el && el.empty) el.empty();
+            else if (el) el.textContent = "";
+            const pre = document.createElement("pre");
+            const code = document.createElement("code");
+            code.className = "language-EpXsC";
+            code.textContent = source;
+            pre.appendChild(code);
+            el.appendChild(pre);
+            self.highlightOne(code);
+            bindClickToSource(pre, self.app, el, ctx);
+          } catch (err) {
+            console.warn("[EpXsC Syntax] \u4EE3\u7801\u5757\u6E32\u67D3\u5931\u8D25\uFF1A", err);
+            if (el && el.createEl) el.createEl("pre", { text: source });
+          }
+        };
+        this.registerMarkdownCodeBlockProcessor("EpXsC", renderBlock);
+        this.registerMarkdownCodeBlockProcessor("epxsc", renderBlock);
+        this.registerMarkdownCodeBlockProcessor("EPXSC", renderBlock);
+        const ord = function(source, el, ctx, mode) {
+          renderOrdBlock(el, source, mode, self.grammar, self.info);
+          bindClickToSource(el, self.app, el, ctx);
+        };
+        const ordG = (source, el, ctx) => ord(source, el, ctx, "G");
+        const ordT = (source, el, ctx) => ord(source, el, ctx, "T");
+        for (const lang of ["EpXsG", "epxsg", "EPXSG"]) this.registerMarkdownCodeBlockProcessor(lang, ordG);
+        for (const lang of ["EpXsT", "epxst", "EPXST"]) this.registerMarkdownCodeBlockProcessor(lang, ordT);
+        const isDataFile = function(file) {
+          if (!file || !file.path) return false;
+          return file.path === DICT_PATH || file.path === SYNTAX_PATH || file.path === RANK_PATH || file.path.indexOf(ROOTS_DIR) === 0 || file.path.indexOf(SPELL_DIR) === 0;
+        };
+        let refreshTimer = null;
+        const scheduleRefresh = function() {
+          if (refreshTimer) window.clearTimeout(refreshTimer);
+          refreshTimer = window.setTimeout(function() {
+            refreshTimer = null;
+            self.refresh();
+          }, 300);
+        };
+        const onDataEvent = function(file) {
+          if (isDataFile(file)) scheduleRefresh();
+        };
+        this.registerEvent(this.app.vault.on("modify", onDataEvent));
+        this.registerEvent(this.app.vault.on("create", onDataEvent));
+        this.registerEvent(this.app.vault.on("delete", onDataEvent));
+        this.registerEvent(this.app.vault.on("rename", function(file, oldPath) {
+          if (isDataFile(file) || oldPath && isDataFile({ path: oldPath })) scheduleRefresh();
+        }));
+        this.register(function() {
+          if (refreshTimer) window.clearTimeout(refreshTimer);
+        });
+        this.addCommand({
+          id: "reload-lexicon",
+          name: "\u91CD\u65B0\u8F7D\u5165\u8BCD\u8868\u4E0E\u91CA\u4E49",
+          callback: function() {
+            self.refresh();
+          }
+        });
+        this.app.workspace.onLayoutReady(function() {
+          self.refresh();
+        });
+        const early = [400, 1500];
+        for (let i = 0; i < early.length; i++) {
+          const t = window.setTimeout(function() {
+            self.ensureRendered();
+          }, early[i]);
+          this.register(function() {
+            window.clearTimeout(t);
+          });
+        }
+        this.registerEvent(this.app.workspace.on("layout-change", function() {
+          self.ensureRendered();
+        }));
+        this.registerEvent(this.app.workspace.on("active-leaf-change", function() {
+          self.ensureRendered();
+        }));
+        this.registerInterval(window.setInterval(function() {
+          self.ensureRendered();
+        }, 2500));
+      }
+      install() {
+        const Prism = window.Prism;
+        if (!Prism || !Prism.languages) return false;
+        for (let i = 0; i < LANG_KEYS.length; i++) Prism.languages[LANG_KEYS[i]] = this.grammar;
+        return true;
+      }
+      /* 只遍历指定目录（而不是 getFiles 全库枚举），降低插件对库的可见面 */
+      mdFilesUnder(dir) {
+        const folder = this.app.vault.getAbstractFileByPath(dir);
+        if (!(folder instanceof TFolder)) return [];
+        const out = [];
+        const walk = function(node) {
+          for (let i = 0; i < node.children.length; i++) {
+            const child = node.children[i];
+            if (child instanceof TFile && child.extension === "md") out.push(child);
+            else if (child instanceof TFolder) walk(child);
+          }
+        };
+        walk(folder);
+        return out;
+      }
+      /* 读词典 → 重建词表 → 重新上色 */
+      /* 读库内文件；哪一份读不到（别人下载的库）就用内置快照兜底。
+         库内文件永远优先，所以词典一改，着色与释义就跟着改。 */
+      async refresh() {
+        const gen = this._refreshGen = (this._refreshGen || 0) + 1;
+        const info = /* @__PURE__ */ new Map();
+        for (const w in EXTRA_WORDS) info.set(w, EXTRA_WORDS[w]);
+        const roots = /* @__PURE__ */ new Map();
+        const extraUnits = [];
+        const keyWords = /* @__PURE__ */ new Set();
+        let lists = null;
+        let ranks = /* @__PURE__ */ new Map();
+        const mergeInto = function(target, map) {
+          map.forEach(function(value, key) {
+            if (!target.has(key)) target.set(key, value);
+          });
+        };
+        try {
+          const dictFile = this.app.vault.getAbstractFileByPath(DICT_PATH);
+          if (dictFile instanceof TFile) {
+            const text = await this.app.vault.cachedRead(dictFile);
+            mergeInto(info, parseEntries(text));
+            const map = splitSections(text);
+            lists = {
+              keyword: wordsFrom(map, SECTIONS.keyword, FALLBACK.keyword),
+              judge: wordsFrom(map, SECTIONS.judge, FALLBACK.judge),
+              clause: wordsFrom(map, SECTIONS.clause, FALLBACK.clause),
+              degree: wordsFrom(map, SECTIONS.degree, FALLBACK.degree),
+              predicate: wordsFrom(map, SECTIONS.predicate, FALLBACK.predicate),
+              unit: wordsFrom(map, SECTIONS.unit, FALLBACK.unit)
+            };
+          } else {
+            mergeInto(info, builtinMap("entries"));
+          }
+          const syntaxFile = this.app.vault.getAbstractFileByPath(SYNTAX_PATH);
+          if (syntaxFile instanceof TFile) {
+            const syntaxText = await this.app.vault.cachedRead(syntaxFile);
+            const keyMap = parseFilterKeys(syntaxText);
+            mergeInto(info, keyMap);
+            keyMap.forEach(function(v, k) {
+              keyWords.add(String(k).toLowerCase());
+            });
+            const unitMap = parseUnits(syntaxText);
+            mergeInto(info, unitMap);
+            unitMap.forEach(function(v) {
+              extraUnits.push(v.word);
+            });
+          } else {
+            const keyMap = builtinMap("keys");
+            mergeInto(info, keyMap);
+            keyMap.forEach(function(v, k) {
+              keyWords.add(String(k).toLowerCase());
+            });
+            mergeInto(info, builtinMap("units"));
+          }
+          const rankFile = this.app.vault.getAbstractFileByPath(RANK_PATH);
+          ranks = rankFile instanceof TFile ? parseRanks(await this.app.vault.cachedRead(rankFile)) : builtinRanks();
+          const rootFiles = this.mdFilesUnder(ROOTS_DIR);
+          if (rootFiles.length) {
+            for (let i = 0; i < rootFiles.length; i++) {
+              mergeInto(roots, parseRoots(await this.app.vault.cachedRead(rootFiles[i])));
+            }
+          } else {
+            mergeInto(roots, builtinRoots());
+          }
+          roots.forEach(function(v, k) {
+            if (v.kind === "\u52A8" || !info.has(k)) info.set(k, v);
+          });
+        } catch (err) {
+          console.warn("[EpXsC Syntax] \u8BFB\u53D6\u5E93\u5185\u8BCD\u5E93\u5931\u8D25\uFF0C\u6539\u7528\u5185\u7F6E\u5FEB\u7167\uFF1A", err);
+          mergeInto(info, builtinMap("entries"));
+          mergeInto(info, builtinMap("keys"));
+          mergeInto(info, builtinMap("units"));
+          mergeInto(roots, builtinRoots());
+          roots.forEach(function(v, k) {
+            if (v.kind === "\u52A8" || !info.has(k)) info.set(k, v);
+          });
+          if (!ranks.size) ranks = builtinRanks();
+        }
+        const verbRoots = [];
+        roots.forEach(function(v) {
+          if (v.kind === "\u52A8") verbRoots.push(v.word);
+        });
+        if (lists) {
+          lists.predicate = lists.predicate.concat(verbRoots);
+          lists.unit = lists.unit.concat(extraUnits);
+        } else {
+          lists = builtinLists(verbRoots);
+        }
+        const spells = /* @__PURE__ */ new Map();
+        try {
+          const spellFiles = this.mdFilesUnder(SPELL_DIR);
+          const syntaxFile = this.app.vault.getAbstractFileByPath(SYNTAX_PATH);
+          if (syntaxFile instanceof TFile) spellFiles.push(syntaxFile);
+          for (let i = 0; i < spellFiles.length; i++) {
+            collectSpells(await this.app.vault.cachedRead(spellFiles[i]), spells, spellFiles[i].path);
+          }
+        } catch (err) {
+        }
+        if (gen !== this._refreshGen) return;
+        this.spells = spells;
+        spellRegistry = spells;
+        this.info = info;
+        this.ranks = ranks;
+        this.roots = roots;
+        this.units = /* @__PURE__ */ new Set();
+        for (let i = 0; i < lists.unit.length; i++) this.units.add(String(lists.unit[i]).toLowerCase());
+        this.keys = /* @__PURE__ */ new Set();
+        const keySet = this.keys;
+        keyWords.forEach(function(k) {
+          keySet.add(String(k).toLowerCase());
+        });
+        info.forEach(function(v, k) {
+          if (v.pos === "\u7B5B\u9009\u952E") keySet.add(String(k).toLowerCase());
+        });
+        this.grammar = makeGrammar(lists, Array.from(keyWords));
+        this.install();
+        if (window.__epxscDebug) console.log("[EpXsC Syntax] \u8BCD\u6761 " + info.size + " \xB7 \u8BCD\u6839 " + roots.size + " \xB7 \u79E9 " + ranks.size + "\uFF08" + lists.predicate.length + " \u4E2A\u8C13\u8BCD\uFF09");
+        await Promise.race([
+          this.ensureStyles(),
+          new Promise(function(resolve) {
+            window.setTimeout(function() {
+              resolve("\u6837\u5F0F\u6B65\u9AA4\u8D85\u65F6\uFF0C\u8DF3\u8FC7");
+            }, 2e3);
+          })
+        ]);
+        this.rehighlight();
+      }
+      /* 样式兜底：外部 styles.css 没被加载时（颜色、右上角 EpXsC 标记、未入典点线、
+         悬停浮层样式会一起消失），自己把样式塞进页面。先试读插件目录里的 styles.css，读不到就用内置那份。 */
+      async ensureStyles() {
+        if (this._styleState) return this._styleState;
+        let el = null;
+        try {
+          el = document.getElementById("epxsc-styles");
+          if (!el) {
+            el = document.createElement("style");
+            el.id = "epxsc-styles";
+            document.head.appendChild(el);
+          }
+          el.textContent = FALLBACK_CSS;
+          this._styleState = "\u5DF2\u6CE8\u5165\u5185\u7F6E\u914D\u8272";
+        } catch (e) {
+          this._styleState = "\u6CE8\u5165\u5931\u8D25\uFF1A" + (e && e.message);
+          return this._styleState;
+        }
+        try {
+          const dir = this.manifest && this.manifest.dir || ".obsidian/plugins/epxsc-syntax";
+          const css = await Promise.race([
+            this.app.vault.adapter.read(dir + "/styles.css"),
+            new Promise(function(resolve) {
+              window.setTimeout(function() {
+                resolve("");
+              }, 1500);
+            })
+          ]);
+          if (css && css.indexOf(".epx-tip") >= 0) {
+            el.textContent = css;
+            this._styleState = "\u5DF2\u7528\u63D2\u4EF6\u76EE\u5F55\u91CC\u7684 styles.css";
+          }
+        } catch (e) {
+        }
+        return this._styleState;
+      }
+      /* 生成诊断报告，写进库里，便于整段复制出来 */
+      async diagnose() {
+        const L = [];
+        const add = function(s) {
+          L.push(s);
+        };
+        add("# EpXsC \u8BCA\u65AD\u62A5\u544A");
+        add("");
+        add("- \u4EE3\u7801\u7248\u672C\uFF08BUILD\uFF09\uFF1A" + BUILD);
+        add("- manifest \u7248\u672C\uFF1A" + (this.manifest && this.manifest.version || "?"));
+        add("- \u63D2\u4EF6\u76EE\u5F55\uFF1A" + (this.manifest && this.manifest.dir || "?"));
+        add("- \u751F\u6210\u65F6\u95F4\uFF1A" + (/* @__PURE__ */ new Date()).toLocaleString());
+        let mode = "\u975E\u7B14\u8BB0\u89C6\u56FE";
+        try {
+          const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+          if (view) mode = view.getMode() === "preview" ? "\u9605\u8BFB\u89C6\u56FE" : "\u5B9E\u65F6\u9884\u89C8\uFF0F\u6E90\u7801";
+        } catch (e) {
+        }
+        add("- \u5F53\u524D\u89C6\u56FE\uFF1A**" + mode + "**");
+        add("- \u8BCD\u8868\uFF1A\u8BCD\u6761 " + this.info.size + " \xB7 \u8BCD\u6839 " + (this.roots ? this.roots.size : "-") + " \xB7 \u79E9 " + this.ranks.size + " \xB7 \u8C13\u8BCD " + this.grammar.predicate.source.length + " \u5B57\u7B26");
+        add("- \u81EA\u5E26\u5207\u8BCD\u5668\uFF1A\u5DF2\u88C5\uFF08\u4E0D\u4F9D\u8D56 window.Prism\uFF09");
+        add("- Prism\uFF1A" + (window.Prism ? "\u6709" : "**\u6CA1\u6709**") + " \xB7 \u8BED\u6CD5 EpXsC\uFF1A" + (window.Prism && window.Prism.languages && window.Prism.languages.EpXsC ? "\u5DF2\u88C5" : "**\u7F3A\u5931**"));
+        add("");
+        const codes = document.querySelectorAll(':is(code[class*="language-EpXsC" i], .epx-ord)');
+        add("## \u4EE3\u7801\u5757\uFF08" + codes.length + " \u4E2A\uFF09");
+        for (let i = 0; i < codes.length && i < 6; i++) {
+          const el = codes[i];
+          let tokens = 0;
+          let color = "-";
+          try {
+            tokens = el.querySelectorAll("span.token").length;
+            const first = el.querySelector("span.token");
+            if (first && window.getComputedStyle) color = window.getComputedStyle(first).color;
+          } catch (e) {
+            color = "(\u6D4B\u4E0D\u5230)";
+          }
+          add("- \u7B2C " + (i + 1) + ' \u4E2A\uFF1Aclass="' + (el.className || "") + '" \xB7 token ' + tokens + " \u4E2A \xB7 \u9996\u4E2A token \u989C\u8272 " + color);
+        }
+        add("");
+        add("## \u6837\u5F0F\u8868");
+        let ourRules = 0;
+        try {
+          const sheets = document.styleSheets || [];
+          add("- \u5171 " + sheets.length + " \u5F20");
+          for (let i = 0; i < sheets.length; i++) {
+            let n = 0;
+            let ours = 0;
+            let rules = null;
+            try {
+              rules = sheets[i].cssRules;
+            } catch (e) {
+              add("- \u7B2C " + (i + 1) + " \u5F20\uFF1A\u8BFB\u4E0D\u5230\uFF08\u8DE8\u6E90\uFF09" + (sheets[i].href ? " href=" + sheets[i].href : ""));
+              continue;
+            }
+            if (rules) {
+              n = rules.length;
+              for (let j = 0; j < rules.length; j++) {
+                const sel = rules[j].selectorText || "";
+                if (sel.indexOf(".epx-") >= 0 || sel.indexOf(".token.") >= 0) ours += 1;
+              }
+            }
+            ourRules += ours;
+            add("- \u7B2C " + (i + 1) + " \u5F20\uFF1A" + n + " \u6761\u89C4\u5219\uFF0C\u5176\u4E2D\u6211\u4EEC\u7684 " + ours + " \u6761" + (sheets[i].href ? " \xB7 href=" + sheets[i].href : ""));
+          }
+        } catch (e) {
+          add("- \u8BFB\u6837\u5F0F\u8868\u51FA\u9519\uFF1A" + (e && e.message));
+        }
+        add("- \u547D\u4E2D\u6211\u4EEC\u9009\u62E9\u5668\u7684\u89C4\u5219\u5408\u8BA1\uFF1A" + ourRules);
+        add("- \u515C\u5E95\u72B6\u6001\uFF1A" + (this._styleState || "(\u8FD8\u6CA1\u8DD1)"));
+        add("");
+        add("## \u63D2\u4EF6\u76EE\u5F55\u91CC\u7684 styles.css");
+        try {
+          const dir = this.manifest && this.manifest.dir || ".obsidian/plugins/epxsc-syntax";
+          const css = await this.app.vault.adapter.read(dir + "/styles.css");
+          const lines = String(css).split("\n");
+          add("- \u8BFB\u5230 " + css.length + " \u5B57\u7B26 \xB7 \u542B .epx-tip\uFF1A" + (css.indexOf(".epx-tip") >= 0 ? "\u662F" : "**\u5426**") + " \xB7 \u542B --epx-modifier\uFF1A" + (css.indexOf("--epx-modifier") >= 0 ? "\u662F" : "\u5426"));
+          add("- \u524D 3 \u884C\uFF1A");
+          for (let i = 0; i < 3 && i < lines.length; i++) add("    " + (i + 1) + ". " + lines[i]);
+        } catch (e) {
+          add("- **\u8BFB\u4E0D\u5230**\uFF1A" + (e && e.message));
+        }
+        add("");
+        add("## \u6837\u4F8B\u4EE3\u7801\u5757\uFF08\u4E0B\u9762\u8FD9\u5757\u5728\u9605\u8BFB\u89C6\u56FE\u91CC\u5E94\u5F53\u6709\u989C\u8272\uFF09");
+        add("");
+        add("```EpXsC");
+        add("Purificatio(priv locus: zone) {");
+        add("	consta lit = 3 MU;");
+        add("	priv x = &zone;");
+        add("	publ consta total = lit;");
+        add("	ne navis *&zone");
+        add("	luss lit;");
+        add("}");
+        add("```");
+        const text = L.join("\n");
+        try {
+          await this.app.vault.adapter.write("EpXsC \u8BCA\u65AD\u62A5\u544A.md", text);
+          new Notice("\u8BCA\u65AD\u62A5\u544A\u5DF2\u5199\u5165\u5E93\u6839\u76EE\u5F55\uFF1AEpXsC \u8BCA\u65AD\u62A5\u544A.md\uFF08\u4EE3\u7801\u7248\u672C " + BUILD + "\uFF09", 12e3);
+        } catch (e) {
+          new Notice("\u5199\u62A5\u544A\u5931\u8D25\uFF1A" + (e && e.message));
+        }
+        return text;
+      }
+      /* 检查当前笔记里的 EpXsC 代码块 */
+      async lintActiveNote() {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view || !view.file) {
+          new Notice("\u5148\u6253\u5F00\u4E00\u7BC7\u7B14\u8BB0\u518D\u68C0\u67E5\u3002");
+          return;
+        }
+        const file = view.file;
+        const text = await this.app.vault.cachedRead(file);
+        const ctx = { info: this.info, units: this.units, keys: this.keys, spells: this.spells, path: file.path };
+        const blocksFound = extractEpXsCBlocks(text);
+        const blocks = blocksFound.length;
+        const issues = [];
+        for (let b = 0; b < blocksFound.length; b++) {
+          const found = lintText(blocksFound[b].source, ctx);
+          for (let i = 0; i < found.length; i++) {
+            issues.push({ level: found[i].level, line: blocksFound[b].line + found[i].line, message: found[i].message });
+          }
+        }
+        if (!blocks) {
+          new Notice("\u8FD9\u4E00\u9875\u6CA1\u6709 EpXsC \u4EE3\u7801\u5757\u3002");
+          return;
+        }
+        new LintModal(this.app, file, issues, blocks).open();
+      }
+      /* 把 ne 之后、直到子句末尾的 token 标出来：被否定的范围 */
+      markNegation(code) {
+        const heads = code.querySelectorAll("span.token.negPrefix");
+        for (let i = 0; i < heads.length; i++) {
+          let node = heads[i].nextSibling;
+          let guard = 0;
+          while (node && guard < 40) {
+            guard += 1;
+            const t = node.textContent || "";
+            if (/[;,\n]/.test(t)) break;
+            if (node.nodeType === 1 && node.classList && node.classList.contains("token")) node.classList.add("epx-neg-scope");
+            node = node.nextSibling;
+          }
+        }
+      }
+      /* 词典里查不到的词加一层点线，提示未入典 */
+      markUnknown(code) {
+        const spans = code.querySelectorAll("span.token.word");
+        for (let i = 0; i < spans.length; i++) {
+          const w = (spans[i].textContent || "").toLowerCase();
+          if (w.length < 4 || /[0-9]/.test(w)) continue;
+          if (this.info.has(w)) continue;
+          spans[i].classList.add("epx-unknown");
+        }
+      }
+      /* 自检：当前视图里到底有没有 token、词表读进来没有 */
+      selfCheck() {
+        let mode = "\u975E\u7B14\u8BB0\u89C6\u56FE";
+        try {
+          const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+          if (view) mode = view.getMode() === "preview" ? "\u9605\u8BFB\u89C6\u56FE" : "\u5B9E\u65F6\u9884\u89C8\uFF0F\u6E90\u7801";
+        } catch (err) {
+        }
+        const codes = document.querySelectorAll(':is(code[class*="language-EpXsC" i], .epx-ord)');
+        let tokened = 0;
+        let ordBlocks = 0;
+        for (let i = 0; i < codes.length; i++) {
+          if (codes[i].classList && codes[i].classList.contains("epx-ord")) ordBlocks += 1;
+          if (codes[i].querySelector("span.token")) tokened += 1;
+        }
+        const lines = document.querySelectorAll(".HyperMD-codeblock").length;
+        let firstClass = "(\u6CA1\u6709\u4EE3\u7801\u5757)";
+        let tokenCount = 0;
+        let color = "(\u672A\u6D4B)";
+        if (codes[0]) {
+          firstClass = codes[0].className || "(\u7A7A)";
+          tokenCount = codes[0].querySelectorAll("span.token").length;
+          const first = codes[0].querySelector("span.token");
+          try {
+            if (first && window.getComputedStyle) color = window.getComputedStyle(first).color;
+          } catch (e) {
+            color = "(\u8BFB\u4E0D\u5230)";
+          }
+        }
+        let styleState = "\u672A\u77E5";
+        try {
+          let n = 0;
+          const sheets = document.styleSheets || [];
+          for (let i = 0; i < sheets.length; i++) {
+            let rules = null;
+            try {
+              rules = sheets[i].cssRules;
+            } catch (e) {
+              continue;
+            }
+            if (!rules) continue;
+            for (let j = 0; j < rules.length; j++) {
+              const sel = rules[j].selectorText || "";
+              if (sel.indexOf(".token.") >= 0 || sel.indexOf(".epx-tip") >= 0) n += 1;
+            }
+          }
+          styleState = n ? "\u5DF2\u8F7D\u5165 " + n + " \u6761\u7740\u8272\u89C4\u5219" : "\u672A\u8F7D\u5165 \u2717\uFF08styles.css \u6CA1\u751F\u6548\uFF09";
+        } catch (e) {
+          styleState = "\u8BFB\u4E0D\u5230";
+        }
+        new Notice([
+          "EpXsC \u81EA\u68C0 \xB7 \u4EE3\u7801\u7248\u672C " + BUILD,
+          "\u8BCD\u6761 " + this.info.size + " \xB7 \u79E9 " + this.ranks.size + " \xB7 \u8BED\u6CD5" + (this.grammar ? "\u5DF2\u88C5" : "\u7F3A\u5931") + " \xB7 \u5207\u8BCD\u5668\uFF1A\u81EA\u5E26\uFF08Prism " + (window.Prism ? "\u6709" : "\u6CA1\u6709") + "\uFF09",
+          "\u5F53\u524D\u89C6\u56FE\uFF1A" + mode,
+          "EpXsC \u4EE3\u7801\u5757 " + (codes.length - ordBlocks) + " \u4E2A \xB7 \u666E\u901A\u53E5\u5757\uFF08G\uFF0FT\uFF09" + ordBlocks + " \u4E2A \xB7 \u5E26 token \u7684 " + tokened + " \u4E2A \xB7 \u5B9E\u65F6\u9884\u89C8\u4EE3\u7801\u884C " + lines + " \u884C",
+          codes.length > 0 && tokened === 0 && mode === "\u9605\u8BFB\u89C6\u56FE" ? "\u26A0 \u9605\u8BFB\u89C6\u56FE\u91CC\u8FD9\u4E9B\u5757\u6CA1\u6709 token \u2014\u2014 \u6E32\u67D3\u6CA1\u8DD1\u8D77\u6765\uFF0C\u8BF7\u628A\u8FD9\u51E0\u884C\u53D1\u6211" : "\u6E32\u67D3\uFF1A" + (tokened > 0 ? "\u6B63\u5E38" : "\u65E0\u4EE3\u7801\u5757"),
+          "\u9996\u4E2A\u5757 class\uFF1A" + firstClass,
+          "\u9996\u4E2A\u5757 token \u6570\uFF1A" + tokenCount + " \xB7 \u9996\u4E2A token \u989C\u8272\uFF1A" + color,
+          "\u6837\u5F0F\u8868\uFF1A" + styleState + (this._styleState ? " \xB7 \u515C\u5E95\uFF1A" + this._styleState : "")
+        ].join("\n"), 15e3);
+      }
+      rehighlight() {
+        this.highlightIn(document);
+      }
+      highlightIn(root) {
+        if (!root || !root.querySelectorAll) return;
+        const nodes = root.querySelectorAll(CODE_SELECTOR);
+        for (let i = 0; i < nodes.length; i++) this.highlightOne(nodes[i]);
+      }
+      /* 自愈：启动时首屏可能早于插件加载、或 window.Prism 尚未就绪，
+         也可能被 Obsidian 的 Prism 初始化覆盖掉注册的语法。
+         这里确认两件事：语法还在不在、该上色的块有没有 token。 */
+      ensureRendered() {
+        if (document.hidden) return;
+        if (window.Prism && window.Prism.languages && window.Prism.languages.EpXsC !== this.grammar) this.install();
+        const nodes = document.querySelectorAll(CODE_SELECTOR);
+        for (let i = 0; i < nodes.length; i++) {
+          const code = nodes[i];
+          if (code.classList && code.classList.contains("epx-ord")) continue;
+          if (code.querySelector("span.token")) continue;
+          if (!(code.textContent || "").trim()) continue;
+          this.highlightOne(code);
+        }
+      }
+      highlightOne(code) {
+        try {
+          if (code.parentElement && code.parentElement.tagName === "PRE" && /language-EpXsC/i.test(code.className || "")) code.parentElement.classList.add("epx-pre");
+        } catch (e) {
+        }
+        if (code && code.classList && code.classList.contains("epx-ord")) return;
+        try {
+          const text = code.textContent || "";
+          if ((text.match(/\n/g) || []).length >= MAX_HIGHLIGHT_LINES) {
+            if (code.classList) code.classList.add("language-EpXsC");
+            return;
+          }
+          const found = /language-(\w+)/.exec(code.className || "");
+          if (!found && code.classList) code.classList.add("language-EpXsC");
+          const grammar = this.grammar;
+          if (!grammar) return;
+          let html = markBracketDepth(tokenizeText(text, grammar), bracketKinds(text));
+          const vars = parseVarTypes(text, this.info);
+          varTypesOf.set(code, vars);
+          html = markVarUse(html, vars);
+          html = markDictKeys(html);
+          html = markSpellRefs(html);
+          code.innerHTML = html;
+          this.markUnknown(code);
+          this.markNegation(code);
+        } catch (err) {
+          console.warn("[EpXsC Syntax]", err);
+        }
+      }
+    };
+    var DICT_BEFORE = "word|type|declaration|className|clause|predicate|function|modifier|variable|declTarget|axis|element|dictKey|filterKey|filterValue|unit";
+    function markDictKeys(html) {
+      const seg = new RegExp('(?:<span class="token (' + DICT_BEFORE + ')">[^<]*<\\/span>[ \\t]*)?<span class="token brace">\\{<\\/span>[^{}\\n]*<span class="token brace">\\}<\\/span>', "g");
+      return html.replace(seg, function(all, kind) {
+        if (kind) return all;
+        return all.replace(
+          /<span class="token [a-zA-Z ]+">([A-Za-z_][A-Za-z0-9_]*)<\/span>(?=[ \t]*<span class="token punctuation">:<\/span>)/g,
+          function(span, name) {
+            return '<span class="token dictKey">' + name + "</span>";
+          }
+        );
+      });
+    }
+    function markBracketDepth(html, kinds) {
+      let depth = 0;
+      let idx = 0;
+      return html.replace(/<span class="token ([a-z]+)">([\[\](){}])<\/span>/g, function(all, cls, ch) {
+        if (cls !== "bracket" && cls !== "paren" && cls !== "brace") return all;
+        const isOpen = ch === "[" || ch === "(" || ch === "{";
+        if (isOpen) depth += 1;
+        else if (depth > 0) depth -= 1;
+        const level = isOpen ? depth : depth + 1;
+        const kind = kinds && kinds[idx] ? String(kinds[idx]).replace(/"/g, "") : "";
+        idx += 1;
+        const attr = kind ? ' data-epx-kind="' + kind + '"' : "";
+        return '<span class="token ' + cls + " epx-d" + ((level - 1) % 3 + 1) + '"' + attr + ">" + ch + "</span>";
+      });
+    }
+    var BUILTIN_LEXICON = { "entries": { "aqua": ["aqua", "\u540D\u8BCD", "\u6C34\u5143\u7D20", "Aqu"], "delucke": ["Delucke", "\u540D\u8BCD", "\u6697\u5143\u7D20", "Duk"], "draco": ["draco", "\u540D\u8BCD", "\u9F99\u3001\u4E1C\u65B9\u9F99", "DRA"], "earthe": ["Earthe", "\u540D\u8BCD", "\u5730\u5143\u7D20", "Ert"], "eletribon": ["Eletribon", "\u540D\u8BCD", "\u96F7\u7535", "Elc"], "fliam": ["fliam", "\u540D\u8BCD", "\u708E\u5143\u7D20", "Flm"], "fragor": ["fragor", "\u540D\u8BCD", "\u7834\u788E\u58F0\u3001\u6545\u969C", "FRAg"], "fragus": ["fragus", "\u540D\u8BCD", "\u788E\u7247\u3001\u6B8B\u9AB8", "FRGs"], "gramakipo": ["gramakipo", "\u540D\u8BCD", "\u91CD\u529B\u52A0\u901F\u5EA6", "GRK"], "hopas": ["hopas", "\u540D\u8BCD", "\u8425\u5730\u3001\u4F11\u606F\u5904\u3001\u5E7F\u573A", "HOP"], "locor": ["locor", "\u540D\u8BCD", "\u5B9A\u4F4D\u5668\u3001\u653E\u7F6E\u8005", "LOCr"], "locus": ["locus", "\u540D\u8BCD", "\u5730\u70B9\u3001\u4F4D\u7F6E", "LOCs"], "loqor": ["loqor", "\u540D\u8BCD", "\u8BF4\u8BDD\u8005\u3001\u8BB2\u8FF0\u8005", "LOQr"], "loqus": ["loqus", "\u540D\u8BCD", "\u8BED\u8A00\u3001\u8BDD\u8BED", "LOQs"], "lumena": ["lumena", "\u540D\u8BCD", "\u5149\u5143\u7D20", "Lum"], "memor": ["memor", "\u540D\u8BCD", "\u8BB0\u5FC6\u3001\u5FC3\u667A", "MEMr"], "memus": ["memus", "\u540D\u8BCD", "\u601D\u60F3\u3001\u5FF5\u5934", "MEMs"], "miteas": ["Miteas", "\u540D\u8BCD", "\u7C73\u3001\u8BA1\u91CF\u5355\u4F4D", "MIT"], "mortor": ["mortor", "\u540D\u8BCD", "\u6B7B\u8005\u3001\u4EA1\u7075", "MORr"], "mortus": ["mortus", "\u540D\u8BCD", "\u6B7B\u4EA1", "MORs"], "movor": ["movor", "\u540D\u8BCD", "\u63A8\u52A8\u8005\u3001\u52A8\u673A", "MOVr"], "movus": ["movus", "\u540D\u8BCD", "\u8FD0\u52A8\u3001\u79FB\u52A8", "MOVs"], "nuetrue": ["Nuetrue", "\u540D\u8BCD", "\u81EA\u7136\u5143\u7D20", "Nut"], "qudend": ["qudend", "\u540D\u8BCD", "\u7ED3\u675F\u3001\u7EC8\u70B9", "QUD"], "sanor": ["sanor", "\u540D\u8BCD", "\u6CBB\u7597\u8005\u3001\u4FEE\u590D\u8005", "SANr"], "sanus": ["sanus", "\u540D\u8BCD", "\u5065\u5EB7\u3001\u6CBB\u6108", "SANs"], "sartose": ["sartose", "\u540D\u8BCD", "\u5F00\u59CB\u3001\u8D77\u70B9", "SAR"], "siro": ["siro", "\u540D\u8BCD", "\u865A\u7A7A", "SIR"], "strua": ["strua", "\u540D\u8BCD", "\u5EFA\u7B51\u3001\u7ED3\u6784", "STRa"], "struor": ["struor", "\u540D\u8BCD", "\u5EFA\u9020\u8005", "STRu"], "vidor": ["vidor", "\u540D\u8BCD", "\u89C2\u5BDF\u8005\u3001\u89C1\u8BC1\u8005", "VIDr"], "vidus": ["vidus", "\u540D\u8BCD", "\u89C6\u89C9\u3001\u666F\u8C61", "VIDs"], "vivor": ["vivor", "\u540D\u8BCD", "\u6D3B\u529B\u3001\u751F\u547D\u529B", "VIVr"], "vivus": ["vivus", "\u540D\u8BCD", "\u751F\u547D\u3001\u6D3B\u4F53", "VIVs"], "wuinde": ["wuinde", "\u540D\u8BCD", "\u98CE\u5143\u7D20", "Wnd"], "zone": ["zone", "\u540D\u8BCD", "\u533A\u57DF\u3001\u8303\u56F4", "ZON"], "venis": ["venis", "\u540D\u8BCD", "\u6765\uFF08\u52A8\uFF09", "\u2014"], "agrus": ["agrus", "\u540D\u8BCD", "\u7530\u5730", "\u2014"], "granarus": ["granarus", "\u540D\u8BCD", "\u8C37\u4ED3", "\u2014"], "sicus": ["sicus", "\u540D\u8BCD", "\u5E72\u71E5", "\u2014"], "vespus": ["vespus", "\u540D\u8BCD", "\u508D\u665A", "\u2014"], "pluvus": ["pluvus", "\u540D\u8BCD", "\u96E8", "\u2014"], "petasus": ["petasus", "\u540D\u8BCD", "\u5E3D", "\u2014"], "flagro": ["flagro", "\u540D\u8BCD", "\u71C3\u70BD\u4E4B\u4E8B", "\u2014"], "sta": ["sta", "\u540D\u8BCD", "\u7ACB\u4E4B\u4E8B", "\u2014"], "acutus": ["acutus", "\u540D\u8BCD", "\u5C16\u9510", "\u2014"], "mana": ["mana", "\u540D\u8BCD", "\u4FDD\u6301\u7684\u7ED3\u679C", "\u2014"], "arus": ["arus", "\u540D\u8BCD", "\u8015\u4E4B\u4E8B", "\u2014"], "sterus": ["sterus", "\u540D\u8BCD", "\u7CAA\u80A5", "\u2014"], "vernus": ["vernus", "\u540D\u8BCD", "\u6625", "\u2014"], "latus": ["latus", "\u540D\u8BCD", "\u4FA7", "\u2014"], "altus": ["altus", "\u540D\u8BCD", "\u9AD8", "\u2014"], "densus": ["densus", "\u540D\u8BCD", "\u5BC6", "\u2014"], "manu": ["manu", "\u540D\u8BCD", "\u624B", "\u2014"], "amphor": ["amphor", "\u540D\u8BCD", "\u74EE\u5320", "\u2014"], "cada": ["cada", "\u540D\u8BCD", "\u5760\u843D\u7684\u7ED3\u679C", "\u2014"], "lalupid": ["lalupid", "\u540D\u8BCD", "\u7565\u77F3\u6599", "\u2014"], "sanarium": ["sanarium", "\u540D\u8BCD", "\u6CBB\u6108\u4E4B\u6240", "\u2014"], "gnosarium": ["gnosarium", "\u540D\u8BCD", "\u77E5\u8BC6\u4E4B\u6240", "\u2014"], "vidorium": ["vidorium", "\u540D\u8BCD", "\u770B\u4E4B\u5668", "\u2014"], "viditrin": ["viditrin", "\u540D\u8BCD", "\u770B\u4E4B\u6240", "\u2014"], "lapidarius": ["lapidarius", "\u540D\u8BCD", "\u77F3\u6599\u8005", "\u2014"], "vidista": ["vidista", "\u540D\u8BCD", "\u770B\u5BB6", "\u2014"], "vidamen": ["vidamen", "\u540D\u8BCD", "\u770B\u4E4B\u7269", "\u2014"], "vidura": ["vidura", "\u540D\u8BCD", "\u770B\u4E4B\u672F", "\u2014"], "vidimentum": ["vidimentum", "\u540D\u8BCD", "\u770B\u4E4B\u624B\u6BB5", "\u2014"], "vidibul": ["vidibul", "\u540D\u8BCD", "\u770B\u4E4B\u5177", "\u2014"], "lapidulus": ["lapidulus", "\u540D\u8BCD", "\u5C0F\u77F3\u6599", "\u2014"], "vidaster": ["vidaster", "\u540D\u8BCD", "\u52A3\u7B49\u770B", "\u2014"], "viditrix": ["viditrix", "\u540D\u8BCD", "\u770B\u7684\u5973\u6027", "\u2014"], "vidologia": ["vidologia", "\u540D\u8BCD", "\u770B\u5B66", "\u2014"], "magism": ["magism", "\u540D\u8BCD", "\u9B54\u6CD5\u4E3B\u4E49", "\u2014"], "semi": ["semi", "\u540D\u8BCD", "\u534A", "\u2014"], "extra": ["extra", "\u540D\u8BCD", "\u5916\u4FA7", "\u2014"], "cisterna": ["cisterna", "\u540D\u8BCD", "\u84C4\u6C34\u6C60", "\u2014"], "auctio": ["auctio", "\u540D\u8BCD", "\u62CD\u5356", "\u2014"], "aluctio": ["aluctio", "\u540D\u8BCD", "\u7565\u62CD\u5356", "\u2014"], "tribelus": ["tribelus", "\u540D\u8BCD", "\u8131\u7C92\u5668", "\u2014"], "ferrfabr": ["ferrfabr", "\u540D\u8BCD", "\u94C1\u5320", "\u2014"], "lignfabr": ["lignfabr", "\u540D\u8BCD", "\u6728\u5320", "\u2014"], "ferrgnos": ["ferrgnos", "\u540D\u8BCD", "\u94C1\u5B66", "\u2014"], "silvzone": ["silvzone", "\u540D\u8BCD", "\u68EE\u6797\u533A", "\u2014"], "marvia": ["marvia", "\u540D\u8BCD", "\u6D77\u8DEF", "\u2014"], "censura": ["censura", "\u540D\u8BCD", "\u76D1\u5BDF\u4E4B\u672F", "\u2014"], "alfus": ["alfus", "\u65CF\u540D", "\u7CBE\u7075\u65CF", "ALF"], "angelus": ["angelus", "\u65CF\u540D", "\u8428\u79D1\u5854\u65CF", "ANG"], "anura": ["anura", "\u65CF\u540D", "\u5B89\u52AA\u62C9\u65CF", "ANU"], "aquor": ["aquor", "\u65CF\u540D", "\u963F\u6208\u5C14\u65CF", "AQR"], "avis": ["avis", "\u65CF\u540D", "\u9ECE\u535A\u5229\u65CF", "AVI"], "bovus": ["bovus", "\u65CF\u540D", "\u666E\u7C73\u970D\u65CF", "BOV"], "canis": ["canis", "\u65CF\u540D", "\u574E\u90A3\u65AF\u65CF", "CAN"], "centaurus": ["centaurus", "\u65CF\u540D", "\u534A\u4EBA\u9A6C\u65CF", "CEN"], "ceratus": ["ceratus", "\u65CF\u540D", "\u8D5B\u62C9\u6258\u65CF", "CER"], "chimera": ["chimera", "\u65CF\u540D", "\u5947\u7F8E\u62C9", "CHI"], "cobalus": ["cobalus", "\u65CF\u540D", "\u5730\u7CBE\u65CF", "COB"], "cuniculus": ["cuniculus", "\u65CF\u540D", "\u5361\u7279\u65AF\u65CF", "CUN"], "daemon": ["daemon", "\u65CF\u540D", "\u8428\u5361\u5179\u65CF", "DAE"], "dracon": ["dracon", "\u65CF\u540D", "\u5FB7\u62C9\u514B\u65CF", "DRAk"], "eidolon": ["eidolon", "\u65CF\u540D", "\u5E7D\u7075\u65CF", "EID"], "eksul": ["eksul", "\u65CF\u540D", "\u963F\u7EB3\u8428\u65CF", "EKS"], "elafus": ["elafus", "\u65CF\u540D", "\u57C3\u62C9\u83F2\u4E9A\u65CF", "ELA"], "elementa": ["elementa", "\u65CF\u540D", "\u7EAF\u7CB9\u5143\u7D20\u65CF", "ELEm"], "equus": ["equus", "\u65CF\u540D", "\u57C3\u594E\u4ED6\u65CF", "EQU"], "felus": ["felus", "\u65CF\u540D", "\u83F2\u6797\u65CF", "FEL"], "gigas": ["gigas", "\u65CF\u540D", "\u5DE8\u4EBA\u65CF", "GIG"], "humanus": ["humanus", "\u65CF\u540D", "\u81EA\u7136\u4EBA", "HUM"], "hyaena": ["hyaena", "\u65CF\u540D", "\u745E\u67CF\u5DF4\u65CF", "HYA"], "kapra": ["kapra", "\u65CF\u540D", "\u5361\u666E\u91CC\u5C3C\u65CF", "KAP"], "krokodilus": ["krokodilus", "\u65CF\u540D", "\u963F\u8FBE\u514B\u5229\u65AF\u65CF", "KRO"], "kylin": ["kylin", "\u65CF\u540D", "\u9E92\u9E9F\u65CF", "KYL"], "kyklops": ["kyklops", "\u65CF\u540D", "\u72EC\u773C\u5DE8\u4EBA\u65CF", "KYK"], "leon": ["leon", "\u65CF\u540D", "\u963F\u65AF\u5170\u65CF", "LEOn"], "lupus": ["lupus", "\u65CF\u540D", "\u9C81\u73C0\u65CF", "LUP"], "machina": ["machina", "\u65CF\u540D", "\u673A\u68B0\u65CF", "MAC"], "mantika": ["mantika", "\u65CF\u540D", "\u66FC\u63D0\u67EF\u65CF", "MTK"], "moskus": ["moskus", "\u65CF\u540D", "\u4F9D\u7279\u62C9\u65CF", "MSK"], "mustela": ["mustela", "\u65CF\u540D", "\u963F\u7EB3\u7F07\u65CF", "MST"], "nanus": ["nanus", "\u65CF\u540D", "\u675C\u6797\u65CF", "NAN"], "nympha": ["nympha", "\u65CF\u540D", "\u5B81\u8299\u65CF", "NYM"], "oni": ["oni", "\u65CF\u540D", "\u9B3C\u65CF", "ONI"], "pilosa": ["pilosa", "\u65CF\u540D", "\u76AE\u6D1B\u8428\u65CF", "PIL"], "pumilio": ["pumilio", "\u65CF\u540D", "\u4F8F\u5112\u65CF", "PUM"], "rattus": ["rattus", "\u65CF\u540D", "\u624E\u62C9\u514B\u65CF", "RAT"], "saura": ["saura", "\u65CF\u540D", "\u8428\u5F17\u62C9\u65CF", "SAU"], "serpens": ["serpens", "\u65CF\u540D", "\u6590\u8FEA\u4E9A\u65CF", "SER"], "sirena": ["sirena", "\u65CF\u540D", "\u4EBA\u9C7C\u65CF", "SRN"], "skeletus": ["skeletus", "\u65CF\u540D", "\u9AB8\u9AA8\u65CF", "SKEl"], "telekinus": ["telekinus", "\u65CF\u540D", "\u5FF5\u52A8\u529B\u65CF", "TEL"], "testudo": ["testudo", "\u65CF\u540D", "\u7279\u65AF\u56FE\u6258\u65CF", "TES"], "tikaz": ["tikaz", "\u65CF\u540D", "\u63D0\u5361\u5179\u65CF", "TIK"], "umbra": ["umbra", "\u65CF\u540D", "\u6CD5\u6D85\u5170\u65CF", "UMB"], "ursus": ["ursus", "\u65CF\u540D", "\u4E4C\u8428\u65AF\u65CF", "URS"], "versipellis": ["versipellis", "\u65CF\u540D", "\u72FC\u4EBA\u65CF", "VER"], "vipera": ["vipera", "\u65CF\u540D", "\u74E6\u4F0A\u51E1\u65CF", "VIP"], "vulpes": ["vulpes", "\u65CF\u540D", "\u6C83\u5C14\u73C0\u65CF", "VUL"], "alopex": ["alopex", "\u52A8\u7269\u540D", "\u72D0", "ALO"], "arktos": ["arktos", "\u52A8\u7269\u540D", "\u718A", "ARK"], "bradypus": ["bradypus", "\u52A8\u7269\u540D", "\u6811\u61D2", "BRA"], "catus": ["catus", "\u52A8\u7269\u540D", "\u732B", "CAT"], "cervus": ["cervus", "\u52A8\u7269\u540D", "\u9E7F", "CRV"], "chelys": ["chelys", "\u52A8\u7269\u540D", "\u9F9F", "CHE"], "crocuta": ["crocuta", "\u52A8\u7269\u540D", "\u9B23\u72D7", "CRO"], "gale": ["gale", "\u52A8\u7269\u540D", "\u9F2C", "GAL"], "hippos": ["hippos", "\u52A8\u7269\u540D", "\u9A6C", "HIP"], "kyon": ["kyon", "\u52A8\u7269\u540D", "\u72AC", "KYO"], "lacerta": ["lacerta", "\u52A8\u7269\u540D", "\u8725\u8734", "LAC"], "leo": ["leo", "\u52A8\u7269\u540D", "\u72EE", "LEO"], "lepus": ["lepus", "\u52A8\u7269\u540D", "\u5154", "LEP"], "lykos": ["lykos", "\u52A8\u7269\u540D", "\u72FC", "LYK"], "mantis": ["mantis", "\u52A8\u7269\u540D", "\u87B3\u8782", "MAN"], "moschiferus": ["moschiferus", "\u52A8\u7269\u540D", "\u9E9D", "MOS"], "mus": ["mus", "\u52A8\u7269\u540D", "\u9F20", "MUS"], "ophis": ["ophis", "\u52A8\u7269\u540D", "\u86C7", "OPH"], "pardalis": ["pardalis", "\u52A8\u7269\u540D", "\u8C79", "PAR"], "rana": ["rana", "\u52A8\u7269\u540D", "\u86D9", "RAN"], "rinoceros": ["rinoceros", "\u52A8\u7269\u540D", "\u7280\u725B", "RIN"], "salamandra": ["salamandra", "\u52A8\u7269\u540D", "\u877E\u8788", "SAL"], "souchos": ["souchos", "\u52A8\u7269\u540D", "\u9CC4", "SOU"], "tauros": ["tauros", "\u52A8\u7269\u540D", "\u725B", "TAU"], "tragos": ["tragos", "\u52A8\u7269\u540D", "\u5C71\u7F8A", "TRA"], "ens": ["ens", "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B", "\u5B58\u5728\u8005", "ENS"], "ferus": ["ferus", "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B", "\u517D\u4EBA\uFF08\u63D0\u6848\uFF09", "FER"], "gens": ["gens", "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B", "\u65CF\u3001\u8840\u7EDF\u7FA4\u4F53", "GEN"], "humaniforma": ["humaniforma", "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B", "\u4EBA\u5F62\u3001\u7C7B\u4EBA", "HMF"], "phyton": ["phyton", "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B", "\u690D\u7269\u3001\u83CC", "PHY"], "purus": ["purus", "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B", "\u7EAF\u8840\u7684", "PUR"], "sanguis": ["sanguis", "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B", "\u8840\u7EDF\u3001\u8840\u7F18", "SNG"], "semihumanus": ["semihumanus", "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B", "\u534A\u4EBA\uFF08\u63D0\u6848\uFF09", "SEMh"], "subumanus": ["subumanus", "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B", "\u4E9A\u4EBA\uFF08\u63D0\u6848\uFF09", "SUB"], "supervita": ["supervita", "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B", "\u9AD8\u7EA7\u751F\u547D", "SUP"], "zoon": ["zoon", "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B", "\u52A8\u7269", "ZOO"], "aepaus": ["aepaus", "\u52A8\u8BCD", "\u589E\u52A0\u3001\u63D0\u5347\u3001\u52A0\u5267", "AEP"], "apolus": ["apolus", "\u52A8\u8BCD", "\u5C04\u51FB\u3001\u7206\u70B8", "APOl"], "expaste": ["expaste", "\u52A8\u8BCD", "\u4EA4\u6362\u3001\u514B\u9686\u3001\u590D\u5236", "EXPa"], "expual": ["expual", "\u52A8\u8BCD", "\u4FDD\u5B58\u3001\u50A8\u5B58", "EXPu"], "fragis": ["fragis", "\u52A8\u8BCD", "\u7834\u788E\u3001\u6253\u65AD", "FRAi"], "locis": ["locis", "\u52A8\u8BCD", "\u653E\u7F6E\u3001\u5B9A\u4F4D", "LOCi"], "loqis": ["loqis", "\u52A8\u8BCD", "\u8BF4\u3001\u8BB2\u8FF0", "LOQi"], "memis": ["memis", "\u52A8\u8BCD", "\u8BB0\u5FC6\u3001\u56DE\u5FC6", "MEMi"], "mortis": ["mortis", "\u52A8\u8BCD", "\u6B7B\u3001\u6D88\u4EA1", "MORi"], "movis": ["movis", "\u52A8\u8BCD", "\u79FB\u52A8\u3001\u63A8\u52A8", "MOVi"], "navis": ["navis", "\u52A8\u8BCD", "\u5F15\u5BFC\u3001\u91CA\u653E\u3001\u89E3\u9501", "NAV"], "plur": ["plur", "\u52A8\u8BCD", "\u51C0\u5316", "PLU"], "retase": ["retase", "\u52A8\u8BCD", "\u4F11\u606F\u3001 \u505C\u6B62\u3001\u91CD\u7F6E", "RET"], "sanis": ["sanis", "\u52A8\u8BCD", "\u6CBB\u6108\u3001\u4FEE\u590D", "SANi"], "struis": ["struis", "\u52A8\u8BCD", "\u5EFA\u9020\u3001\u6784\u9020", "STRi"], "vidis": ["vidis", "\u52A8\u8BCD", "\u770B\u3001\u89C2\u5BDF", "VIDi"], "vivis": ["vivis", "\u52A8\u8BCD", "\u6D3B\u3001\u751F\u5B58", "VIVi"], "hab": ["hab", "\u52A8\u8BCD", "\u6709\u3001\u62E5\u6709", "HAB"], "causa": ["causa", "\u52A8\u8BCD", "\u7F18\u6545\u3001\u7406\u7531", "CAU"], "trituris": ["trituris", "\u52A8\u8BCD", "\u8131\u7C92", "\u2014"], "ventilis": ["ventilis", "\u52A8\u8BCD", "\u626C\u8C37", "\u2014"], "manis": ["manis", "\u52A8\u8BCD", "\u4FDD\u6301", "\u2014"], "lapsis": ["lapsis", "\u52A8\u8BCD", "\u6ED1\u843D", "\u2014"], "oppes": ["oppes", "\u52A8\u8BCD", "\u7B49\u5F85", "\u2014"], "stas": ["stas", "\u52A8\u8BCD", "\u7ACB", "\u2014"], "restas": ["restas", "\u52A8\u8BCD", "\u91CD\u7ACB", "\u2014"], "visid": ["visid", "\u52A8\u8BCD", "\u6781\u770B", "\u2014"], "vilud": ["vilud", "\u52A8\u8BCD", "\u7565\u770B", "\u2014"], "transividis": ["transividis", "\u52A8\u8BCD", "\u900F\u770B", "\u2014"], "vados": ["vados", "\u52A8\u8BCD", "\u884C\u8D70", "\u2014"], "flagros": ["flagros", "\u52A8\u8BCD", "\u71C3\u70BD", "\u2014"], "secis": ["secis", "\u52A8\u8BCD", "\u5207", "\u2014"], "vitad": ["vitad", "\u52A8\u8BCD", "\u53CD\u590D\u770B", "\u2014"], "vimid": ["vimid", "\u52A8\u8BCD", "\u77AC\u770B", "\u2014"], "bilis": ["bilis", "\u52A8\u8BCD", "\u80C6", "\u2014"], "formis": ["formis", "\u52A8\u8BCD", "\u5851\u9020", "\u2014"], "videsco": ["videsco", "\u52A8\u8BCD", "\u5F00\u59CB\u770B", "\u2014"], "nevidis": ["nevidis", "\u52A8\u8BCD", "\u4E0D\u770B", "\u2014"], "revidis": ["revidis", "\u52A8\u8BCD", "\u91CD\u770B", "\u2014"], "praevidis": ["praevidis", "\u52A8\u8BCD", "\u9884\u770B", "\u2014"], "covidis": ["covidis", "\u52A8\u8BCD", "\u5171\u770B", "\u2014"], "providis": ["providis", "\u52A8\u8BCD", "\u524D\u770B", "\u2014"], "extravidis": ["extravidis", "\u52A8\u8BCD", "\u5916\u770B", "\u2014"], "retrovidis": ["retrovidis", "\u52A8\u8BCD", "\u56DE\u770B", "\u2014"], "tri": ["tri", "\u6570\u8BCD", "\u4E09", "\u2014"], "quinq": ["quinq", "\u6570\u8BCD", "\u4E94", "\u2014"], "paulum": ["paulum", "\u6570\u8BCD", "\u5C11\u8BB8", "\u2014"], "nimis": ["nimis", "\u6570\u8BCD", "\u8FC7\u5EA6", "\u2014"], "sept": ["sept", "\u6570\u8BCD", "\u4E03", "\u2014"], "parum": ["parum", "\u6570\u8BCD", "\u592A\u5C11", "\u2014"], "dec": ["dec", "\u6570\u8BCD", "\u5341", "\u2014"], "quadr": ["quadr", "\u6570\u8BCD", "\u56DB", "\u2014"], "false": ["false", "\u5F62\u5BB9\u8BCD", "\u9519\u8BEF\u7684\u3001\u5047\u7684", "\u2014"], "true": ["true", "\u5F62\u5BB9\u8BCD", "\u771F\u5B9E\u7684\u3001\u771F\u7684", "\u2014"], "magnal": ["magnal", "\u5F62\u5BB9\u8BCD", "\u5927\u7684", "\u2014"], "granar": ["granar", "\u5F62\u5BB9\u8BCD", "\u5C5E\u4E8E\u8C37\u7C92\u7684", "\u2014"], "humal": ["humal", "\u5F62\u5BB9\u8BCD", "\u5C5E\u4E8E\u6E7F\u7684", "\u2014"], "ventil": ["ventil", "\u5F62\u5BB9\u8BCD", "\u6613\u98CE\u7684", "\u2014"], "vidifer": ["vidifer", "\u5F62\u5BB9\u8BCD", "\u5E26\u770B\u7684", "\u2014"], "vadosal": ["vadosal", "\u5F62\u5BB9\u8BCD", "\u6D45\u7684", "\u2014"], "bathal": ["bathal", "\u5F62\u5BB9\u8BCD", "\u6DF1\u7684", "\u2014"], "lumenal": ["lumenal", "\u5F62\u5BB9\u8BCD", "\u5C5E\u4E8E\u5FAE\u5149\u7684", "\u2014"], "vidal": ["vidal", "\u5F62\u5BB9\u8BCD", "\u5C5E\u4E8E\u770B\u7684", "\u2014"], "vidivus": ["vidivus", "\u5F62\u5BB9\u8BCD", "\u597D\u770B\u7684", "\u2014"], "vidibilis": ["vidibilis", "\u5F62\u5BB9\u8BCD", "\u53EF\u770B\u7684", "\u2014"], "lapidiformis": ["lapidiformis", "\u5F62\u5BB9\u8BCD", "\u77F3\u6599\u5F62", "\u2014"], "vidax": ["vidax", "\u5F62\u5BB9\u8BCD", "\u55DC\u770B\u7684", "\u2014"], "vidibundus": ["vidibundus", "\u5F62\u5BB9\u8BCD", "\u6B63\u770B\u7684", "\u2014"], "vidulent": ["vidulent", "\u5F62\u5BB9\u8BCD", "\u5BCC\u4E8E\u770B\u7684", "\u2014"], "lapidat": ["lapidat", "\u5F62\u5BB9\u8BCD", "\u5177\u6709\u77F3\u6599\u7684", "\u2014"], "vidil": ["vidil", "\u5F62\u5BB9\u8BCD", "\u6613\u770B\u7684", "\u2014"], "inter": ["inter", "\u5F62\u5BB9\u8BCD", "\u5C5E\u4E8E\u6BC1\u706D\u7684", "\u2014"], "cisternal": ["cisternal", "\u5F62\u5BB9\u8BCD", "\u5C5E\u4E8E\u84C4\u6C34\u6C60\u7684", "\u2014"], "ardu": ["ardu", "\u526F\u8BCD", "\u96BE", "\u2014"], "clar": ["clar", "\u526F\u8BCD", "\u660E", "\u2014"], "facil": ["facil", "\u526F\u8BCD", "\u6613", "\u2014"], "fort": ["fort", "\u526F\u8BCD", "\u5F3A", "\u2014"], "lent": ["lent", "\u526F\u8BCD", "\u6162", "\u2014"], "sombra": ["sombra", "\u526F\u8BCD", "\u6697", "\u2014"], "tac": ["tac", "\u526F\u8BCD", "\u9759", "\u2014"], "vel": ["vel", "\u526F\u8BCD", "\u5FEB", "\u2014"], "viden": ["viden", "\u526F\u8BCD", "\u4EE5\u770B\u7684\u65B9\u5F0F", "\u2014"], "viditim": ["viditim", "\u526F\u8BCD", "\u9010\u770B\u5730", "\u2014"], "de": ["de", "\u4ECB\u8BCD", "\u5728\u2026\u2026\u4E4B\u5185", "dex"], "enn": ["enn", "\u4ECB\u8BCD", "\u5728\u2026\u2026\u91CC\u9762", "enn"], "ord": ["ord", "\u4ECB\u8BCD", "\u4ECE\u3001\u6E90\u81EA", "ord"], "pro": ["pro", "\u4ECB\u8BCD", "\u671D\u5411\u3001\u5411\u3001\u4E3A\u4E86", "pro"], "ynen": ["Ynen", "\u4ECB\u8BCD", "\u901A\u8FC7\u3001\u7531", "yne"], "intra": ["intra", "\u4ECB\u8BCD", "\u8FDB\u5165\u3001\u5728\u2026\u2026\u4E4B\u5185", "\u2014"], "di": ["di", "\u4ECB\u8BCD", "\u2026\u2026\u7684\u3001\u4E4B\uFF08\u9886\u5C5E\uFF09", "di"], "supra": ["supra", "\u4ECB\u8BCD", "\u5728\u2026\u2026\u4E4B\u4E0A", "sup"], "sub": ["sub", "\u4ECB\u8BCD", "\u5728\u2026\u2026\u4E4B\u4E0B", "sub"], "velut": ["velut", "\u4ECB\u8BCD", "\u5982\u3001\u4F3C\uFF08\u660E\u55BB\uFF09", "vel"], "deb": ["deb", "\u52A9\u52A8\u8BCD", "\u5E94\u3001\u8BE5", "deb"], "dur": ["dur", "\u52A9\u52A8\u8BCD", "\u6301\u7EED\u4F53", "dur"], "es": ["es", "\u52A9\u52A8\u8BCD", "\u662F\u3001\u5B58\u5728", "ess"], "fac": ["fac", "\u52A9\u52A8\u8BCD", "\u4F7F\u3001\u8BA9", "fac"], "inc": ["inc", "\u52A9\u52A8\u8BCD", "\u5F00\u59CB\u4F53", "inc"], "iter": ["iter", "\u52A9\u52A8\u8BCD", "\u91CD\u590D\u4F53", "iter"], "lic": ["lic", "\u52A9\u52A8\u8BCD", "\u53EF\u3001\u5141\u8BB8", "lic"], "ne": ["ne", "\u52A9\u52A8\u8BCD", "\u4E0D\u3001\u76F8\u53CD", "neg"], "nec": ["nec", "\u52A9\u52A8\u8BCD", "\u5FC5\u987B", "nec"], "per": ["per", "\u52A9\u52A8\u8BCD", "\u5B8C\u6210\u4F53", "per"], "pot": ["pot", "\u52A9\u52A8\u8BCD", "\u80FD\u3001\u53EF\u4EE5", "pot"], "se": ["se", "\u52A9\u52A8\u8BCD", "\u88AB\u3001\u53CD\u8EAB", "se"], "vet": ["vet", "\u52A9\u52A8\u8BCD", "\u7981\u6B62", "vet"], "vol": ["vol", "\u52A9\u52A8\u8BCD", "\u613F\u3001\u8981", "vol"], "aude": ["aude", "\u5224\u65AD\u8BCD", "\u524D\u540E\u540C\u4E00\u5219\u540C\u4E00", "aud"], "aut": ["aut", "\u5224\u65AD\u8BCD", "\u5305\u542B\u6216", "aut"], "dis": ["dis", "\u5224\u65AD\u8BCD", "\u4E92\u65A5\u6216", "dis"], "dum": ["dum", "\u5224\u65AD\u8BCD", "\u53EA\u8981", "dum"], "ergo": ["ergo", "\u5224\u65AD\u8BCD", "\u6240\u4EE5", "erg"], "exo": ["exo", "\u5224\u65AD\u8BCD", "\u5982\u679C\u2026\u2026\u90A3\u4E48\u5E94\u5F53\u2026\u2026", "exo"], "fas": ["fas", "\u5224\u65AD\u8BCD", "\u8BB8\u53EF\u3001\u5408\u6CD5", "fas"], "kaus": ["kaus", "\u5224\u65AD\u8BCD", "\u56E0\u4E3A", "kau"], "keal": ["keal", "\u5224\u65AD\u8BCD", "\u5982\u679C\u2026\u2026", "kea"], "keol": ["keol", "\u5224\u65AD\u8BCD", "\u5426\u5219\u5982\u679C\u2026\u2026", "keo"], "kon": ["kon", "\u5224\u65AD\u8BCD", "\u5E76\u4E14\u3001\u5408\u53D6", "kon"], "nefas": ["nefas", "\u5224\u65AD\u8BCD", "\u7981\u5FCC\u3001\u4E0D\u5408\u6CD5", "nef"], "nisi": ["nisi", "\u5224\u65AD\u8BCD", "\u9664\u975E", "nis"], "quan": ["quan", "\u5224\u65AD\u8BCD", "\u65E0\u8BBA", "qua"], "rase": ["rase", "\u5224\u65AD\u8BCD", "\u6709\u4E00\u771F\u5219\u4E3A\u771F", "ras"], "re": ["re", "\u5224\u65AD\u8BCD", "\u662F\u5426\u771F\u6216\u5047", "req"], "ske": ["ske", "\u5224\u65AD\u8BCD", "\u53CD\u4E8B\u5B9E\u5982\u679C", "ske"], "tam": ["tam", "\u5224\u65AD\u8BCD", "\u5F53\u2026\u2026\u65F6", "tam"], "vero": ["vero", "\u5224\u65AD\u8BCD", "\u786E\u5B9E\u3001\u5F3A\u8C03\u771F", "vro"], "priv": ["priv", "\u9650\u5B9A\u8BCD", "\u79C1\u6709\uFF1A\u53EA\u5728**\u5F53\u524D\u8BED\u5757**\u5185\u53EF\u89C1\uFF0C\u51FA\u5757\u5373\u4E0D\u53EF\u89C1", "prv"], "tut": ["tut", "\u9650\u5B9A\u8BCD", "\u53D7\u62A4\uFF1A**\u672C\u8BED\u5757\u53CA\u5176\u5B50\u5757**\u53EF\u89C1\uFF0C\u5916\u5C42\u4E0D\u53EF\u89C1", "tut"], "publ": ["publ", "\u9650\u5B9A\u8BCD", "\u516C\u5F00\uFF1A**\u6574\u4E2A\u672F\u5F0F**\u5185\u53EF\u89C1\uFF0C\u53EF\u8DE8\u5757\u4F7F\u7528", "pbl"], "consta": ["consta", "\u9650\u5B9A\u8BCD", "\u5E38\u6570\uFF1A**\u5199\u5165\u540E\u4E0D\u53EF\u518D\u8D4B\u503C**\uFF08\u6CBF\u7528\u8BCD\u6839\u8868\u300C\u5E38\u6570\u300D\u7684\u539F\u5F62\uFF09", "cns"], "has": ["has", "\u65F6\u95F4\u9650\u5B9A", "\u5728\u672A\u6765", "has"], "iam": ["iam", "\u65F6\u95F4\u9650\u5B9A", "\u5DF2\u7ECF", "iam"], "mis": ["mis", "\u65F6\u95F4\u9650\u5B9A", "\u73B0\u5728", "mis"], "mox": ["mox", "\u65F6\u95F4\u9650\u5B9A", "\u5373\u5C06", "mox"], "nun": ["nun", "\u65F6\u95F4\u9650\u5B9A", "\u4ECE\u4E0D", "nun"], "post": ["post", "\u65F6\u95F4\u9650\u5B9A", "\u4E4B\u540E", "pos"], "pre": ["pre", "\u65F6\u95F4\u9650\u5B9A", "\u4E4B\u524D", "pre"], "ros": ["ros", "\u65F6\u95F4\u9650\u5B9A", "\u5728\u53E4\u4EE3\u3001\u8FC7\u53BB", "ros"], "sem": ["sem", "\u65F6\u95F4\u9650\u5B9A", "\u603B\u662F", "sem"], "simul": ["simul", "\u65F6\u95F4\u9650\u5B9A", "\u540C\u65F6", "sim"], "ali": ["ali", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u67D0\u4E2A", "ali"], "mult": ["mult", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u591A", "mul"], "nul": ["nul", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u65E0", "nul"], "om": ["om", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u5168\u90E8\u3001\u6574\u4F53", "omn"], "part": ["part", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u90E8\u5206", "prt"], "pauc": ["pauc", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u5C11", "pau"], "selinge": ["Selinge", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u552F\u4E00\u4E00\u4E2A", "sel"], "sol": ["sol", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u4EC5\u3001\u53EA", "sol"], "tallse": ["tallse", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u6BCF\u4E00\u4E2A\u3001\u6240\u6709", "tal"], "tot": ["tot", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u6574\u4E2A", "tot"], "alius": ["alius", "\u6307\u79F0\u9650\u5B9A", "\u53E6\u4E00\u4E2A", "als"], "hic": ["hic", "\u6307\u79F0\u9650\u5B9A", "\u8FD9", "hic"], "idem": ["idem", "\u6307\u79F0\u9650\u5B9A", "\u540C\u4E00", "ide"], "ille": ["ille", "\u6307\u79F0\u9650\u5B9A", "\u90A3", "ill"], "ipse": ["ipse", "\u6307\u79F0\u9650\u5B9A", "\u81EA\u8EAB", "ips"], "quis": ["quis", "\u6307\u79F0\u9650\u5B9A", "\u54EA\u4E2A", "qui"], "quot": ["quot", "\u6307\u79F0\u9650\u5B9A", "\u591A\u5C11", "quo"], "prim": ["prim", "\u987A\u5E8F\u9650\u5B9A", "\u7B2C\u4E00\u3001\u9996\u5148", "pri"], "prior": ["prior", "\u987A\u5E8F\u9650\u5B9A", "\u524D\u4E00\u4E2A", "pir"], "prox": ["prox", "\u987A\u5E8F\u9650\u5B9A", "\u4E0B\u4E00\u4E2A", "prx"], "ultim": ["ultim", "\u987A\u5E8F\u9650\u5B9A", "\u6700\u540E", "ult"], "magis": ["magis", "\u7A0B\u5EA6\u9650\u5B9A", "\u66F4", "mag"], "max": ["max", "\u7A0B\u5EA6\u9650\u5B9A", "\u6700", "max"], "min": ["min", "\u7A0B\u5EA6\u9650\u5B9A", "\u6700\u4E0D", "min"], "minus": ["minus", "\u7A0B\u5EA6\u9650\u5B9A", "\u66F4\u5C11\u3001\u8F83\u4E0D", "mns"], "valde": ["valde", "\u7A0B\u5EA6\u9650\u5B9A", "\u5F88\u3001\u975E\u5E38", "val"], "mi": ["mi", "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09", "\u6211", "mi"], "tu": ["tu", "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09", "\u4F60", "tu"], "il": ["il", "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09", "\u4ED6\uFF0F\u5979", "il"], "id": ["id", "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09", "\u5B83", "id"], "nos": ["nos", "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09", "\u6211\u4EEC", "nos"], "vos": ["vos", "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09", "\u4F60\u4EEC\uFF08\u517C\u656C\u79F0\uFF09", "vos"], "les": ["les", "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09", "\u4ED6\u4EEC", "les"], "tis": ["tis", "\u7591\u95EE\u8BCD", "\u8C01", "\u540D\u8BCD\u4F4D"], "ti": ["ti", "\u7591\u95EE\u8BCD", "\u4EC0\u4E48", "\u540D\u8BCD\u4F4D"], "poi": ["poi", "\u7591\u95EE\u8BCD", "\u54EA\u4E2A", "\u4FEE\u9970\u4F4D"], "pu": ["pu", "\u7591\u95EE\u8BCD", "\u54EA\u91CC", "\u8865\u8BED\u4F4D"], "pote": ["pote", "\u7591\u95EE\u8BCD", "\u4F55\u65F6", "\u9650\u5B9A\u5C42"], "dia": ["dia", "\u7591\u95EE\u8BCD", "\u4E3A\u4F55", "\u5224\u65AD\u5C42"], "pos": ["pos", "\u7591\u95EE\u8BCD", "\u5982\u4F55", "\u65B9\u5F0F\u5C42"], "poso": ["poso", "\u7591\u95EE\u8BCD", "\u591A\u5C11", "\u6570\u91CF\u4F4D"], "word": ["word", "\u91CF\u8BCD", "\u7528\u4E8E", "abbr"], "kor": ["kor", "\u91CF\u8BCD", "\u6709\u7075\u8005\uFF08\u4EBA\uFF0F\u795E\uFF0F\u65CF\uFF09", "KOR"], "kap": ["kap", "\u91CF\u8BCD", "\u8D70\u517D\u3001\u9F99", "KAPA"], "pte": ["pte", "\u91CF\u8BCD", "\u98DE\u79BD", "PTE"], "ikh": ["ikh", "\u91CF\u8BCD", "\u9C7C\u3001\u86C7\u3001\u957F\u6761\u7269", "IKH"], "pho": ["pho", "\u91CF\u8BCD", "\u8349\u6728", "PHO"], "rok": ["rok", "\u91CF\u8BCD", "\u5757\u72B6\u786C\u7269\uFF08\u77F3\uFF0F\u91D1\uFF09", "ROK"], "ker": ["ker", "\u91CF\u8BCD", "\u5668\u7269\u3001\u5DE5\u5177", "KER"], "graf": ["graf", "\u91CF\u8BCD", "\u6241\u5E73\u7269\uFF08\u7EB8\uFF0F\u5E03\uFF0F\u677F\uFF09", "GRAF"], "vat": ["vat", "\u91CF\u8BCD", "\u5BB9\u5668\u4E0E\u6DB2\u4F53", "VAT"], "mo": ["mo", "\u91CF\u8BCD", "\u98DF\u7269\u4E00\u4EFD", "MO"], "top": ["top", "\u91CF\u8BCD", "\u5730\u70B9", "TOP"], "kair": ["kair", "\u91CF\u8BCD", "\u6B21\u6570\u3001\u4E8B\u4EF6", "KAIR"], "verb": ["verb", "\u91CF\u8BCD", "\u8A00\u8BED\u3001\u6587\u5B57", "VERb"], "aps": ["aps", "\u91CF\u8BCD", "\u62BD\u8C61\u4E8B\u7269", "APS"], "inse": ["inse", "\u91CF\u8BCD", "\u866B\u8C78", "INSE"], "ka": ["ka", "\u8FDE\u63A5\u8BCD\u4E0E\u4ECE\u53E5\u6807\u8BB0", "\u9648\u8FF0\u4ECE\u53E5\u6807\u8BB0\uFF08that\uFF09\u2014\u2014\u5F00", "ka"], "ku": ["ku", "\u8FDE\u63A5\u8BCD\u4E0E\u4ECE\u53E5\u6807\u8BB0", "\u5173\u7CFB\u4ECE\u53E5\u6807\u8BB0\uFF08\u2026\u2026\u7684\uFF09\u2014\u2014\u5F00", "ku"], "ki": ["ki", "\u8FDE\u63A5\u8BCD\u4E0E\u4ECE\u53E5\u6807\u8BB0", "\u4ECE\u53E5\u95ED\u5408\u8BCD\u2014\u2014\u95ED\uFF08\u540E\u5F00\u5148\u95ED\uFF09", "ki"], "eti": ["eti", "\u8FDE\u63A5\u8BCD\u4E0E\u4ECE\u53E5\u6807\u8BB0", "\u548C\u3001\u4E0E\uFF08\u5E76\u5217\u540D\u8BCD\uFF09", "ETI"], "limit": ["limit", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u9650\u5236\uFF08\u51C6\u5165\u6761\u4EF6\uFF09\uFF1B\u4F5C\u7B5B\u9009\u952E\u65F6\u662F\u300C\u53D6\u524D\u51E0\u4E2A\u300D", "limit"], "pretium": ["pretium", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u4EE3\u4EF7\uFF08\u672F\u5F0F\u7684\u4ED8\u51FA\uFF09", "pretium"], "solum": ["solum", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u72EC\u7ACB\uFF08\u4E0D\u4F9D\u8D56\u65BD\u672F\u8005\uFF09", "solum"], "hauri": ["hauri", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u6C72\u53D6\uFF08\u81EA\u884C\u5438\u53D6\u5468\u906D\u5143\u7D20\uFF09", "hauri"], "luss": ["luss", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u9501\u5165\uFF08\u80FD\u91CF\uFF09", "luss"], "vita": ["vita", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u5BFF\u547D", "VIT"], "memoria": ["memoria", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u8BB0\u5FC6", "MEMo"], "sensus": ["sensus", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u611F\u5B98", "SEN"], "voluntas": ["voluntas", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u610F\u5FD7", "VOL"], "anima": ["anima", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u7075\u9B42", "ANI"], "vis": ["vis", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u5A01\u529B", "VIS"], "diu": ["diu", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u6301\u7EED", "diu"], "celer": ["celer", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u8FC5\u6377", "celer"], "metos": ["metos", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u5BF9\u8C61\u3001\u76EE\u6807\uFF08\u672F\u5F0F\u7684\u76EE\u6807\u9879\uFF09", "metos"], "ren": ["ren", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u8FD4\u56DE\u6570\u5B57\uFF08\u672F\u5F0F\u8F93\u51FA\uFF09", "\u2014"], "rea": ["rea", "\u672F\u5F0F\u5173\u952E\u8BCD", "\u8FD4\u56DE\u5730\u5740\uFF08\u672F\u5F0F\u8F93\u51FA\uFF09", "\u2014"], "kigrama": ["kigrama", "\u5355\u4F4D", "\u5343\u514B\uFF08\u8D28\u91CF\uFF09", "kig"], "pondus": ["pondus", "\u5355\u4F4D", "\u91CD\u91CF\uFF08\u4E0E\u8D28\u91CF\u76F8\u5BF9\uFF09", "pon"], "sands": ["sands", "\u5355\u4F4D", "\u79D2", "san"], "minas": ["minas", "\u5355\u4F4D", "\u5206\uFF08\u949F\uFF09", "min"], "hora": ["hora", "\u5355\u4F4D", "\u5C0F\u65F6", "hor"], "dies": ["dies", "\u5355\u4F4D", "\u65E5", "die"], "annus": ["annus", "\u5355\u4F4D", "\u5E74", "ann"], "animarbo": ["Animarbo", "\u5730\u540D\u4E0E\u52BF\u529B\u540D", "\u5168\u606F\u9B42\u7075\u4E4B\u6811", "anim \uFF0B arbor"], "parasevictom": ["Parasevictom", "\u5730\u7406 \xB7 \u795E\u5BAB \xB7 \u8D27\u5E01\u4E13\u540D", "\u5E15\u62C9\u65AF\u7EF4\u767B", "\u533A\u57DF"], "root": ["root", "\u6839\u8BCD", "\u62BD\u8C61\u4E49", "abbr"], "ae": ["ae", "\u6839\u8BCD", "\u4E0A\u5347\u3001\u589E\u5F3A", "AER"], "apo": ["apo", "\u6839\u8BCD", "\u79BB\u3001\u7206\u53D1\u3001\u91CA\u653E", "APX"], "end": ["end", "\u6839\u8BCD", "\u7EC8\u70B9", "END"], "ex": ["ex", "\u6839\u8BCD", "\u5916\u3001\u8F6C\u79FB\u3001\u590D\u5236", "EXS"], "frag": ["frag", "\u6839\u8BCD", "\u7834\u788E\u3001\u65AD\u88C2", "FRG"], "grama": ["grama", "\u6839\u8BCD", "\u91CF\u3001\u91CD", "GRA"], "ho": ["ho", "\u6839\u8BCD", "\u5BB6\u3001\u805A\u3001\u5E87\u62A4", "HOM"], "kipo": ["kipo", "\u6839\u8BCD", "\u52A8\u3001\u52A0\u901F", "KIP"], "loc": ["loc", "\u6839\u8BCD", "\u5730\u70B9\u3001\u653E\u7F6E", "LOC"], "loq": ["loq", "\u6839\u8BCD", "\u8BF4\u3001\u8BED\u8A00", "LOQ"], "lus": ["lus", "\u6839\u8BCD", "\u51FB\u3001\u963B\u3001\u9501", "LUS"], "mem": ["mem", "\u6839\u8BCD", "\u8BB0\u5FC6\u3001\u5FC3\u667A", "MEM"], "mort": ["mort", "\u6839\u8BCD", "\u6B7B\u3001\u6D88\u4EA1", "MOR"], "mov": ["mov", "\u6839\u8BCD", "\u79FB\u52A8\u3001\u63A8\u52A8", "MOV"], "navi": ["navi", "\u6839\u8BCD", "\u8DEF\u5F84\u3001\u5F15\u5BFC", "NVI"], "ose": ["ose", "\u6839\u8BCD", "\u5F00\u59CB", "OSE"], "pas": ["pas", "\u6839\u8BCD", "\u573A\u3001\u7ACB\u3001\u505C\u7559", "PAS"], "redi": ["redi", "\u6839\u8BCD", "\u56DE\u3001\u518D\u3001\u505C", "RED"], "san": ["san", "\u6839\u8BCD", "\u6CBB\u6108\u3001\u4FEE\u590D", "SAN"], "stru": ["stru", "\u6839\u8BCD", "\u5EFA\u9020\u3001\u7ED3\u6784", "STR"], "vid": ["vid", "\u6839\u8BCD", "\u770B\u3001\u89C1\u3001\u89C2\u5BDF", "VID"], "viv": ["viv", "\u6839\u8BCD", "\u751F\u3001\u6D3B\u3001\u751F\u547D", "VIV"], "fraglus": ["fraglus", "\u590D\u5408\u8BCD", "\u7834\u9501\u3001\u7834\u574F\u969C\u788D", "FGL"], "loqnavi": ["loqnavi", "\u590D\u5408\u8BCD", "\u547D\u4EE4\u3001\u5492\u8BED\u5F15\u5BFC", "LQN"], "loczone": ["loczone", "\u590D\u5408\u8BCD", "\u5B9A\u4F4D\u533A\u57DF", "LCZ"], "memexpual": ["memexpual", "\u590D\u5408\u8BCD", "\u4FDD\u5B58\u8BB0\u5FC6", "MEX"], "mortsiro": ["mortsiro", "\u590D\u5408\u8BCD", "\u6B7B\u4EA1\u865A\u7A7A", "MRS"], "movpas": ["movpas", "\u590D\u5408\u8BCD", "\u79FB\u52A8\u573A\u3001\u4F20\u9001\u7AD9", "MVP"], "sanaqua": ["sanaqua", "\u590D\u5408\u8BCD", "\u6CBB\u6108\u4E4B\u6C34\u3001\u5723\u6C34", "SNQ"], "struhopas": ["struhopas", "\u590D\u5408\u8BCD", "\u5EFA\u9020\u8425\u5730", "STH"], "vidnavi": ["vidnavi", "\u590D\u5408\u8BCD", "\u89C2\u5BDF\u8DEF\u5F84", "VDN"], "vivfliam": ["vivfliam", "\u590D\u5408\u8BCD", "\u751F\u547D\u4E4B\u706B", "VVF"], "ven": ["ven", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u6765", "VEN"], "iri": ["iri", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u53BB\u3001\u8D70", "IRI"], "cap": ["cap", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u62FF\u3001\u53D6", "CAP"], "don": ["don", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u7ED9", "DON"], "sci": ["sci", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u77E5\u9053", "SCI"], "ege": ["ege", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u9700\u8981", "EGE"], "aux": ["aux", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u5E2E\u52A9", "AUX"], "prc": ["prc", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u5371\u9669", "PRC"], "pop": ["pop", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u4EBA\u6C11\u3001\u4EBA\u7FA4", "POP"], "pna": ["pna", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u4EBA\u3001\u4E2A\u4F53", "PNA"], "res": ["res", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u4E8B\u7269", "RES"], "tem": ["tem", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u65F6\u95F4", "TEM"], "die": ["die", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u65E5\u3001\u767D\u5929", "DIE"], "nox": ["nox", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u591C", "NOX"], "cib": ["cib", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u98DF\u7269", "CIB"], "dom": ["dom", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u5BB6\u3001\u4F4F\u6240", "DOM"], "via": ["via", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u8DEF\u3001\u9053\u8DEF", "VIA"], "pue": ["pue", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u5B69\u5B50", "PUE"], "prn": ["prn", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u7236\u6BCD\u3001\u4EB2\u4EE3", "PRN"], "ami": ["ami", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u670B\u53CB", "AMI"], "hos": ["hos", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u654C\u4EBA", "HOS"], "rex": ["rex", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u738B", "REX"], "deu": ["deu", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u795E", "DEU"], "mgi": ["mgi", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u9B54\u6CD5", "MGI"], "tmp": ["tmp", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u98CE\u66B4", "TMP"], "aqe": ["aqe", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u6D2A\u6C34", "AQE"], "plv": ["plv", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u96E8", "PLV"], "flv": ["flv", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u6CB3", "FLV"], "mar": ["mar", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u6D77", "MAR"], "mon": ["mon", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u5C71", "MON"], "sil": ["sil", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u68EE\u6797", "SIL"], "urb": ["urb", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u57CE\u5E02", "URB"], "pag": ["pag", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u6751\u5E84", "PAG"], "edi": ["edi", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u5403", "EDI"], "bib": ["bib", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u559D", "BIB"], "dor": ["dor", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u7761", "DOR"], "cur": ["cur", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u8DD1", "CUR"], "amb": ["amb", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u8D70\u3001\u884C\u8D70", "AMB"], "vla": ["vla", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u98DE", "VLA"], "nat": ["nat", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u6E38\u6CF3", "NAT"], "pug": ["pug", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u6218\u6597", "PUG"], "nca": ["nca", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u6740", "NCA"], "ape": ["ape", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u6253\u5F00", "APE"], "cld": ["cld", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u5173\u95ED", "CLD"], "adi": ["adi", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u542C", "ADI"], "clv": ["clv", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u94A5\u5319", "CLV"], "por": ["por", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u95E8", "POR"], "yes": ["yes", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u662F", "Iy"], "no": ["no", "\u9AD8\u9891\u8865\u5145\u8BCD", "\u5426", "Ey"] }, "keys": { "init": ["init", "\u7B5B\u9009\u952E", "\u539F\u70B9\uFF08\u53E6\u5B9A\u57FA\u51C6\uFF0C\u4E0D\u6539\u7F16\u53D1\u52A8\u4F4D\u7F6E\uFF09"], "intervall": ["intervall", "\u7B5B\u9009\u952E", "\u8DDD\u79BB\u8303\u56F4\uFF0C.. \u8868\u533A\u95F4"], "mensura": ["mensura", "\u7B5B\u9009\u952E", "\u957F\u65B9\u4F53\u5C3A\u5BF8\uFF08\u4E09\u8F74\uFF09"], "genus": ["genus", "\u7B5B\u9009\u952E", "\u7C7B\u522B\uFF1A\u65CF\u540D\u3001\u5143\u7D20\u7801\u3001\u751F\u7269\u7C7B\uFF1B\u524D\u52A0 ne \u53D6\u53CD"], "nomen": ["nomen", "\u7B5B\u9009\u952E", "\u5177\u540D\u8005"], "sigil": ["sigil", "\u7B5B\u9009\u952E", "\u5E26\u67D0\u6807\u8BB0\uFF0F\u9635\u8425\u8005"], "ratio": ["ratio", "\u7B5B\u9009\u952E", "\u6309**\u91CF\u503C\u8303\u56F4**\u7B5B\uFF08\u5A01\u529B\u3001\u7CBE\u5EA6\u7B49\u7684\u91CF\u503C\uFF09"], "versus": ["versus", "\u7B5B\u9009\u952E", "\u6309\u671D\u5411\u7B5B\uFF08\u4FEF\u4EF0\uFF0F\u6C34\u5E73\uFF09"], "ordin": ["ordin", "\u7B5B\u9009\u952E", "\u6392\u5E8F\uFF1Aproxim \u8FD1\uFF0Fprocul \u8FDC\uFF0Ftemer \u968F\u673A"], "limit": ["limit", "\u7B5B\u9009\u952E", "\u53D6\u524D\u51E0\u4E2A"] }, "units": { "mu": ["MU", "\u80FD\u91CF\u5355\u4F4D", "\u9B54\u529B\uFF08\u80FD\u91CF\uFF09\uFF1B\u5199\u5B83\u5373\u4E3A\u9501\u5B58\uFF08\u89E6\u53D1\u5F0F\u672F\u5F0F\uFF09"], "eu": ["EU", "\u80FD\u91CF\u5355\u4F4D", "\u5143\u7D20\u541E\u5410\uFF08\u80FD\u91CF\uFF09\uFF1B\u5199\u5B83\u5373\u4E3A\u9501\u5B58\uFF08\u89E6\u53D1\u5F0F\u672F\u5F0F\uFF09"], "muw": ["MUW", "\u80FD\u91CF\u5355\u4F4D", "\u9B54\u529B\u529F\u7387\uFF1B\u529F\u7387\u53E3\u5F84\uFF0C\u4E0D\u5F97\u914D luss\uFF08\u6301\u7EED\u53D1\u52A8\uFF09"], "euw": ["EUW", "\u80FD\u91CF\u5355\u4F4D", "\u5143\u7D20\u541E\u5410\u529F\u7387\uFF1B\u529F\u7387\u53E3\u5F84\uFF0C\u4E0D\u5F97\u914D luss\uFF08\u6301\u7EED\u53D1\u52A8\uFF09"], "miteas": ["miteas", "\u957F\u5EA6", "\u7C73"], "passus": ["passus", "\u957F\u5EA6\uFF08\u65E7\u5236\uFF09", "\u6B65"], "digitus": ["digitus", "\u957F\u5EA6\uFF08\u65E7\u5236\uFF09", "\u6307\u5BBD"], "cubitus": ["cubitus", "\u957F\u5EA6\uFF08\u65E7\u5236\uFF09", "\u8098"], "kigrama": ["kigrama", "\u8D28\u91CF", "\u5343\u514B"], "sands": ["sands", "\u65F6\u95F4", "\u79D2"], "minas": ["minas", "\u65F6\u95F4", "\u5206"], "hora": ["hora", "\u65F6\u95F4", "\u65F6"], "dies": ["dies", "\u65F6\u95F4", "\u65E5"], "annus": ["annus", "\u65F6\u95F4", "\u5E74"] }, "ranks": { "4": "\u03B8 \xB7 \u5BA2\u89C2\u65F6\u95F4\uFF08\u7B2C\u56DB\u7EF4\u5EA6\uFF09", "5": "b \xB7 \u5BA2\u89C2\u5E73\u884C\u65F6\u95F4\uFF08\u7B2C\u4E94\u7EF4\u5EA6\uFF09", "6": "p_b \xB7 \u5B58\u5728\u6027\u6982\u7387\uFF08\u7B2C\u516D\u7EF4\u5EA6\uFF09", "7": "t_abs \xB7 \u7EDD\u5BF9\u5BA2\u89C2\u65F6\u95F4\uFF08\u7B2C\u4E03\u7EF4\u5EA6\uFF09", "8": "\u03BB \xB7 \u65F6\u95F4\u6D41\u901F\u7387\uFF08\u7B2C\u516B\u7EF4\u5EA6\uFF09", "9": "s \xB7 \u6240\u5728\u5B87\u5B99\u7A7A\u95F4\uFF08\u7B2C\u4E5D\u7EF4\u5EA6\uFF09", "1\u20133": "x, y, z \xB7 \u4E09\u7EF4\u7A7A\u95F4\u5143\u7EC4\uFF08\u7B2C\u4E09\u7EF4\u5EA6\uFF0C\u5360 3 \u79E9\uFF09" }, "roots": { "est": ["\u5B58\u5728\u3001\u662F", "\u52A8", "est"], "ent": ["\u5B58\u5728\u8005\u3001\u5B9E\u4F53", "\u52A8", "ent"], "hom": ["\u4EBA\u3001\u4E2A\u4F53", "\u52A8", "hom"], "ver": ["\u771F\u5B9E\u3001\u786E\u5B9E", "\u52A8", "ver"], "fal": ["\u865A\u5047\u3001\u9519\u8BEF", "\u52A8", "fal"], "un": ["\u5355\u4E00\u3001\u4E00", "\u52A8", "un"], "div": ["\u5206\u5F00\u3001\u533A\u5206", "\u52A8", "div"], "iun": ["\u8FDE\u63A5\u3001\u7ED3\u5408", "\u52A8", "iun"], "mut": ["\u6539\u53D8\u3001\u8F6C\u5316", "\u52A8", "mut"], "man": ["\u4FDD\u6301\u3001\u6301\u7EED", "\u52A8", "man"], "fin": ["\u754C\u9650\u3001\u8FB9\u754C", "\u52A8", "fin"], "nov": ["\u65B0\u3001\u5D2D\u65B0", "\u52A8", "nov"], "pris": ["\u65E7\u3001\u53E4\u8001", "\u52A8", "pris"], "hyl": ["\u7269\u8D28\u3001\u6750\u6599", "\u7269", "hyl"], "cosm": ["\u79E9\u5E8F\u3001\u5B87\u5B99", "\u7269", "cosm"], "cha": ["\u6DF7\u6C8C\u3001\u65E0\u5E8F", "\u7269", "cha"], "arc": ["\u8D77\u6E90\u3001\u672C\u539F", "\u7269", "arc"], "tel": ["\u76EE\u7684\u3001\u8D8B\u5411", "\u7269", "tel"], "dyn": ["\u529B\u3001\u80FD\u91CF", "\u7269", "dyn"], "oper": ["\u64CD\u4F5C", "\u7269", "oper"], "sper": ["\u79CD\u5B50\u3001\u6839\u672C", "\u7269", "sper"], "lab": ["\u8F9B\u52B3", "\u7269", "lab"], "fund": ["\u57FA\u7840\u3001\u5E95", "\u7269", "fund"], "ter": ["\u5927\u5730\u3001\u9646\u5730", "\u7269", "ter"], "val": ["\u8C37\u5730", "\u7269", "val"], "camp": ["\u5E73\u539F\u3001\u539F\u91CE", "\u7269", "camp"], "insul": ["\u5C9B", "\u7269", "insul"], "lit": ["\u5CB8\u3001\u8FB9", "\u7269", "lit"], "nem": ["\u6797\u3001\u6811\u4E1B", "\u7269", "nem"], "vast": ["\u8352\u829C\u3001\u7A7A\u65F7", "\u7269", "vast"], "glac": ["\u51B0", "\u7269", "glac"], "niv": ["\u96EA", "\u7269", "niv"], "nebul": ["\u96FE\u3001\u4E91", "\u7269", "nebul"], "heli": ["\u592A\u9633", "\u7269", "heli"], "lun": ["\u6708\u4EAE", "\u7269", "lun"], "stel": ["\u661F", "\u7269", "stel"], "cael": ["\u5929\u7A7A", "\u7269", "cael"], "abys": ["\u6DF1\u6E0A", "\u7269", "abys"], "fluv": ["\u6CB3\u6D41", "\u7269", "fluv"], "und": ["\u6CE2\u6D6A", "\u7269", "und"], "lim": ["\u6CE5\u3001\u6CBC\u6CFD", "\u7269", "lim"], "font": ["\u6CC9", "\u7269", "font"], "lac": ["\u6E56\u3001\u6C60", "\u7269", "lac"], "gur": ["\u6F29\u6DA1", "\u7269", "gur"], "sal": ["\u76D0", "\u7269", "sal"], "riv": ["\u6EAA\u6D41", "\u7269", "riv"], "ror": ["\u9732\u6C34\u3001\u6EF4", "\u7269", "ror"], "ign": ["\u706B\u3001\u71C3\u70E7", "\u7269", "ign"], "ard": ["\u70BD\u70ED\u3001\u707C\u70E7", "\u7269", "ard"], "lux": ["\u5149\u4EAE\u3001\u7167\u660E", "\u7269", "lux"], "umb": ["\u5F71\u3001\u9634\u5F71", "\u7269", "umb"], "fum": ["\u70DF", "\u7269", "fum"], "cin": ["\u7070\u70EC", "\u7269", "cin"], "lamp": ["\u706F\u3001\u660E\u706B", "\u7269", "lamp"], "cal": ["\u70ED\u3001\u6696", "\u7269", "cal"], "frig": ["\u51B7", "\u7269", "frig"], "gel": ["\u971C\u3001\u51BB\u7ED3", "\u7269", "gel"], "aur": ["\u7A7A\u6C14\u3001\u6C14\u606F", "\u7269", "aur"], "ton": ["\u96F7", "\u7269", "ton"], "fulg": ["\u95EA\u7535", "\u7269", "fulg"], "nim": ["\u96E8\u4E91", "\u7269", "nim"], "tempes": ["\u98CE\u66B4", "\u7269", "tempes"], "pluv": ["\u96E8", "\u7269", "pluv"], "hum": ["\u6E7F\u3001\u6F6E", "\u7269", "hum"], "sic": ["\u5E72\u71E5", "\u7269", "sic"], "turb": ["\u6405\u52A8\u3001\u6DA1\u65CB", "\u7269", "turb"], "ser": ["\u6674\u6717", "\u7269", "ser"], "brum": ["\u51AC", "\u7269", "brum"], "vern": ["\u6625", "\u7269", "vern"], "aest": ["\u590F", "\u7269", "aest"], "mes": ["\u6536\u83B7\u3001\u79CB", "\u7269", "mes"], "anth": ["\u82B1", "\u7269", "anth"], "rad": ["\u6839", "\u7269", "rad"], "fol": ["\u53F6", "\u7269", "fol"], "lign": ["\u6728\u3001\u6728\u6750", "\u7269", "lign"], "herb": ["\u8349", "\u7269", "herb"], "spin": ["\u8346\u68D8\u523A", "\u7269", "spin"], "fung": ["\u83CC", "\u7269", "fung"], "cres": ["\u751F\u957F", "\u52A8", "cres"], "al": ["\u517B\u80B2", "\u52A8", "al"], "suc": ["\u6C41\u6DB2", "\u7269", "suc"], "arbor": ["\u6811", "\u7269", "arbor"], "frut": ["\u704C\u6728", "\u7269", "frut"], "ram": ["\u679D", "\u7269", "ram"], "trunc": ["\u6811\u5E72", "\u7269", "trunc"], "cort": ["\u6811\u76AE", "\u7269", "cort"], "germ": ["\u80DA\u82BD", "\u7269", "germ"], "silv": ["\u68EE\u6797", "\u7269", "silv"], "prat": ["\u8349\u5730", "\u7269", "prat"], "rhod": ["\u73AB\u7470", "\u7269", "rhod"], "lili": ["\u767E\u5408", "\u7269", "lili"], "viol": ["\u7D2B\u7F57\u5170", "\u7269", "viol"], "narc": ["\u6C34\u4ED9", "\u7269", "narc"], "hyac": ["\u98CE\u4FE1\u5B50", "\u7269", "hyac"], "myrt": ["\u6843\u91D1\u5A18", "\u7269", "myrt"], "laur": ["\u6708\u6842", "\u7269", "laur"], "querc": ["\u6A61", "\u7269", "querc"], "pin": ["\u677E", "\u7269", "pin"], "abi": ["\u6749", "\u7269", "abi"], "betul": ["\u6866", "\u7269", "betul"], "salic": ["\u67F3", "\u7269", "salic"], "tili": ["\u6934", "\u7269", "tili"], "ulm": ["\u6986", "\u7269", "ulm"], "frax": ["\u68A3", "\u7269", "frax"], "acer": ["\u67AB", "\u7269", "acer"], "fag": ["\u5C71\u6BDB\u6989", "\u7269", "fag"], "ilic": ["\u51AC\u9752", "\u7269", "ilic"], "heder": ["\u5E38\u6625\u85E4", "\u7269", "heder"], "viti": ["\u8461\u8404\u85E4", "\u7269", "viti"], "musc": ["\u82D4", "\u7269", "musc"], "filic": ["\u8568", "\u7269", "filic"], "alg": ["\u85FB", "\u7269", "alg"], "bolet": ["\u83C7", "\u7269", "bolet"], "ther": ["\u91CE\u517D", "\u7269", "ther"], "fer": ["\u91CE\u517D", "\u7269", "fer"], "belu": ["\u5DE8\u517D", "\u7269", "belu"], "besti": ["\u7272\u755C", "\u7269", "besti"], "orni": ["\u9E1F\u3001\u79BD", "\u7269", "orni"], "pisc": ["\u9C7C", "\u7269", "pisc"], "verm": ["\u866B", "\u7269", "verm"], "inse": ["\u6606\u866B", "\u7269", "inse"], "serp": ["\u86C7", "\u7269", "serp"], "bufo": ["\u87FE\u870D", "\u7269", "bufo"], "verr": ["\u516C\u732A", "\u7269", "verr"], "hirc": ["\u516C\u7F8A", "\u7269", "hirc"], "lynx": ["\u731E\u7301", "\u7269", "lynx"], "myrm": ["\u8681", "\u7269", "myrm"], "ap": ["\u8702", "\u7269", "ap"], "papi": ["\u8776", "\u7269", "papi"], "cicad": ["\u8749", "\u7269", "cicad"], "locu": ["\u8757", "\u7269", "locu"], "aran": ["\u86DB", "\u7269", "aran"], "cochl": ["\u87BA", "\u7269", "cochl"], "polyp": ["\u7AE0\u9C7C", "\u7269", "polyp"], "cet": ["\u9CB8", "\u7269", "cet"], "mustel": ["\u9F2C", "\u7269", "mustel"], "lup": ["\u72FC", "\u7269", "lup"], "vulp": ["\u72D0", "\u7269", "vulp"], "urs": ["\u718A", "\u7269", "urs"], "cerv": ["\u9E7F", "\u7269", "cerv"], "lep": ["\u5154", "\u7269", "lep"], "mys": ["\u9F20", "\u7269", "mys"], "feli": ["\u732B", "\u7269", "feli"], "can": ["\u72AC", "\u7269", "can"], "equi": ["\u9A6C", "\u7269", "equi"], "tau": ["\u725B", "\u7269", "tau"], "corp": ["\u8EAB\u4F53", "\u7269", "corp"], "ceph": ["\u5934", "\u7269", "ceph"], "vult": ["\u9762\u5BB9", "\u7269", "vult"], "ocu": ["\u773C", "\u7269", "ocu"], "oto": ["\u8033", "\u7269", "oto"], "manu": ["\u624B", "\u7269", "manu"], "ped": ["\u8DB3", "\u7269", "ped"], "dent": ["\u9F7F", "\u7269", "dent"], "ling": ["\u820C", "\u7269", "ling"], "sanguin": ["\u8840", "\u7269", "sanguin"], "carn": ["\u8089", "\u7269", "carn"], "oss": ["\u9AA8", "\u7269", "oss"], "pell": ["\u76AE", "\u7269", "pell"], "nerv": ["\u795E\u7ECF\u3001\u7B4B", "\u7269", "nerv"], "visc": ["\u5185\u810F", "\u7269", "visc"], "spir": ["\u547C\u5438\u3001\u6C14\u606F", "\u7269", "spir"], "cord": ["\u5FC3", "\u7269", "cord"], "sta": ["\u7ACB\u3001\u7AD9", "\u52A8", "sta"], "desc": ["\u4E0B\u964D", "\u52A8", "desc"], "flect": ["\u5C48\u66F2", "\u52A8", "flect"], "torqu": ["\u626D\u8F6C", "\u52A8", "torqu"], "pand": ["\u5C55\u5F00", "\u52A8", "pand"], "string": ["\u52D2\u7D27", "\u52A8", "string"], "puls": ["\u63A8\u649E", "\u52A8", "puls"], "trud": ["\u63A8\u6324", "\u52A8", "trud"], "trah": ["\u62C9\u3001\u62D6", "\u52A8", "trah"], "scand": ["\u6500\u722C", "\u52A8", "scand"], "laps": ["\u6ED1\u843D", "\u52A8", "laps"], "still": ["\u6EF4\u843D", "\u52A8", "still"], "anhel": ["\u5598\u606F", "\u52A8", "anhel"], "oscit": ["\u5475\u6B20", "\u52A8", "oscit"], "sug": ["\u542E\u5438", "\u52A8", "sug"], "glut": ["\u541E\u54BD", "\u52A8", "glut"], "vom": ["\u5455\u5410", "\u52A8", "vom"], "ming": ["\u6392\u5C3F", "\u52A8", "ming"], "sternu": ["\u55B7\u568F", "\u52A8", "sternu"], "plaud": ["\u62CD\u624B", "\u52A8", "plaud"], "quat": ["\u6447\u52A8", "\u52A8", "quat"], "palp": ["\u8F7B\u629A", "\u52A8", "palp"], "pung": ["\u523A\u624E", "\u52A8", "pung"], "ungu": ["\u722A", "\u52A8", "ungu"], "nict": ["\u7728\u773C", "\u52A8", "nict"], "sput": ["\u5410\u553E", "\u52A8", "sput"], "frend": ["\u5207\u9F7F", "\u52A8", "frend"], "hiat": ["\u5F20\u53E3", "\u52A8", "hiat"], "trem": ["\u98A4\u6296", "\u52A8", "trem"], "nix": ["\u501A\u9760", "\u52A8", "nix"], "sid": ["\u6C89\u964D", "\u52A8", "sid"], "vag": ["\u6E38\u8361", "\u52A8", "vag"], "nas": ["\u51FA\u751F", "\u52A8", "nas"], "sen": ["\u8870\u8001", "\u52A8", "sen"], "rob": ["\u5F3A\u58EE", "\u52A8", "rob"], "nutr": ["\u6ECB\u517B", "\u52A8", "nutr"], "somn": ["\u7761\u7720\u3001\u68A6", "\u52A8", "somn"], "dol": ["\u75BC\u75DB", "\u52A8", "dol"], "vuln": ["\u4F24\u3001\u521B", "\u52A8", "vuln"], "vig": ["\u8B66\u9192\u3001\u6D3B\u529B", "\u52A8", "vig"], "quiet": ["\u5B89\u5B81\u3001\u9759\u6B62", "\u52A8", "quiet"], "matur": ["\u6210\u719F", "\u52A8", "matur"], "med": ["\u533B", "\u52A8", "med"], "pharm": ["\u836F", "\u52A8", "pharm"], "remed": ["\u7597\u6CD5", "\u52A8", "remed"], "cura": ["\u7167\u62A4", "\u52A8", "cura"], "aegr": ["\u75C5", "\u52A8", "aegr"], "morb": ["\u75BE\u75C5", "\u52A8", "morb"], "febr": ["\u53D1\u70ED", "\u52A8", "febr"], "tuss": ["\u54B3", "\u52A8", "tuss"], "pest": ["\u761F\u75AB", "\u52A8", "pest"], "venen": ["\u6BD2", "\u52A8", "venen"], "anti": ["\u89E3\u836F", "\u52A8", "anti"], "chir": ["\u5916\u79D1", "\u52A8", "chir"], "phleg": ["\u75F0\u3001\u4F53\u6DB2", "\u52A8", "phleg"], "bil": ["\u80C6", "\u52A8", "bil"], "ulc": ["\u6E83\u75A1", "\u52A8", "ulc"], "tum": ["\u80BF", "\u52A8", "tum"], "frac": ["\u6298\u3001\u788E", "\u52A8", "frac"], "cica": ["\u75A4", "\u52A8", "cica"], "purg": ["\u6E05\u6CFB", "\u52A8", "purg"], "lav": ["\u6D17", "\u52A8", "lav"], "cont": ["\u4F20\u67D3", "\u52A8", "cont"], "vale": ["\u5065\u5EB7", "\u52A8", "vale"], "obst": ["\u52A9\u4EA7", "\u52A8", "obst"], "emplast": ["\u818F\u836F", "\u52A8", "emplast"], "theriac": ["\u4E07\u7075\u836F", "\u52A8", "theriac"], "sanit": ["\u536B\u751F", "\u52A8", "sanit"], "coqu": ["\u70F9\u3001\u716E", "\u7269", "coqu"], "ass": ["\u70E4\u3001\u7099", "\u7269", "ass"], "frix": ["\u714E\u3001\u70B8", "\u7269", "frix"], "ferv": ["\u716E\u6CB8", "\u7269", "ferv"], "ferm": ["\u53D1\u9175", "\u7269", "ferm"], "cond": ["\u8C03\u5473", "\u7269", "cond"], "dulc": ["\u751C", "\u7269", "dulc"], "acid": ["\u9178", "\u7269", "acid"], "amar": ["\u82E6", "\u7269", "amar"], "sals": ["\u54B8", "\u7269", "sals"], "acr": ["\u8F9B\u8FA3", "\u7269", "acr"], "arom": ["\u9999\u6C14", "\u7269", "arom"], "putr": ["\u8150\u574F", "\u7269", "putr"], "gran": ["\u8C37\u7C92", "\u7269", "gran"], "tritic": ["\u9EA6", "\u7269", "tritic"], "oryz": ["\u7A3B\u3001\u7C73", "\u7269", "oryz"], "pan": ["\u9762\u5305", "\u7269", "pan"], "ov": ["\u86CB", "\u7269", "ov"], "lact": ["\u5976", "\u7269", "lact"], "ole": ["\u6CB9", "\u7269", "ole"], "sucr": ["\u7CD6", "\u7269", "sucr"], "mel": ["\u871C", "\u7269", "mel"], "fruct": ["\u679C", "\u7269", "fruct"], "oler": ["\u852C\u83DC", "\u7269", "oler"], "jus": ["\u6C64\u6C41", "\u7269", "jus"], "oen": ["\u9152", "\u7269", "oen"], "thea": ["\u8336", "\u7269", "thea"], "far": ["\u9762\u7C89\u3001\u7CCA", "\u7269", "far"], "coen": ["\u9910\u3001\u5BB4", "\u7269", "coen"], "culin": ["\u53A8\u827A", "\u7269", "culin"], "fam": ["\u9965\u997F", "\u7269", "fam"], "sat": ["\u9971\u8DB3", "\u7269", "sat"], "siti": ["\u6E34", "\u7269", "siti"], "vor": ["\u541E\u98DF", "\u7269", "vor"], "mand": ["\u5480\u56BC", "\u7269", "mand"], "mord": ["\u54AC", "\u7269", "mord"], "lict": ["\u8214", "\u7269", "lict"], "vest": ["\u8863\u3001\u7740\u88C5", "\u7269", "vest"], "tunic": ["\u675F\u8170\u8863", "\u7269", "tunic"], "toga": ["\u957F\u888D", "\u7269", "toga"], "pall": ["\u62AB\u98CE", "\u7269", "pall"], "calce": ["\u978B", "\u7269", "calce"], "petas": ["\u5E3D", "\u7269", "petas"], "cinct": ["\u8170\u5E26", "\u7269", "cinct"], "fib": ["\u6263\u3001\u522B\u9488", "\u7269", "fib"], "acu": ["\u9488", "\u7269", "acu"], "stam": ["\u7EBF", "\u7269", "stam"], "pann": ["\u5E03", "\u7269", "pann"], "seric": ["\u4E1D", "\u7269", "seric"], "lan": ["\u7F8A\u6BDB", "\u7269", "lan"], "sut": ["\u7F1D", "\u7269", "sut"], "nect": ["\u7F16\u7EC7", "\u7269", "nect"], "solea": ["\u978B\u5E95", "\u7269", "solea"], "monil": ["\u9879\u94FE", "\u7269", "monil"], "anul": ["\u6212\u6307", "\u7269", "anul"], "coron": ["\u51A0\u5195", "\u7269", "coron"], "ung": ["\u6D82\u6CB9\u3001\u818F", "\u7269", "ung"], "fuc": ["\u5986\u9970", "\u7269", "fuc"], "specul": ["\u955C", "\u7269", "specul"], "redim": ["\u5934\u5DFE", "\u7269", "redim"], "armill": ["\u81C2\u73AF", "\u7269", "armill"], "inaur": ["\u8033\u9970", "\u7269", "inaur"], "cas": ["\u5C4B\u820D", "\u7269", "cas"], "tect": ["\u5C4B\u9876", "\u7269", "tect"], "pariet": ["\u5899", "\u7269", "pariet"], "mur": ["\u5899\u57A3", "\u7269", "mur"], "fen": ["\u7A97", "\u7269", "fen"], "limen": ["\u95E8\u69DB", "\u7269", "limen"], "pav": ["\u94FA\u5730", "\u7269", "pav"], "later": ["\u7816", "\u7269", "later"], "caem": ["\u77F3\u6599", "\u7269", "caem"], "sax": ["\u5CA9\u77F3", "\u7269", "sax"], "petr": ["\u5CA9\u5757", "\u7269", "petr"], "marm": ["\u5927\u7406\u77F3", "\u7269", "marm"], "teg": ["\u74E6", "\u7269", "teg"], "aed": ["\u5EFA\u7B51", "\u7269", "aed"], "turr": ["\u5854", "\u7269", "turr"], "arx": ["\u5821\u5792", "\u7269", "arx"], "castr": ["\u8425\u5792", "\u7269", "castr"], "moen": ["\u57CE\u5899", "\u7269", "moen"], "atr": ["\u4E2D\u5EAD", "\u7269", "atr"], "cell": ["\u623F\u95F4\u3001\u5BA4", "\u7269", "cell"], "cub": ["\u5367\u3001\u8EBA", "\u7269", "cub"], "sell": ["\u5EA7\u6905", "\u7269", "sell"], "tabl": ["\u684C\u3001\u677F", "\u7269", "tabl"], "sed": ["\u5750", "\u7269", "sed"], "foc": ["\u7089\u7076\u3001\u4E2D\u5FC3", "\u7269", "foc"], "baln": ["\u6D74", "\u7269", "baln"], "sera": ["\u95E8\u95E9", "\u7269", "sera"], "cand": ["\u70DB\u3001\u767D\u70BD", "\u7269", "cand"], "scal": ["\u68AF", "\u7269", "scal"], "portic": ["\u67F1\u5ECA", "\u7269", "portic"], "fornic": ["\u62F1", "\u7269", "fornic"], "ferr": ["\u94C1", "\u7269", "ferr"], "cupr": ["\u94DC", "\u7269", "cupr"], "argent": ["\u94F6", "\u7269", "argent"], "chrys": ["\u91D1", "\u7269", "chrys"], "plumb": ["\u94C5", "\u7269", "plumb"], "stann": ["\u9521", "\u7269", "stann"], "vitr": ["\u73BB\u7483", "\u7269", "vitr"], "malle": ["\u9524", "\u7269", "malle"], "secur": ["\u65A7", "\u7269", "secur"], "cultr": ["\u5200", "\u7269", "cultr"], "glad": ["\u5251", "\u7269", "glad"], "scut": ["\u76FE", "\u7269", "scut"], "tox": ["\u5F13", "\u7269", "tox"], "sag": ["\u7BAD", "\u7269", "sag"], "iac": ["\u6295\u77DB\u5668", "\u7269", "iac"], "ret": ["\u7F51", "\u7269", "ret"], "laqu": ["\u5957\u7D22", "\u7269", "laqu"], "ham": ["\u94A9", "\u7269", "ham"], "serr": ["\u952F", "\u7269", "serr"], "tereb": ["\u94BB", "\u7269", "tereb"], "vect": ["\u6760\u6746", "\u7269", "vect"], "troch": ["\u6ED1\u8F6E", "\u7269", "troch"], "ax": ["\u8F74", "\u7269", "ax"], "cune": ["\u6954", "\u7269", "cune"], "vincl": ["\u675F\u7F1A", "\u7269", "vincl"], "caten": ["\u94FE", "\u7269", "caten"], "fun": ["\u7EF3", "\u7269", "fun"], "cribr": ["\u7B5B", "\u7269", "cribr"], "pistill": ["\u6775", "\u7269", "pistill"], "forn": ["\u7089", "\u7269", "forn"], "vas": ["\u5BB9\u5668", "\u7269", "vas"], "amph": ["\u74EE\u3001\u7F50", "\u7269", "amph"], "cophin": ["\u63D0\u7BEE", "\u7269", "cophin"], "sacc": ["\u888B", "\u7269", "sacc"], "lapid": ["\u77F3\u6599", "\u7269", "lapid"], "aren": ["\u6C99", "\u7269", "aren"], "cret": ["\u767D\u57A9", "\u7269", "cret"], "gyps": ["\u77F3\u818F", "\u7269", "gyps"], "calc": ["\u77F3\u7070", "\u7269", "calc"], "bitu": ["\u6CA5\u9752", "\u7269", "bitu"], "resi": ["\u6811\u8102", "\u7269", "resi"], "seb": ["\u8102", "\u7269", "seb"], "adip": ["\u8102\u80AA", "\u7269", "adip"], "cori": ["\u76AE\u9769", "\u7269", "cori"], "byss": ["\u68C9", "\u7269", "byss"], "cann": ["\u9EBB", "\u7269", "cann"], "papyr": ["\u7EB8\u8349", "\u7269", "papyr"], "membr": ["\u819C", "\u7269", "membr"], "plum": ["\u7FBD\u6BDB", "\u7269", "plum"], "testa": ["\u58F3", "\u7269", "testa"], "corn": ["\u517D\u89D2", "\u7269", "corn"], "ebur": ["\u8C61\u7259", "\u7269", "ebur"], "margar": ["\u73CD\u73E0", "\u7269", "margar"], "gemm": ["\u5B9D\u77F3", "\u7269", "gemm"], "cryst": ["\u6C34\u6676", "\u7269", "cryst"], "adam": ["\u91D1\u521A", "\u7269", "adam"], "silic": ["\u7845\u77F3", "\u7269", "silic"], "argill": ["\u9676\u571F", "\u7269", "argill"], "lut": ["\u6CE5\u6D46", "\u7269", "lut"], "glutin": ["\u80F6", "\u7269", "glutin"], "agr": ["\u7530\u5730", "\u7269", "agr"], "arv": ["\u8015\u5730", "\u7269", "arv"], "sulc": ["\u7281\u6C9F", "\u7269", "sulc"], "arat": ["\u7281", "\u7269", "arat"], "seget": ["\u4F5C\u7269", "\u7269", "seget"], "frum": ["\u8C37\u7269", "\u7269", "frum"], "vine": ["\u8461\u8404\u56ED", "\u7269", "vine"], "oliv": ["\u6A44\u6984", "\u7269", "oliv"], "pom": ["\u679C\u6811", "\u7269", "pom"], "pasc": ["\u653E\u7267", "\u52A8", "pasc"], "greg": ["\u755C\u7FA4", "\u7269", "greg"], "armen": ["\u725B\u7FA4", "\u7269", "armen"], "ovil": ["\u7F8A\u5708", "\u7269", "ovil"], "capr": ["\u5C71\u7F8A", "\u7269", "capr"], "porc": ["\u732A", "\u7269", "porc"], "gall": ["\u9E21", "\u7269", "gall"], "anat": ["\u9E2D", "\u7269", "anat"], "anser": ["\u9E45", "\u7269", "anser"], "colum": ["\u9E3D", "\u7269", "colum"], "ar": ["\u8015", "\u52A8", "ar"], "ster": ["\u7CAA\u80A5", "\u7269", "ster"], "riga": ["\u704C\u6E89", "\u52A8", "riga"], "foss": ["\u6C9F\u6E20", "\u7269", "foss"], "sep": ["\u7BF1\u3001\u56F4", "\u7269", "sep"], "saept": ["\u56F4\u680F", "\u7269", "saept"], "horre": ["\u8C37\u4ED3", "\u7269", "horre"], "vill": ["\u5E84\u56ED", "\u7269", "vill"], "colon": ["\u519C\u4EBA\u3001\u57A6\u6B96", "\u7269", "colon"], "rust": ["\u4E61\u91CE", "\u7269", "rust"], "carin": ["\u9F99\u9AA8\u3001\u8239", "\u7269", "carin"], "rem": ["\u6868", "\u7269", "rem"], "sip": ["\u5E06", "\u7269", "sip"], "guber": ["\u8235", "\u7269", "guber"], "ancor": ["\u951A", "\u7269", "ancor"], "itin": ["\u65C5\u7A0B", "\u7269", "itin"], "curr": ["\u8F66\u3001\u5954\u9A70", "\u7269", "curr"], "raed": ["\u9A6C\u8F66", "\u7269", "raed"], "carr": ["\u8D27\u8F66", "\u7269", "carr"], "big": ["\u53CC\u9A7E", "\u7269", "big"], "hipp": ["\u9A6C", "\u7269", "hipp"], "asin": ["\u9A74", "\u7269", "asin"], "pass": ["\u6B65\u3001\u901A\u884C", "\u7269", "pass"], "ambul": ["\u884C\u8D70", "\u7269", "ambul"], "celer": ["\u8FC5\u6377", "\u7269", "celer"], "tran": ["\u7A7F\u8FC7", "\u7269", "tran"], "fret": ["\u6D77\u5CE1", "\u7269", "fret"], "pont": ["\u6865", "\u7269", "pont"], "nav": ["\u821F\u3001\u822A\u884C", "\u7269", "nav"], "ratis": ["\u7B4F", "\u7269", "ratis"], "phasel": ["\u5C0F\u821F", "\u7269", "phasel"], "lintr": ["\u5C0F\u8247", "\u7269", "lintr"], "statio": ["\u9A7F\u7AD9", "\u7269", "statio"], "viat": ["\u65C5\u4EBA", "\u7269", "viat"], "aud": ["\u542C", "\u52A8", "aud"], "tact": ["\u89E6\u3001\u6478", "\u52A8", "tact"], "olf": ["\u55C5", "\u52A8", "olf"], "gust": ["\u5C1D\u3001\u5473\u89C9", "\u52A8", "gust"], "cog": ["\u601D\u3001\u601D\u8003", "\u52A8", "cog"], "rat": ["\u63A8\u7406", "\u52A8", "rat"], "noe": ["\u5FC3\u667A\u3001\u7406\u6027", "\u52A8", "noe"], "cred": ["\u76F8\u4FE1", "\u52A8", "cred"], "dub": ["\u6000\u7591", "\u52A8", "dub"], "opin": ["\u770B\u6CD5\u3001\u610F\u89C1", "\u52A8", "opin"], "not": ["\u6807\u8BB0\u3001\u6CE8\u610F", "\u52A8", "not"], "sig": ["\u7B26\u53F7\u3001\u8BB0\u53F7", "\u52A8", "sig"], "int": ["\u7406\u89E3", "\u52A8", "int"], "imag": ["\u60F3\u8C61", "\u52A8", "imag"], "mir": ["\u60CA\u5947", "\u52A8", "mir"], "err": ["\u9519\u8BEF\u3001\u8FF7\u8BEF", "\u52A8", "err"], "verb": ["\u8BCD\u3001\u8A00\u8F9E", "\u52A8", "verb"], "nom": ["\u540D\u3001\u540D\u79F0", "\u52A8", "nom"], "scrib": ["\u4E66\u5199", "\u52A8", "scrib"], "leg": ["\u8BFB\u3001\u6536\u96C6", "\u52A8", "leg"], "dix": ["\u8BF4\u3001\u547D\u4EE4", "\u52A8", "dix"], "clam": ["\u547C\u558A", "\u52A8", "clam"], "silen": ["\u6C89\u9ED8", "\u52A8", "silen"], "rog": ["\u8BE2\u95EE", "\u52A8", "rog"], "nunt": ["\u6D88\u606F\u3001\u901A\u62A5", "\u52A8", "nunt"], "test": ["\u8BC1\u660E\u3001\u89C1\u8BC1", "\u52A8", "test"], "fid": ["\u4FE1\u4EFB\u3001\u4FE1\u4E49", "\u52A8", "fid"], "text": ["\u6587\u672C\u3001\u7EC7\u4F53", "\u52A8", "text"], "scho": ["\u5B66\u6821", "\u7269", "scho"], "disc": ["\u5B66\u751F", "\u7269", "disc"], "doc": ["\u6559", "\u7269", "doc"], "doct": ["\u5B66\u95EE\u3001\u6559\u4E49", "\u7269", "doct"], "stud": ["\u52E4\u5B66", "\u7269", "stud"], "lect": ["\u8BF5\u8BFB", "\u7269", "lect"], "bibl": ["\u4E66", "\u7269", "bibl"], "chart": ["\u7EB8\u3001\u5951", "\u7269", "chart"], "pagin": ["\u9875", "\u7269", "pagin"], "dial": ["\u65B9\u8A00", "\u7269", "dial"], "rhet": ["\u4FEE\u8F9E", "\u7269", "rhet"], "log": ["\u903B\u8F91\u3001\u7406", "\u7269", "log"], "math": ["\u5B66\u3001\u6570\u5B66", "\u7269", "math"], "geom": ["\u51E0\u4F55", "\u7269", "geom"], "arith": ["\u7B97\u672F", "\u7269", "arith"], "harm": ["\u548C\u8C10\u3001\u4E50", "\u7269", "harm"], "chem": ["\u70BC\u5316", "\u7269", "chem"], "astr": ["\u661F\u8FB0\u3001\u5929\u5B66", "\u7269", "astr"], "soph": ["\u667A\u6167", "\u7269", "soph"], "eru": ["\u535A\u5B66", "\u7269", "eru"], "exam": ["\u8003\u67E5", "\u7269", "exam"], "stil": ["\u7B14", "\u7269", "stil"], "atram": ["\u58A8", "\u7269", "atram"], "cera": ["\u8721", "\u7269", "cera"], "pupill": ["\u5B66\u7AE5", "\u7269", "pupill"], "didas": ["\u8BB2\u6388", "\u7269", "didas"], "thes": ["\u8BBA\u9898", "\u7269", "thes"], "quaes": ["\u95EE\u9898", "\u7269", "quaes"], "solut": ["\u89E3\u7B54", "\u7269", "solut"], "probl": ["\u96BE\u9898", "\u7269", "probl"], "du": ["\u4E8C", "\u6570", "du"], "tri": ["\u4E09", "\u6570", "tri"], "quadr": ["\u56DB", "\u6570", "quadr"], "quinq": ["\u4E94", "\u6570", "quinq"], "sex": ["\u516D", "\u6570", "sex"], "sept": ["\u4E03", "\u6570", "sept"], "oct": ["\u516B", "\u6570", "oct"], "enne": ["\u4E5D", "\u6570", "enne"], "dec": ["\u5341", "\u6570", "dec"], "hecat": ["\u767E", "\u6570", "hecat"], "mill": ["\u5343", "\u6570", "mill"], "myri": ["\u4E07", "\u6570", "myri"], "summ": ["\u548C\u3001\u603B", "\u6570", "summ"], "integ": ["\u5B8C\u6574\u3001\u6574", "\u6570", "integ"], "angul": ["\u89D2\u5F62", "\u6570", "angul"], "spha": ["\u7403\u4F53", "\u6570", "spha"], "punct": ["\u70B9", "\u6570", "punct"], "solid": ["\u7ACB\u4F53", "\u6570", "solid"], "nih": ["\u65E0\u3001\u96F6", "\u6570", "nih"], "poten": ["\u5E42\u3001\u80FD", "\u6570", "poten"], "ordin": ["\u6B21\u5E8F", "\u6570", "ordin"], "class": ["\u7C7B\u522B", "\u6570", "class"], "seri": ["\u5E8F\u5217", "\u6570", "seri"], "crit": ["\u6807\u51C6", "\u6570", "crit"], "meta": ["\u754C\u6807", "\u6570", "meta"], "indic": ["\u6307\u6807", "\u6570", "indic"], "neg": ["\u5426\u3001\u8D1F", "\u6570", "neg"], "posit": ["\u6B63\u3001\u7F6E", "\u6570", "posit"], "figur": ["\u5F62\u72B6", "\u6570", "figur"], "litr": ["\u5347", "\u7269", "litr"], "pond": ["\u91CD\u91CF", "\u7269", "pond"], "stadi": ["\u8DDD\u79BB\u5355\u4F4D", "\u7269", "stadi"], "milli": ["\u5343\u6B65", "\u7269", "milli"], "iuge": ["\u571F\u5730\u5355\u4F4D", "\u7269", "iuge"], "modi": ["\u5BB9\u91CF\u5355\u4F4D", "\u7269", "modi"], "libr": ["\u91CD\u5355\u4F4D", "\u7269", "libr"], "unci": ["\u5C0F\u5355\u4F4D", "\u7269", "unci"], "digit": ["\u6307\u5BBD", "\u7269", "digit"], "palm": ["\u638C\u5BBD", "\u7269", "palm"], "cubit": ["\u8098\u5C3A", "\u7269", "cubit"], "veloc": ["\u901F\u5EA6", "\u7269", "veloc"], "therm": ["\u70ED\u6E29", "\u7269", "therm"], "bar": ["\u538B\u5F3A", "\u7269", "bar"], "portio": ["\u4EFD\u989D", "\u7269", "portio"], "spiss": ["\u6D53\u7A20", "\u7269", "spiss"], "tenu": ["\u7A00\u8584", "\u7269", "tenu"], "purit": ["\u7EAF\u5EA6", "\u7269", "purit"], "modul": ["\u6A21\u6570", "\u7269", "modul"], "dim": ["\u7EF4\u5EA6", "\u7269", "dim"], "spat": ["\u7A7A\u95F4\u91CF", "\u7269", "spat"], "capac": ["\u5BB9\u91CF", "\u7269", "capac"], "volum": ["\u4F53\u79EF", "\u7269", "volum"], "area": ["\u9762\u79EF", "\u7269", "area"], "num": ["\u6570", "\u6027", "num"], "met": ["\u6D4B\u91CF", "\u6027", "met"], "par": ["\u6210\u5BF9\u3001\u540C\u7B49", "\u6027", "par"], "plus": ["\u52A0\u3001\u591A", "\u6027", "plus"], "minu": ["\u51CF\u3001\u5C11", "\u6027", "minu"], "magn": ["\u5927", "\u6027", "magn"], "parv": ["\u5C0F", "\u6027", "parv"], "tant": ["\u5982\u6B64\u591A", "\u6027", "tant"], "plat": ["\u5BBD\u3001\u5E73", "\u6027", "plat"], "bath": ["\u6DF1", "\u6027", "bath"], "alt": ["\u9AD8", "\u6027", "alt"], "brev": ["\u77ED", "\u6027", "brev"], "grav": ["\u91CD", "\u6027", "grav"], "lev": ["\u8F7B", "\u6027", "lev"], "dens": ["\u5BC6", "\u6027", "dens"], "rar": ["\u7A00", "\u6027", "rar"], "equ": ["\u76F8\u7B49\u3001\u5747\u8861", "\u6027", "equ"], "rela": ["\u5173\u7CFB", "\u6027", "rela"], "iden": ["\u540C\u4E00", "\u6027", "iden"], "oppo": ["\u5BF9\u7ACB", "\u6027", "oppo"], "contr": ["\u76F8\u53CD", "\u6027", "contr"], "maio": ["\u8F83\u5927", "\u6027", "maio"], "analo": ["\u6BD4\u4F8B\u3001\u7C7B\u6BD4", "\u6027", "analo"], "symb": ["\u8C61\u5F81", "\u6027", "symb"], "typ": ["\u7C7B\u578B", "\u6027", "typ"], "exem": ["\u4F8B\u5B50", "\u6027", "exem"], "parti": ["\u5212\u5206", "\u6027", "parti"], "multi": ["\u591A\u500D", "\u6027", "multi"], "recip": ["\u76F8\u4E92", "\u6027", "recip"], "mutu": ["\u4EA4\u4E92", "\u6027", "mutu"], "conseq": ["\u63A8\u8BBA", "\u6027", "conseq"], "antece": ["\u524D\u4EF6", "\u6027", "antece"], "conclu": ["\u7ED3\u8BBA", "\u6027", "conclu"], "hypoth": ["\u5047\u8BBE", "\u6027", "hypoth"], "theor": ["\u7406\u8BBA", "\u6027", "theor"], "meth": ["\u65B9\u6CD5", "\u6027", "meth"], "princ": ["\u539F\u7406", "\u6027", "princ"], "eleme": ["\u8981\u7D20", "\u6027", "eleme"], "categ": ["\u8303\u7574", "\u6027", "categ"], "essen": ["\u672C\u8D28", "\u6027", "essen"], "propr": ["\u56FA\u6709", "\u6027", "propr"], "accid": ["\u5076\u6027", "\u6027", "accid"], "grada": ["\u6E10\u53D8", "\u6027", "grada"], "syst": ["\u4F53\u7CFB", "\u6027", "syst"], "ait": ["\u539F\u56E0", "\u6027", "ait"], "dif": ["\u5DEE\u5F02", "\u6027", "dif"], "sim": ["\u76F8\u4F3C", "\u6027", "sim"], "qual": ["\u6027\u8D28\u3001\u8D28", "\u6027", "qual"], "quant": ["\u91CF\u3001\u591A\u5C11", "\u6027", "quant"], "sens": ["\u610F\u4E49\u3001\u611F\u89C9", "\u6027", "sens"], "spec": ["\u79CD\u3001\u7C7B", "\u6027", "spec"], "eff": ["\u7ED3\u679C", "\u6027", "eff"], "medi": ["\u4E2D\u95F4", "\u6027", "medi"], "extr": ["\u6781\u7AEF", "\u6027", "extr"], "stat": ["\u72B6\u6001", "\u52A8", "stat"], "conve": ["\u8F6C\u53D8", "\u52A8", "conve"], "stab": ["\u7A33\u5B9A", "\u52A8", "stab"], "fluc": ["\u6CE2\u52A8", "\u52A8", "fluc"], "vac": ["\u6447\u6446", "\u52A8", "vac"], "ruin": ["\u5D29\u6BC1", "\u52A8", "ruin"], "salus": ["\u5B89\u5168", "\u52A8", "salus"], "discr": ["\u5371\u5883", "\u52A8", "discr"], "primo": ["\u8D77\u521D", "\u52A8", "primo"], "inte": ["\u6BC1\u706D", "\u52A8", "inte"], "solit": ["\u5B64\u72EC", "\u52A8", "solit"], "plen": ["\u5145\u6EE1", "\u52A8", "plen"], "inan": ["\u7A7A\u865A", "\u52A8", "inan"], "perma": ["\u6301\u4E45", "\u52A8", "perma"], "tempo": ["\u6682\u65F6", "\u52A8", "tempo"], "perpet": ["\u6C38\u7EED", "\u52A8", "perpet"], "decad": ["\u8870\u8D25", "\u52A8", "decad"], "renov": ["\u66F4\u65B0", "\u52A8", "renov"], "restaur": ["\u6062\u590D", "\u52A8", "restaur"], "conserv": ["\u4FDD\u5B58", "\u52A8", "conserv"], "destru": ["\u7834\u574F", "\u52A8", "destru"], "corru": ["\u8150\u5316", "\u52A8", "corru"], "flux": ["\u6D41\u53D8", "\u52A8", "flux"], "equil": ["\u5E73\u8861", "\u52A8", "equil"], "tens": ["\u62C9\u7D27", "\u52A8", "tens"], "press": ["\u538B\u529B", "\u52A8", "press"], "motiv": ["\u52A8\u56E0", "\u52A8", "motiv"], "impul": ["\u51B2\u52A8", "\u52A8", "impul"], "tende": ["\u8D8B\u5411", "\u52A8", "tende"], "liqu": ["\u6DB2\u5316", "\u52A8", "liqu"], "fus": ["\u7194", "\u52A8", "fus"], "coag": ["\u51DD\u56FA", "\u52A8", "coag"], "disso": ["\u5206\u89E3", "\u52A8", "disso"], "combi": ["\u5316\u5408", "\u52A8", "combi"], "reac": ["\u53CD\u5E94", "\u52A8", "reac"], "catal": ["\u50AC\u5316", "\u52A8", "catal"], "alka": ["\u78B1", "\u52A8", "alka"], "oxyd": ["\u6C27\u5316", "\u52A8", "oxyd"], "disti": ["\u84B8\u998F", "\u52A8", "disti"], "subl": ["\u5347\u534E", "\u52A8", "subl"], "ust": ["\u7145\u70E7", "\u52A8", "ust"], "mixt": ["\u6DF7\u5408", "\u52A8", "mixt"], "filt": ["\u8FC7\u6EE4", "\u52A8", "filt"], "precip": ["\u6C89\u6DC0", "\u52A8", "precip"], "satu": ["\u9971\u548C", "\u52A8", "satu"], "dilu": ["\u7A00\u91CA", "\u52A8", "dilu"], "effe": ["\u8D77\u6CE1", "\u52A8", "effe"], "evap": ["\u84B8\u53D1", "\u52A8", "evap"], "corrod": ["\u8150\u8680", "\u52A8", "corrod"], "art": ["\u827A\u672F", "\u7269", "art"], "pict": ["\u7ED8\u753B", "\u7269", "pict"], "melo": ["\u65CB\u5F8B", "\u7269", "melo"], "cant": ["\u6B4C\u5531", "\u7269", "cant"], "chor": ["\u6B4C\u821E", "\u7269", "chor"], "lyr": ["\u7434", "\u7269", "lyr"], "tib": ["\u7B1B", "\u7269", "tib"], "tub": ["\u53F7\u89D2", "\u7269", "tub"], "tymp": ["\u9F13", "\u7269", "tymp"], "theat": ["\u5267\u573A", "\u7269", "theat"], "scae": ["\u821E\u53F0", "\u7269", "scae"], "lud": ["\u6E38\u620F\u3001\u620F", "\u7269", "lud"], "alea": ["\u8D4C\u535A", "\u7269", "alea"], "ioc": ["\u73A9\u7B11", "\u7269", "ioc"], "rid": ["\u7B11", "\u7269", "rid"], "plor": ["\u54ED", "\u7269", "plor"], "fest": ["\u8282\u5E86", "\u7269", "fest"], "pulch": ["\u7F8E", "\u7269", "pulch"], "venus": ["\u4F18\u96C5", "\u7269", "venus"], "musiv": ["\u9576\u5D4C", "\u7269", "musiv"], "pocul": ["\u676F", "\u7269", "pocul"], "convi": ["\u5BB4\u996E", "\u7269", "convi"], "spect": ["\u89C2\u770B\u3001\u6F14\u51FA", "\u7269", "spect"], "tripud": ["\u8E0F\u821E", "\u7269", "tripud"], "histri": ["\u6F14\u5458", "\u7269", "histri"], "od": ["\u6068", "\u52A8", "od"], "tim": ["\u6050\u60E7", "\u52A8", "tim"], "ira": ["\u6012", "\u52A8", "ira"], "gau": ["\u559C\u60A6", "\u52A8", "gau"], "tris": ["\u60B2\u4F24", "\u52A8", "tris"], "cup": ["\u6B32\u671B", "\u52A8", "cup"], "spes": ["\u5E0C\u671B", "\u52A8", "spes"], "pud": ["\u7F9E\u803B", "\u52A8", "pud"], "pax": ["\u548C\u5E73", "\u52A8", "pax"], "grat": ["\u611F\u6FC0", "\u52A8", "grat"], "aem": ["\u5AC9\u5992", "\u52A8", "aem"], "mulc": ["\u629A\u6170", "\u52A8", "mulc"], "volun": ["\u610F\u5FD7", "\u6027", "volun"], "inge": ["\u5929\u6027", "\u6027", "inge"], "indo": ["\u6027\u60C5", "\u6027", "indo"], "mos": ["\u4E60\u4FD7", "\u6027", "mos"], "auda": ["\u5927\u80C6", "\u6027", "auda"], "timid": ["\u602F\u61E6", "\u6027", "timid"], "clem": ["\u4EC1\u6148", "\u6027", "clem"], "seve": ["\u4E25\u5389", "\u6027", "seve"], "beni": ["\u548C\u5584", "\u6027", "beni"], "mali": ["\u6076\u6BD2", "\u6027", "mali"], "sinc": ["\u771F\u8BDA", "\u6027", "sinc"], "fall": ["\u6B3A\u8BC8", "\u6027", "fall"], "perf": ["\u80CC\u4FE1", "\u6027", "perf"], "const": ["\u575A\u5B9A", "\u6027", "const"], "pert": ["\u56FA\u6267", "\u6027", "pert"], "prud": ["\u8C28\u614E", "\u6027", "prud"], "teme": ["\u9C81\u83BD", "\u6027", "teme"], "mode": ["\u8C26\u900A", "\u6027", "mode"], "humil": ["\u8C26\u5351", "\u6027", "humil"], "arro": ["\u50B2\u6162", "\u6027", "arro"], "invi": ["\u5992\u5FCC", "\u6027", "invi"], "avar": ["\u8D2A\u5A6A", "\u6027", "avar"], "simp": ["\u5355\u7EAF", "\u6027", "simp"], "call": ["\u72E1\u9EE0", "\u6027", "call"], "stul": ["\u611A\u7B28", "\u6027", "stul"], "insa": ["\u75AF\u72C2", "\u6027", "insa"], "melan": ["\u5FE7\u90C1", "\u6027", "melan"], "soler": ["\u673A\u654F", "\u6027", "soler"], "saga": ["\u777F\u667A", "\u6027", "saga"], "irac": ["\u6613\u6012", "\u6027", "irac"], "plac": ["\u6E29\u548C", "\u6027", "plac"], "gen": ["\u65CF\u7FA4\u3001\u751F\u80B2", "\u7269", "gen"], "patr": ["\u7236", "\u7269", "patr"], "mater": ["\u6BCD", "\u7269", "mater"], "fil": ["\u5B50\u3001\u513F\u5973", "\u7269", "fil"], "sor": ["\u59D0\u59B9", "\u7269", "sor"], "frat": ["\u5144\u5F1F", "\u7269", "frat"], "soc": ["\u540C\u4F34\u3001\u793E\u7FA4", "\u7269", "soc"], "civ": ["\u516C\u6C11\u3001\u6C11", "\u7269", "civ"], "serv": ["\u670D\u4F8D\u3001\u4EC6", "\u7269", "serv"], "lib": ["\u81EA\u7531", "\u7269", "lib"], "lex": ["\u6210\u6587\u6CD5", "\u7269", "lex"], "iur": ["\u6743\u5229\u3001\u6CD5\u6743", "\u7269", "iur"], "vic": ["\u90BB\u3001\u4EA4\u66FF", "\u7269", "vic"], "host": ["\u654C\u4EBA\u3001\u5916\u4EBA", "\u7269", "host"], "nob": ["\u663E\u8D35", "\u7269", "nob"], "pleb": ["\u5E73\u6C11", "\u7269", "pleb"], "amic": ["\u53CB\u7231", "\u52A8", "amic"], "hospit": ["\u5BBE\u5BA2", "\u52A8", "hospit"], "nupt": ["\u5A5A", "\u52A8", "nupt"], "coni": ["\u914D\u5076", "\u52A8", "coni"], "avu": ["\u7956\u7236", "\u52A8", "avu"], "nepot": ["\u5B59\u8F88", "\u52A8", "nepot"], "cogn": ["\u4EB2\u65CF", "\u52A8", "cogn"], "gent": ["\u6C0F\u65CF", "\u52A8", "gent"], "inim": ["\u4EC7\u6028", "\u52A8", "inim"], "offe": ["\u5192\u72AF", "\u52A8", "offe"], "venia": ["\u5BBD\u6055", "\u52A8", "venia"], "bland": ["\u8C04\u5A9A", "\u52A8", "bland"], "adul": ["\u5949\u627F", "\u52A8", "adul"], "vitu": ["\u65A5\u9A82", "\u52A8", "vitu"], "bened": ["\u795D\u798F", "\u52A8", "bened"], "salut": ["\u95EE\u5019", "\u52A8", "salut"], "valed": ["\u544A\u522B", "\u52A8", "valed"], "oscul": ["\u543B", "\u52A8", "oscul"], "ampl": ["\u62E5\u62B1", "\u52A8", "ampl"], "patro": ["\u5E87\u62A4", "\u52A8", "patro"], "soda": ["\u540C\u4F34", "\u52A8", "soda"], "socie": ["\u793E\u56E2", "\u52A8", "socie"], "hila": ["\u6B22\u6B23", "\u52A8", "hila"], "iurg": ["\u4E89\u5435", "\u52A8", "iurg"], "rix": ["\u4E89\u6597", "\u52A8", "rix"], "gratu": ["\u795D\u8D3A", "\u52A8", "gratu"], "condo": ["\u81F4\u54C0", "\u52A8", "condo"], "pub": ["\u516C\u4F17", "\u7269", "pub"], "polis": ["\u57CE\u90A6", "\u7269", "polis"], "reg": ["\u738B\u3001\u7EDF\u6CBB", "\u7269", "reg"], "sena": ["\u5143\u8001\u9662", "\u7269", "sena"], "cons": ["\u6267\u653F\u5B98", "\u7269", "cons"], "dict": ["\u72EC\u88C1", "\u7269", "dict"], "jud": ["\u5BA1\u5224", "\u7269", "jud"], "caus": ["\u8BC9\u8BBC", "\u7269", "caus"], "poen": ["\u60E9\u7F5A", "\u7269", "poen"], "crim": ["\u7F6A", "\u7269", "crim"], "reus": ["\u88AB\u544A", "\u7269", "reus"], "vind": ["\u590D\u4EC7", "\u7269", "vind"], "pact": ["\u5951\u7EA6", "\u7269", "pact"], "foed": ["\u76DF\u7EA6", "\u7269", "foed"], "lega": ["\u4F7F\u8282", "\u7269", "lega"], "comit": ["\u96C6\u4F1A", "\u7269", "comit"], "suffr": ["\u6295\u7968", "\u7269", "suffr"], "cens": ["\u76D1\u5BDF", "\u7269", "cens"], "prov": ["\u884C\u7701", "\u7269", "prov"], "muni": ["\u81EA\u6CBB\u5E02", "\u7269", "muni"], "client": ["\u95E8\u5BA2", "\u7269", "client"], "popul": ["\u6C11\u4F17", "\u7269", "popul"], "decr": ["\u6CD5\u4EE4", "\u7269", "decr"], "edict": ["\u544A\u793A", "\u7269", "edict"], "civit": ["\u516C\u6C11\u6743", "\u7269", "civit"], "aedil": ["\u8425\u9020\u5B98", "\u7269", "aedil"], "praet": ["\u88C1\u5224\u5B98", "\u7269", "praet"], "bel": ["\u6218\u4E89", "\u52A8", "bel"], "arm": ["\u6B66\u5668\u3001\u88C5\u5907", "\u52A8", "arm"], "cid": ["\u6740\u3001\u65A9", "\u52A8", "cid"], "noc": ["\u4F24\u5BB3", "\u52A8", "noc"], "peric": ["\u5371\u9669", "\u52A8", "peric"], "def": ["\u9632\u5FA1", "\u52A8", "def"], "vin": ["\u80DC\u5229\u3001\u5F81\u670D", "\u52A8", "vin"], "obs": ["\u56F4\u56F0\u3001\u5C01\u9501", "\u52A8", "obs"], "imp": ["\u7EDF\u6CBB\u3001\u547D\u4EE4", "\u52A8", "imp"], "mina": ["\u5A01\u80C1", "\u52A8", "mina"], "fug": ["\u9003\u9041", "\u52A8", "fug"], "luct": ["\u640F\u6597", "\u52A8", "luct"], "mach": ["\u8C0B\u7565\u3001\u673A\u5DE7", "\u52A8", "mach"], "truc": ["\u51F6\u731B\u3001\u6B8B\u66B4", "\u52A8", "truc"], "mil": ["\u5175\u3001\u519B", "\u52A8", "mil"], "coh": ["\u5927\u961F", "\u52A8", "coh"], "dux": ["\u7EDF\u5E05", "\u52A8", "dux"], "vexill": ["\u519B\u65D7", "\u52A8", "vexill"], "hast": ["\u957F\u77DB", "\u52A8", "hast"], "pil": ["\u6295\u67AA", "\u52A8", "pil"], "ball": ["\u5F29\u70AE", "\u52A8", "ball"], "catap": ["\u6295\u77F3\u673A", "\u52A8", "catap"], "loric": ["\u7532\u80C4", "\u52A8", "loric"], "cass": ["\u5934\u76D4", "\u52A8", "cass"], "vall": ["\u58C1\u5792", "\u52A8", "vall"], "opp": ["\u653B\u57CE", "\u52A8", "opp"], "incu": ["\u7A81\u88AD", "\u52A8", "incu"], "praed": ["\u52AB\u63A0", "\u52A8", "praed"], "clad": ["\u60E8\u8D25", "\u52A8", "clad"], "trium": ["\u51EF\u65CB", "\u52A8", "trium"], "stip": ["\u519B\u9977", "\u52A8", "stip"], "deser": ["\u53DB\u9003", "\u52A8", "deser"], "prod": ["\u80CC\u53DB", "\u52A8", "prod"], "insid": ["\u57CB\u4F0F", "\u52A8", "insid"], "expl": ["\u4FA6\u5BDF", "\u52A8", "expl"], "praesid": ["\u9A7B\u519B", "\u52A8", "praesid"], "turma": ["\u9A91\u5175\u961F", "\u52A8", "turma"], "centuri": ["\u767E\u4EBA\u961F", "\u52A8", "centuri"], "pecu": ["\u94B1\u8D22", "\u52A8", "pecu"], "mer": ["\u5546\u54C1\u3001\u8D38\u6613", "\u52A8", "mer"], "pret": ["\u4EF7\u683C", "\u52A8", "pret"], "vend": ["\u51FA\u552E", "\u52A8", "vend"], "empt": ["\u8D2D\u4E70", "\u52A8", "empt"], "lucr": ["\u83B7\u5229", "\u52A8", "lucr"], "dam": ["\u635F\u5931", "\u52A8", "dam"], "debt": ["\u503A\u52A1", "\u52A8", "debt"], "fisc": ["\u8D22\u5E93\u3001\u516C\u5E93", "\u52A8", "fisc"], "trib": ["\u7A0E\u3001\u8D21", "\u52A8", "trib"], "divin": ["\u795E\u6027\u3001\u5360\u535C", "\u7269", "divin"], "templ": ["\u795E\u5E99", "\u7269", "templ"], "ara": ["\u796D\u575B", "\u7269", "ara"], "vict": ["\u796D\u54C1", "\u7269", "vict"], "hosti": ["\u796D\u7272", "\u7269", "hosti"], "piet": ["\u8654\u656C", "\u7269", "piet"], "cult": ["\u5D07\u62DC", "\u7269", "cult"], "prec": ["\u7948\u7977", "\u7269", "prec"], "vot": ["\u8A93\u613F", "\u7269", "vot"], "hymn": ["\u9882\u6B4C", "\u7269", "hymn"], "aug": ["\u5360\u5146", "\u7269", "aug"], "omen": ["\u5F81\u5146", "\u7269", "omen"], "fat": ["\u547D\u8FD0", "\u7269", "fat"], "sort": ["\u547D\u8FD0\u3001\u673A\u8FD0", "\u7269", "sort"], "anim": ["\u7075\u9B42\u3001\u5FC3", "\u7269", "anim"], "sanc": ["\u795E\u5723", "\u7269", "sanc"], "numi": ["\u795E\u610F", "\u7269", "numi"], "manes": ["\u4EA1\u7075", "\u7269", "manes"], "lemur": ["\u5E7D\u9B42", "\u7269", "lemur"], "necr": ["\u4EA1\u8005\u672F", "\u7269", "necr"], "orac": ["\u795E\u8C15", "\u7269", "orac"], "vat": ["\u5148\u77E5", "\u7269", "vat"], "proph": ["\u5148\u77E5\u9884\u8A00", "\u7269", "proph"], "superst": ["\u8FF7\u4FE1", "\u7269", "superst"], "pagan": ["\u5F02\u6559", "\u7269", "pagan"], "super": ["\u4E0A\u3001\u8D85\u8D8A", "\u7269", "super"], "inf": ["\u4E0B\u3001\u4E0B\u65B9", "\u7269", "inf"], "ant": ["\u524D\u3001\u5148\u524D", "\u7269", "ant"], "retr": ["\u540E\u3001\u5411\u540E", "\u7269", "retr"], "dext": ["\u53F3", "\u7269", "dext"], "sin": ["\u5DE6", "\u7269", "sin"], "circ": ["\u5468\u56F4\u3001\u73AF", "\u7269", "circ"], "cent": ["\u4E2D\u5FC3", "\u7269", "cent"], "lat": ["\u4FA7\u3001\u65C1", "\u7269", "lat"], "lon": ["\u8FDC\u3001\u957F", "\u7269", "lon"], "prop": ["\u8FD1\u3001\u90BB\u8FD1", "\u7269", "prop"], "ult": ["\u8D8A\u3001\u5F7C\u7AEF", "\u7269", "ult"], "vers": ["\u8F6C\u3001\u671D\u5411", "\u7269", "vers"], "grad": ["\u6B65\u3001\u7EA7", "\u7269", "grad"], "cron": ["\u65F6\u95F4\u3001\u65F6\u5E8F", "\u7269", "cron"], "ann": ["\u5E74", "\u7269", "ann"], "mens": ["\u6708", "\u7269", "mens"], "hor": ["\u65F6\u3001\u65F6\u8FB0", "\u7269", "hor"], "tard": ["\u8FDF\u3001\u7F13", "\u7269", "tard"], "cit": ["\u901F\u3001\u6025", "\u7269", "cit"], "aev": ["\u6C38\u4E16\u3001\u65F6\u4EE3", "\u7269", "aev"], "init": ["\u5F00\u59CB\u3001\u8D77\u521D", "\u7269", "init"], "mom": ["\u7247\u523B", "\u7269", "mom"], "diu": ["\u4E45\u3001\u957F\u4E45", "\u7269", "diu"], "rec": ["\u8FD1\u6765\u3001\u65B0\u9C9C", "\u7269", "rec"], "era": ["\u7EAA\u5143\u3001\u65F6\u671F", "\u7269", "era"], "pet": ["\u8D8B\u5411\u3001\u8FFD\u6C42", "\u52A8", "pet"], "salt": ["\u8DF3\u8DC3", "\u52A8", "salt"], "cad": ["\u5760\u843D", "\u52A8", "cad"], "asc": ["\u4E0A\u5347", "\u52A8", "asc"], "sequ": ["\u8DDF\u968F", "\u52A8", "sequ"], "mit": ["\u9001\u3001\u6D3E\u9063", "\u52A8", "mit"], "duc": ["\u5F15\u5BFC\u3001\u5E26\u9886", "\u52A8", "duc"], "veh": ["\u8FD0\u9001", "\u52A8", "veh"], "port": ["\u643A\u5E26", "\u52A8", "port"], "volat": ["\u98DE\u884C", "\u52A8", "volat"], "meat": ["\u7A7F\u884C\u3001\u7ECF\u8FC7", "\u52A8", "meat"], "red": ["\u8FD4\u56DE", "\u52A8", "red"], "ten": ["\u6301\u3001\u63E1", "\u52A8", "ten"], "rap": ["\u593A\u53D6\u3001\u6293", "\u52A8", "rap"], "toll": ["\u4E3E\u8D77", "\u52A8", "toll"], "prem": ["\u538B\u3001\u6309", "\u52A8", "prem"], "sec": ["\u5207\u3001\u5272", "\u52A8", "sec"], "trit": ["\u78E8\u3001\u78BE", "\u52A8", "trit"], "lig": ["\u7ED1\u3001\u7CFB", "\u52A8", "lig"], "solv": ["\u89E3\u3001\u677E\u5F00", "\u52A8", "solv"], "claud": ["\u5173\u95ED", "\u52A8", "claud"], "aper": ["\u6253\u5F00", "\u52A8", "aper"], "fric": ["\u6469\u64E6", "\u52A8", "fric"], "plic": ["\u6298\u53E0", "\u52A8", "plic"], "tend": ["\u4F38\u5C55", "\u52A8", "tend"], "fabr": ["\u5236\u4F5C", "\u52A8", "fabr"], "form": ["\u5851\u9020\u3001\u5F62", "\u52A8", "form"], "orn": ["\u88C5\u9970", "\u52A8", "orn"], "ping": ["\u7ED8\u3001\u753B", "\u52A8", "ping"], "sculp": ["\u96D5\u523B", "\u52A8", "sculp"], "mod": ["\u5EA6\u91CF\u3001\u6837\u5F0F", "\u52A8", "mod"], "norm": ["\u89C4\u8303\u3001\u77E9", "\u52A8", "norm"], "lin": ["\u7EBF\u3001\u7EF3", "\u52A8", "lin"], "rot": ["\u8F6E\u3001\u8F6C", "\u52A8", "rot"], "clav": ["\u9489\u3001\u952E", "\u52A8", "clav"], "ianu": ["\u95E8\u3001\u51FA\u5165\u53E3", "\u52A8", "ianu"], "col": ["\u989C\u8272", "\u6027", "col"], "alb": ["\u767D", "\u6027", "alb"], "nigr": ["\u9ED1", "\u6027", "nigr"], "rub": ["\u7EA2", "\u6027", "rub"], "vir": ["\u7EFF", "\u6027", "vir"], "caer": ["\u84DD", "\u6027", "caer"], "flav": ["\u9EC4", "\u6027", "flav"], "purp": ["\u7D2B", "\u6027", "purp"], "son": ["\u58F0\u97F3", "\u6027", "son"], "odor": ["\u6C14\u5473", "\u6027", "odor"], "sap": ["\u5473\u9053", "\u6027", "sap"], "glab": ["\u5149\u6ED1", "\u6027", "glab"], "asp": ["\u7C97\u7CD9", "\u6027", "asp"], "rig": ["\u50F5\u786C", "\u6027", "rig"], "moll": ["\u67D4\u8F6F", "\u6027", "moll"], "mag": ["\u9B54\u6CD5\u3001\u672F", "\u52A8", "mag"], "carm": ["\u5492\u8BCD", "\u52A8", "carm"], "sigil": ["\u5370\u8BB0\u3001\u7B26", "\u52A8", "sigil"], "ener": ["\u80FD\u91CF", "\u52A8", "ener"], "myst": ["\u5965\u79D8", "\u52A8", "myst"], "rit": ["\u4EEA\u5F0F", "\u52A8", "rit"], "sacr": ["\u795E\u5723", "\u52A8", "sacr"], "prof": ["\u51E1\u4FD7", "\u52A8", "prof"], "virt": ["\u6548\u529B\u3001\u5FB7\u80FD", "\u52A8", "virt"], "nex": ["\u8054\u7ED3\u3001\u7ED3", "\u52A8", "nex"], "obli": ["\u5FD8\u5374", "\u52A8", "obli"], "quaer": ["\u5BFB\u627E", "\u52A8", "quaer"], "perd": ["\u5931\u53BB\u3001\u4E22\u5931", "\u52A8", "perd"], "repar": ["\u4FEE\u8865", "\u52A8", "repar"], "resp": ["\u56DE\u7B54", "\u52A8", "resp"], "ora": ["\u8BF7\u6C42", "\u52A8", "ora"], "perm": ["\u8BB8\u53EF", "\u52A8", "perm"], "recus": ["\u62D2\u7EDD", "\u52A8", "recus"], "oppe": ["\u7B49\u5F85", "\u52A8", "oppe"], "tempt": ["\u5C1D\u8BD5", "\u52A8", "tempt"], "succ": ["\u6210\u529F", "\u52A8", "succ"], "defi": ["\u5931\u8D25", "\u52A8", "defi"], "ut": ["\u4F7F\u7528", "\u52A8", "ut"], "tute": ["\u4FDD\u62A4", "\u52A8", "tute"], "elig": ["\u9009\u62E9", "\u52A8", "elig"], "cern": ["\u51B3\u65AD", "\u52A8", "cern"], "fast": ["\u538C\u6076", "\u52A8", "fast"], "assu": ["\u4E60\u60EF", "\u52A8", "assu"], "coep": ["\u5F00\u59CB", "\u52A8", "coep"], "conti": ["\u7EE7\u7EED", "\u52A8", "conti"], "cess": ["\u505C\u6B62", "\u52A8", "cess"], "accip": ["\u63A5\u53D7", "\u52A8", "accip"], "redd": ["\u5F52\u8FD8", "\u52A8", "redd"], "caren": ["\u7F3A\u5C11", "\u52A8", "caren"], "plet": ["\u586B\u6EE1", "\u52A8", "plet"], "fier": ["\u6210\u4E3A", "\u52A8", "fier"], "perte": ["\u5C5E\u4E8E", "\u52A8", "perte"], "possi": ["\u62E5\u6709", "\u52A8", "possi"], "bon": ["\u597D", "\u6027", "bon"], "mal": ["\u574F\u3001\u6076", "\u6027", "mal"], "turp": ["\u4E11\u3001\u53EF\u803B", "\u6027", "turp"], "firm": ["\u575A\u56FA", "\u6027", "firm"], "imbe": ["\u5B71\u5F31", "\u6027", "imbe"], "dit": ["\u5BCC\u6709", "\u6027", "dit"], "paup": ["\u8D2B\u7A77", "\u6027", "paup"], "preci": ["\u8D35\u91CD", "\u6027", "preci"], "vil": ["\u4F4E\u8D31", "\u6027", "vil"], "vacu": ["\u7A7A", "\u6027", "vacu"], "crud": ["\u751F\u3001\u672A\u719F", "\u6027", "crud"], "coct": ["\u719F\u3001\u6210\u719F", "\u6027", "coct"], "rect": ["\u6B63\u786E", "\u6027", "rect"], "prav": ["\u9519\u8BEF\u3001\u6B6A\u659C", "\u6027", "prav"], "facil": ["\u5BB9\u6613", "\u6027", "facil"], "diffic": ["\u56F0\u96BE", "\u6027", "diffic"], "obsc": ["\u660F\u6697", "\u6027", "obsc"], "sord": ["\u6C61\u6D4A", "\u6027", "sord"], "mund": ["\u6D01\u51C0", "\u6027", "mund"], "miti": ["\u6E29\u987A", "\u6027", "miti"], "leni": ["\u67D4\u548C", "\u6027", "leni"], "tener": ["\u67D4\u5AE9", "\u6027", "tener"], "dure": ["\u575A\u786C", "\u6027", "dure"], "pur": ["\u7EAF\u51C0", "\u6027", "pur"], "crass": ["\u539A", "\u6027", "crass"], "poss": ["\u53EF\u80FD", "\u6027", "poss"], "neces": ["\u5FC5\u7136", "\u6027", "neces"], "actu": ["\u73B0\u5B9E", "\u6027", "actu"], "condit": ["\u6761\u4EF6", "\u6027", "condit"], "proce": ["\u8FC7\u7A0B", "\u6027", "proce"], "gnos": ["\u77E5\u8BC6", "\u6027", "gnos"], "idea": ["\u7406\u5FF5", "\u6027", "idea"], "valo": ["\u4EF7\u503C", "\u6027", "valo"], "iust": ["\u6B63\u4E49", "\u6027", "iust"], "vitio": ["\u6076\u4E60", "\u6027", "vitio"], "offic": ["\u4E49\u52A1", "\u6027", "offic"], "merit": ["\u529F\u7EE9", "\u6027", "merit"], "culp": ["\u8FC7\u5931", "\u6027", "culp"], "laus": ["\u79F0\u8D5E", "\u6027", "laus"], "honor": ["\u8363\u8A89", "\u6027", "honor"], "infa": ["\u803B\u8FB1", "\u6027", "infa"], "glor": ["\u8363\u8000", "\u6027", "glor"], "fama": ["\u540D\u58F0", "\u6027", "fama"], "nihil": ["\u865A\u65E0", "\u6027", "nihil"], "dialect": ["\u8FA9\u8BC1", "\u6027", "dialect"], "analys": ["\u5206\u6790", "\u6027", "analys"], "synthes": ["\u7EFC\u5408", "\u6027", "synthes"], "kris": ["\u5371\u673A", "\u6027", "kris"], "harmon": ["\u8C03\u548C", "\u6027", "harmon"], "nomos": ["\u6CD5\u5219", "\u6027", "nomos"], "physis": ["\u672C\u6027", "\u6027", "physis"], "techne": ["\u6280\u827A", "\u6027", "techne"], "praxis": ["\u5B9E\u8DF5", "\u6027", "praxis"], "laet": ["\u5FEB\u4E50", "\u6027", "laet"], "desp": ["\u7EDD\u671B", "\u6027", "desp"], "ango": ["\u7126\u8651", "\u6027", "ango"], "anxi": ["\u5FE7\u8651", "\u6027", "anxi"], "solli": ["\u5FE7\u5FC3", "\u6027", "solli"], "pavid": ["\u60CA\u6050", "\u6027", "pavid"], "terr": ["\u6050\u6016", "\u6027", "terr"], "horr": ["\u6218\u6817", "\u6027", "horr"], "carit": ["\u6148\u7231", "\u6027", "carit"], "benevo": ["\u5584\u610F", "\u6027", "benevo"], "miser": ["\u601C\u60AF", "\u6027", "miser"], "pati": ["\u5FCD\u8010", "\u6027", "pati"], "diffi": ["\u4E0D\u4FE1", "\u6027", "diffi"], "susp": ["\u731C\u7591", "\u6027", "susp"], "admi": ["\u94A6\u4F69", "\u6027", "admi"], "contem": ["\u8F7B\u8511", "\u6027", "contem"], "volup": ["\u4EAB\u4E50", "\u6027", "volup"], "taed": ["\u538C\u5026", "\u6027", "taed"], "curio": ["\u597D\u5947", "\u6027", "curio"], "studi": ["\u70ED\u5FF1", "\u6027", "studi"], "pigr": ["\u61D2\u60F0", "\u6027", "pigr"], "indus": ["\u52E4\u52C9", "\u6027", "indus"], "iucund": ["\u6109\u5FEB", "\u6027", "iucund"], "maer": ["\u54C0\u4F24", "\u6027", "maer"], "lug": ["\u60B2\u60BC", "\u6027", "lug"], "blandi": ["\u6E29\u67D4", "\u6027", "blandi"], "estu": ["\u6FC0\u594B", "\u6027", "estu"], "stupe": ["\u60CA\u6115", "\u6027", "stupe"], "iatro": ["\u533B\u5E08", "\u7269", "iatro"], "advoc": ["\u5F8B\u5E08", "\u7269", "advoc"], "magist": ["\u957F\u5B98", "\u7269", "magist"], "minist": ["\u81E3\u4EC6", "\u7269", "minist"], "praec": ["\u4F20\u4EE4", "\u7269", "praec"], "merc": ["\u5546\u4EBA", "\u7269", "merc"], "naut": ["\u6C34\u624B", "\u7269", "naut"], "aurig": ["\u5FA1\u8005", "\u7269", "aurig"], "past": ["\u7267\u4EBA", "\u7269", "past"], "agric": ["\u519C\u592B", "\u7269", "agric"], "opif": ["\u5DE5\u5320", "\u7269", "opif"], "pisto": ["\u9762\u5305\u5E08", "\u7269", "pisto"], "suto": ["\u978B\u5320", "\u7269", "suto"], "tons": ["\u7406\u53D1\u5E08", "\u7269", "tons"], "paed": ["\u587E\u5E08", "\u7269", "paed"], "philo": ["\u54F2\u4EBA", "\u7269", "philo"], "poet": ["\u8BD7\u4EBA", "\u7269", "poet"], "scurr": ["\u4E11\u89D2", "\u7269", "scurr"], "mim": ["\u4F36\u4EBA", "\u7269", "mim"], "flam": ["\u796D\u53F8", "\u7269", "flam"], "pereg": ["\u5916\u90A6\u4EBA", "\u7269", "pereg"], "testi": ["\u8BC1\u4EBA", "\u7269", "testi"], "auctor": ["\u4F5C\u8005", "\u7269", "auctor"], "artif": ["\u5DE7\u5320", "\u7269", "artif"], "venat": ["\u730E\u4EBA", "\u7269", "venat"], "piscat": ["\u6E14\u4EBA", "\u7269", "piscat"], "colle": ["\u540C\u50DA\u56E2", "\u7269", "colle"], "sodal": ["\u534F\u4F1A", "\u7269", "sodal"], "curia": ["\u8BAE\u4E8B\u5802", "\u7269", "curia"], "concil": ["\u4F1A\u8BAE", "\u7269", "concil"], "univ": ["\u56E2\u4F53", "\u7269", "univ"], "grem": ["\u884C\u4F1A", "\u7269", "grem"], "conf": ["\u540C\u76DF", "\u7269", "conf"], "aerar": ["\u56FD\u5E93", "\u7269", "aerar"], "telo": ["\u7A0E\u9879", "\u7269", "telo"], "annon": ["\u7CAE\u653F", "\u7269", "annon"], "censu": ["\u4EBA\u53E3\u767B\u8BB0", "\u7269", "censu"], "bema": ["\u6CD5\u5EAD", "\u7269", "bema"], "carc": ["\u76D1\u72F1", "\u7269", "carc"], "cust": ["\u770B\u5B88", "\u7269", "cust"], "equit": ["\u9A91\u58EB", "\u7269", "equit"], "sacram": ["\u8A93\u7EA6", "\u7269", "sacram"], "testam": ["\u9057\u5631", "\u7269", "testam"], "matrim": ["\u5A5A\u59FB", "\u7269", "matrim"], "patri": ["\u7956\u56FD", "\u7269", "patri"], "famil": ["\u5BB6\u5EAD", "\u7269", "famil"], "vicin": ["\u90BB\u91CC", "\u7269", "vicin"], "tribul": ["\u90E8\u65CF", "\u7269", "tribul"], "decuri": ["\u5341\u4EBA\u957F", "\u7269", "decuri"], "praefect": ["\u957F\u5B98", "\u7269", "praefect"], "quaestor": ["\u8D22\u52A1\u5B98", "\u7269", "quaestor"], "addi": ["\u52A0", "\u6027", "addi"], "subtra": ["\u51CF", "\u6027", "subtra"], "produ": ["\u79EF", "\u6027", "produ"], "impa": ["\u5947\u6570", "\u6027", "impa"], "absol": ["\u7EDD\u5BF9", "\u6027", "absol"], "comp": ["\u8BA1\u7B97", "\u6027", "comp"], "dual": ["\u4E8C\u5143", "\u6027", "dual"], "plura": ["\u591A\u5143", "\u6027", "plura"], "prog": ["\u6570\u5217", "\u6027", "prog"], "quoti": ["\u5546\u6570", "\u6027", "quoti"], "aequat": ["\u65B9\u7A0B", "\u6027", "aequat"], "radic": ["\u5F00\u65B9", "\u6027", "radic"], "potent": ["\u4E58\u65B9", "\u6027", "potent"], "logis": ["\u5BF9\u6570", "\u6027", "logis"], "calcul": ["\u6F14\u7B97", "\u6027", "calcul"], "numer": ["\u8BA1\u6570", "\u6027", "numer"], "multiplica": ["\u8FDE\u4E58", "\u6027", "multiplica"], "divid": ["\u6574\u9664", "\u6027", "divid"], "reman": ["\u4F59\u6570", "\u6027", "reman"], "aequipar": ["\u914D\u5E73", "\u6027", "aequipar"], "infin": ["\u65E0\u7A77", "\u6027", "infin"], "finit": ["\u6709\u9650", "\u6027", "finit"], "planet": ["\u884C\u661F", "\u7269", "planet"], "comet": ["\u5F57\u661F", "\u7269", "comet"], "galax": ["\u94F6\u6CB3", "\u7269", "galax"], "eclip": ["\u8680", "\u7269", "eclip"], "auror": ["\u6668\u5149", "\u7269", "auror"], "crepus": ["\u9EC4\u660F", "\u7269", "crepus"], "merid": ["\u6B63\u5348", "\u7269", "merid"], "vesp": ["\u508D\u665A", "\u7269", "vesp"], "mane": ["\u6E05\u6668", "\u7269", "mane"], "saec": ["\u4E16\u4EE3", "\u7269", "saec"], "lustr": ["\u4E94\u5E74", "\u7269", "lustr"], "kalen": ["\u6708\u521D", "\u7269", "kalen"], "idus": ["\u6708\u4E2D", "\u7269", "idus"], "hebdo": ["\u5468", "\u7269", "hebdo"], "feria": ["\u5E73\u65E5", "\u7269", "feria"], "solsti": ["\u81F3\u65E5", "\u7269", "solsti"], "equin": ["\u5206\u65E5", "\u7269", "equin"], "zodi": ["\u9EC4\u9053", "\u7269", "zodi"], "orbita": ["\u8F68\u9053", "\u7269", "orbita"], "zenith": ["\u5929\u9876", "\u7269", "zenith"], "horizon": ["\u5730\u5E73", "\u7269", "horizon"], "tropic": ["\u56DE\u5F52\u7EBF", "\u7269", "tropic"], "umbracul": ["\u65E5\u6677", "\u7269", "umbracul"], "clepsydra": ["\u6F0F\u523B", "\u7269", "clepsydra"], "nocturn": ["\u591C\u65F6", "\u7269", "nocturn"], "diurn": ["\u65E5\u65F6", "\u7269", "diurn"], "matutin": ["\u6668\u65F6", "\u7269", "matutin"], "annivers": ["\u5468\u5E74", "\u7269", "annivers"], "intern": ["\u5185\u90E8", "\u7269", "intern"], "exter": ["\u5916\u90E8", "\u7269", "exter"], "vertic": ["\u5782\u76F4", "\u7269", "vertic"], "paral": ["\u5E73\u884C", "\u7269", "paral"], "diag": ["\u5BF9\u89D2", "\u7269", "diag"], "peri": ["\u5468\u8FB9", "\u7269", "peri"], "dist": ["\u8DDD\u79BB", "\u7269", "dist"], "infim": ["\u6700\u4F4E", "\u7269", "infim"], "cis": ["\u6B64\u4FA7", "\u7269", "cis"], "intr": ["\u5185\u4FA7", "\u7269", "intr"], "extra": ["\u5916\u4FA7", "\u7269", "extra"], "superf": ["\u4E0A\u8868\u9762", "\u7269", "superf"], "advers": ["\u5BF9\u9762", "\u7269", "advers"], "avers": ["\u80CC\u9762", "\u7269", "avers"], "sinistr": ["\u5DE6\u4FA7", "\u7269", "sinistr"], "dexter": ["\u53F3\u4FA7", "\u7269", "dexter"], "obliqu": ["\u659C\u5411", "\u7269", "obliqu"], "transvers": ["\u6A2A\u5411", "\u7269", "transvers"], "longitud": ["\u7EB5\u5411", "\u7269", "longitud"], "altitud": ["\u9AD8\u5EA6", "\u7269", "altitud"], "latitud": ["\u5BBD\u5EA6", "\u7269", "latitud"], "profund": ["\u6DF1\u5EA6", "\u7269", "profund"], "magnitud": ["\u5927\u5C0F", "\u7269", "magnitud"], "intervall": ["\u95F4\u9694", "\u7269", "intervall"], "contigu": ["\u90BB\u63A5", "\u7269", "contigu"], "remot": ["\u9065\u8FDC", "\u7269", "remot"], "perce": ["\u77E5\u89C9", "\u52A8", "perce"], "intu": ["\u76F4\u89C9", "\u52A8", "intu"], "reco": ["\u56DE\u60F3", "\u52A8", "reco"], "remin": ["\u8FFD\u5FC6", "\u52A8", "remin"], "atte": ["\u6CE8\u610F", "\u52A8", "atte"], "obse": ["\u89C2\u5BDF", "\u52A8", "obse"], "adver": ["\u6CE8\u610F", "\u52A8", "adver"], "disce": ["\u8FA8\u522B", "\u52A8", "disce"], "consci": ["\u826F\u77E5", "\u52A8", "consci"], "rumo": ["\u4F20\u8A00", "\u52A8", "rumo"], "argum": ["\u8BBA\u636E", "\u52A8", "argum"], "proba": ["\u8BBA\u8BC1", "\u52A8", "proba"], "cert": ["\u786E\u4FE1", "\u52A8", "cert"], "perspic": ["\u660E\u5BDF", "\u52A8", "perspic"], "acum": ["\u654F\u9510", "\u52A8", "acum"], "hebet": ["\u8FDF\u949D", "\u52A8", "hebet"], "somnol": ["\u56F0\u5026", "\u52A8", "somnol"], "vertig": ["\u7729\u6655", "\u52A8", "vertig"], "nause": ["\u6076\u5FC3", "\u52A8", "nause"], "prurit": ["\u7619\u75D2", "\u52A8", "prurit"], "titill": ["\u9165\u75D2", "\u52A8", "titill"], "gustat": ["\u54C1\u5473", "\u52A8", "gustat"], "odorat": ["\u55C5\u95FB", "\u52A8", "odorat"], "tactil": ["\u89E6\u611F", "\u52A8", "tactil"], "aure": ["\u91D1\u8272", "\u6027", "aure"], "fusc": ["\u8910\u8272", "\u6027", "fusc"], "ciner": ["\u7070\u8272", "\u6027", "ciner"], "rose": ["\u7C89\u8272", "\u6027", "rose"], "venet": ["\u9752\u8272", "\u6027", "venet"], "ruf": ["\u8D64\u8910", "\u6027", "ruf"], "fulv": ["\u9EC4\u8910", "\u6027", "fulv"], "candor": ["\u6D01\u767D", "\u6027", "candor"], "pull": ["\u6DF1\u8272", "\u6027", "pull"], "pallor": ["\u82CD\u767D", "\u6027", "pallor"], "splend": ["\u8F89\u714C", "\u6027", "splend"], "nitid": ["\u5149\u6D01", "\u6027", "nitid"], "opac": ["\u836B\u6697", "\u6027", "opac"], "pellu": ["\u900F\u660E", "\u6027", "pellu"], "macul": ["\u6591\u70B9", "\u6027", "macul"], "varieg": ["\u6742\u8272", "\u6027", "varieg"], "marmor": ["\u7EB9\u5F69", "\u6027", "marmor"], "vitre": ["\u73BB\u7483\u5149\u6CFD", "\u6027", "vitre"], "metall": ["\u91D1\u5C5E\u5149\u6CFD", "\u6027", "metall"], "lanug": ["\u7ED2\u9762", "\u6027", "lanug"], "levig": ["\u5149\u6ED1", "\u6027", "levig"], "voc": ["\u55D3\u97F3", "\u7269", "voc"], "serm": ["\u8C08\u8BDD", "\u7269", "serm"], "syll": ["\u97F3\u8282", "\u7269", "syll"], "acce": ["\u91CD\u97F3", "\u7269", "acce"], "gramm": ["\u6587\u6CD5", "\u7269", "gramm"], "synt": ["\u53E5\u6CD5", "\u7269", "synt"], "sema": ["\u8BED\u4E49", "\u7269", "sema"], "phon": ["\u97F3\u58F0", "\u7269", "phon"], "rhyth": ["\u8282\u594F", "\u7269", "rhyth"], "orat": ["\u6F14\u8BF4", "\u7269", "orat"], "narr": ["\u53D9\u8FF0", "\u7269", "narr"], "descr": ["\u63CF\u5199", "\u7269", "descr"], "defin": ["\u5B9A\u4E49", "\u7269", "defin"], "sente": ["\u53E5\u5B50", "\u7269", "sente"], "para": ["\u6BB5\u843D", "\u7269", "para"], "poem": ["\u8BD7", "\u7269", "poem"], "fabul": ["\u5BD3\u8A00", "\u7269", "fabul"], "myth": ["\u795E\u8BDD", "\u7269", "myth"], "lexic": ["\u8BCD\u6C47", "\u7269", "lexic"], "phonem": ["\u97F3\u4F4D", "\u7269", "phonem"], "morphem": ["\u8BCD\u7D20", "\u7269", "morphem"], "etym": ["\u8BCD\u6E90", "\u7269", "etym"], "idiom": ["\u4E60\u8BED", "\u7269", "idiom"], "proverb": ["\u8C1A\u8BED", "\u7269", "proverb"], "argot": ["\u9690\u8BED", "\u7269", "argot"], "poli": ["\u6253\u78E8", "\u52A8", "poli"], "laevi": ["\u78E8\u5149", "\u52A8", "laevi"], "caela": ["\u96D5\u9542", "\u52A8", "caela"], "fict": ["\u5851\u9020", "\u52A8", "fict"], "compa": ["\u63A5\u5408", "\u52A8", "compa"], "armam": ["\u88C5\u5907", "\u52A8", "armam"], "supell": ["\u5BB6\u5177", "\u52A8", "supell"], "recep": ["\u5BB9\u5668", "\u52A8", "recep"], "cist": ["\u7BB1\u7BA7", "\u52A8", "cist"], "materi": ["\u6750\u6599", "\u52A8", "materi"], "structu": ["\u8425\u9020", "\u52A8", "structu"], "fabrica": ["\u5DE5\u574A", "\u52A8", "fabrica"], "instrument": ["\u5668\u5177", "\u52A8", "instrument"], "organ": ["\u5DE5\u5177", "\u52A8", "organ"], "utens": ["\u7528\u5177", "\u52A8", "utens"], "machin": ["\u673A\u68B0", "\u52A8", "machin"], "temper": ["\u56DE\u706B", "\u52A8", "temper"], "confl": ["\u7194\u70BC", "\u52A8", "confl"], "forgi": ["\u953B\u9020", "\u52A8", "forgi"], "incud": ["\u94C1\u7827", "\u52A8", "incud"], "foll": ["\u98CE\u7BB1", "\u52A8", "foll"], "lima": ["\u9509", "\u52A8", "lima"], "runcin": ["\u5228", "\u52A8", "runcin"], "ascia": ["\u951B", "\u52A8", "ascia"], "scalpr": ["\u523B\u5200", "\u52A8", "scalpr"], "faen": ["\u5229\u606F", "\u52A8", "faen"], "usur": ["\u9AD8\u5229", "\u52A8", "usur"], "pign": ["\u62B5\u62BC", "\u52A8", "pign"], "arrh": ["\u5B9A\u91D1", "\u52A8", "arrh"], "salar": ["\u85AA\u4FF8", "\u52A8", "salar"], "monet": ["\u94F8\u5E01", "\u52A8", "monet"], "numm": ["\u94B1\u5E01", "\u52A8", "numm"], "denar": ["\u94F6\u94B1", "\u52A8", "denar"], "talen": ["\u5927\u989D\u8D27\u5E01", "\u52A8", "talen"], "drach": ["\u8D27\u5E01\u5355\u4F4D", "\u52A8", "drach"], "merca": ["\u5E02\u573A", "\u52A8", "merca"], "nundi": ["\u96C6\u65E5", "\u52A8", "nundi"], "tabern": ["\u5E97\u94FA", "\u52A8", "tabern"], "instit": ["\u96F6\u552E\u5546", "\u52A8", "instit"], "credit": ["\u503A\u6743", "\u52A8", "credit"], "camb": ["\u5151\u6362", "\u52A8", "camb"], "stips": ["\u65BD\u820D", "\u52A8", "stips"], "locar": ["\u51FA\u79DF", "\u52A8", "locar"], "conduc": ["\u627F\u79DF", "\u52A8", "conduc"], "emptor": ["\u4E70\u4E3B", "\u52A8", "emptor"], "vendit": ["\u5356\u4E3B", "\u52A8", "vendit"], "preti": ["\u4F30\u4EF7", "\u52A8", "preti"], "aequip": ["\u7B49\u4EF7", "\u52A8", "aequip"], "compens": ["\u8865\u507F", "\u52A8", "compens"], "lucrif": ["\u725F\u5229", "\u52A8", "lucrif"], "damn": ["\u4E8F\u635F", "\u52A8", "damn"], "fener": ["\u653E\u8D37", "\u52A8", "fener"], "nummul": ["\u94B1\u5E84", "\u52A8", "nummul"], "epist": ["\u4E66\u4FE1", "\u7269", "epist"], "cod": ["\u518C", "\u7269", "cod"], "signac": ["\u5C01\u5370", "\u7269", "signac"], "curs": ["\u4FE1\u4F7F", "\u7269", "curs"], "procl": ["\u516C\u544A", "\u7269", "procl"], "mandat": ["\u547D\u4EE4\u4E66", "\u7269", "mandat"], "tom": ["\u5377", "\u7269", "tom"], "titul": ["\u6807\u9898", "\u7269", "titul"], "capit": ["\u7AE0\u8282", "\u7269", "capit"], "interp": ["\u89E3\u91CA", "\u7269", "interp"], "exege": ["\u758F\u89E3", "\u7269", "exege"], "transfer": ["\u8F6C\u8FBE", "\u7269", "transfer"], "nuntia": ["\u901A\u62A5", "\u7269", "nuntia"], "ephemer": ["\u4F20\u5355", "\u7269", "ephemer"], "libell": ["\u5C0F\u518C", "\u7269", "libell"], "pagella": ["\u4E66\u9875", "\u7269", "pagella"], "versio": ["\u8BD1\u672C", "\u7269", "versio"], "notar": ["\u901F\u8BB0", "\u7269", "notar"], "sigill": ["\u5C01\u7F04", "\u7269", "sigill"], "chiro": ["\u624B\u4E66", "\u7269", "chiro"], "tabul": ["\u6848\u5377", "\u7269", "tabul"], "semit": ["\u5C0F\u5F84", "\u7269", "semit"], "tram": ["\u5C94\u8DEF", "\u7269", "tram"], "diver": ["\u5C94\u53E3", "\u7269", "diver"], "caup": ["\u5BA2\u6808", "\u7269", "caup"], "stabu": ["\u53A9\u820D", "\u7269", "stabu"], "stratum": ["\u5E8A\u94FA", "\u7269", "stratum"], "pulv": ["\u6795", "\u7269", "pulv"], "strag": ["\u88AB\u8925", "\u7269", "strag"], "mensa": ["\u9910\u684C", "\u7269", "mensa"], "camin": ["\u58C1\u7089", "\u7269", "camin"], "lych": ["\u706F", "\u7269", "lych"], "sarcin": ["\u884C\u56CA", "\u7269", "sarcin"], "migr": ["\u8FC1\u5F99", "\u7269", "migr"], "comme": ["\u901A\u884C", "\u7269", "comme"], "viatic": ["\u65C5\u8D39", "\u7269", "viatic"], "devers": ["\u9A7F\u820D", "\u7269", "devers"], "mans": ["\u5BBF\u7AD9", "\u7269", "mans"], "exped": ["\u8FDC\u5F81", "\u7269", "exped"], "peregr": ["\u8FDC\u6E38", "\u7269", "peregr"], "profect": ["\u51FA\u53D1", "\u7269", "profect"], "redit": ["\u5F52\u6765", "\u7269", "redit"], "vad": ["\u6D89\u6E21", "\u7269", "vad"], "transit": ["\u8FC7\u5883", "\u7269", "transit"], "column": ["\u67F1", "\u7269", "column"], "episty": ["\u67F1\u9876", "\u7269", "episty"], "arcus": ["\u62F1", "\u7269", "arcus"], "pod": ["\u53F0\u57FA", "\u7269", "pod"], "exedr": ["\u5385", "\u7269", "exedr"], "latri": ["\u5395", "\u7269", "latri"], "piscin": ["\u6C34\u6C60", "\u7269", "piscin"], "hort": ["\u56ED", "\u7269", "hort"], "domus": ["\u5B85", "\u7269", "domus"], "fan": ["\u5723\u6240", "\u7269", "fan"], "delubr": ["\u795E\u9F9B", "\u7269", "delubr"], "imbri": ["\u7B52\u74E6", "\u7269", "imbri"], "antae": ["\u58C1\u67F1", "\u7269", "antae"], "posti": ["\u95E8\u67F1", "\u7269", "posti"], "cardo": ["\u95E8\u67A2", "\u7269", "cardo"], "claustr": ["\u95E9\u9501", "\u7269", "claustr"], "fores": ["\u53CC\u6249", "\u7269", "fores"], "fenest": ["\u7A97\u7256", "\u7269", "fenest"], "scalis": ["\u9636\u68AF", "\u7269", "scalis"], "subsell": ["\u957F\u51F3", "\u7269", "subsell"], "armar": ["\u6A71\u67DC", "\u7269", "armar"], "cubil": ["\u5367\u69BB", "\u7269", "cubil"], "impluvi": ["\u5929\u4E95", "\u7269", "impluvi"], "compluvi": ["\u5EAD\u9662\u9876", "\u7269", "compluvi"], "vestibu": ["\u95E8\u5385", "\u7269", "vestibu"], "antl": ["\u6C34\u6CF5", "\u7269", "antl"], "siph": ["\u8679\u5438", "\u7269", "siph"], "spira": ["\u87BA\u65CB", "\u7269", "spira"], "catar": ["\u95F8\u95E8", "\u7269", "catar"], "rotat": ["\u65CB\u8F6C", "\u7269", "rotat"], "pression": ["\u538B\u52A8", "\u7269", "pression"], "impuls": ["\u63A8\u52A8", "\u7269", "impuls"], "motri": ["\u539F\u52A8", "\u7269", "motri"], "vecti": ["\u4F20\u52A8", "\u7269", "vecti"], "dentat": ["\u9F7F\u8F6E", "\u7269", "dentat"], "cochle": ["\u87BA\u65CB\u6746", "\u7269", "cochle"], "sucul": ["\u7EDE\u76D8", "\u7269", "sucul"], "fornac": ["\u7089\u819B", "\u7269", "fornac"], "valv": ["\u9600\u95E8", "\u7269", "valv"], "tubul": ["\u7BA1\u9053", "\u7269", "tubul"], "haust": ["\u6C72\u6C34", "\u7269", "haust"], "elevat": ["\u63D0\u5347", "\u7269", "elevat"], "communic": ["\u8FDE\u901A", "\u7269", "communic"], "fim": ["\u53A9\u80A5", "\u7269", "fim"], "glum": ["\u8C37\u58F3", "\u7269", "glum"], "spic": ["\u7A57", "\u7269", "spic"], "mol": ["\u78E8", "\u7269", "mol"], "pistr": ["\u78E8\u574A", "\u7269", "pistr"], "furn": ["\u70E4\u7089", "\u7269", "furn"], "hord": ["\u5927\u9EA6", "\u7269", "hord"], "aven": ["\u71D5\u9EA6", "\u7269", "aven"], "case": ["\u5976\u916A", "\u7269", "case"], "buty": ["\u9EC4\u6CB9", "\u7269", "buty"], "pipe": ["\u80E1\u6912", "\u7269", "pipe"], "pult": ["\u7CA5", "\u7269", "pult"], "malum": ["\u82F9\u679C", "\u7269", "malum"], "fic": ["\u65E0\u82B1\u679C", "\u7269", "fic"], "uv": ["\u8461\u8404", "\u7269", "uv"], "nuc": ["\u575A\u679C", "\u7269", "nuc"], "rapa": ["\u829C\u83C1", "\u7269", "rapa"], "all": ["\u849C", "\u7269", "all"], "cep": ["\u6D0B\u8471", "\u7269", "cep"], "beta": ["\u751C\u83DC", "\u7269", "beta"], "cucurbi": ["\u74DC", "\u7269", "cucurbi"], "legum": ["\u8C46", "\u7269", "legum"], "lactuc": ["\u83B4\u82E3", "\u7269", "lactuc"], "prun": ["\u674E", "\u7269", "prun"], "ceras": ["\u6A31\u6843", "\u7269", "ceras"], "persic": ["\u6843", "\u7269", "persic"], "pir": ["\u68A8", "\u7269", "pir"], "sympt": ["\u75C7\u72B6", "\u52A8", "sympt"], "diagn": ["\u8BCA\u65AD", "\u52A8", "diagn"], "thera": ["\u6CBB\u7597", "\u52A8", "thera"], "anato": ["\u89E3\u5256", "\u52A8", "anato"], "muscul": ["\u808C\u8089", "\u52A8", "muscul"], "pulm": ["\u80BA", "\u52A8", "pulm"], "hepat": ["\u809D", "\u52A8", "hepat"], "ren": ["\u80BE", "\u52A8", "ren"], "ventr": ["\u8179", "\u52A8", "ventr"], "cut": ["\u80A4", "\u52A8", "cut"], "capill": ["\u53D1", "\u52A8", "capill"], "luxa": ["\u8131\u81FC", "\u52A8", "luxa"], "valetu": ["\u7597\u517B\u9662", "\u52A8", "valetu"], "febri": ["\u70ED\u75C5", "\u52A8", "febri"], "pesti": ["\u75AB\u75C5", "\u52A8", "pesti"], "veneni": ["\u6BD2\u7269", "\u52A8", "veneni"], "cicatr": ["\u75A4\u75D5", "\u52A8", "cicatr"], "medic": ["\u533B\u672F", "\u52A8", "medic"], "pharmac": ["\u836F\u8349", "\u52A8", "pharmac"], "obstetric": ["\u4EA7\u79D1", "\u52A8", "obstetric"], "anesthes": ["\u9EBB\u9189", "\u52A8", "anesthes"], "intestin": ["\u80A0", "\u52A8", "intestin"], "stomach": ["\u80C3", "\u52A8", "stomach"], "accus": ["\u63A7\u544A", "\u52A8", "accus"], "delic": ["\u8FDD\u6CD5", "\u52A8", "delic"], "fraud": ["\u6B3A\u8BC8", "\u52A8", "fraud"], "furt": ["\u76D7\u7A83", "\u52A8", "furt"], "iniu": ["\u4FB5\u5BB3", "\u52A8", "iniu"], "homic": ["\u6740\u4EBA", "\u52A8", "homic"], "adult": ["\u901A\u5978", "\u52A8", "adult"], "periur": ["\u4F2A\u8A93", "\u52A8", "periur"], "calum": ["\u8BEC\u544A", "\u52A8", "calum"], "iurisc": ["\u6CD5\u5B66\u5BB6", "\u52A8", "iurisc"], "provo": ["\u4E0A\u8BC9", "\u52A8", "provo"], "appell": ["\u7533\u8BC9", "\u52A8", "appell"], "damnat": ["\u5224\u7F6A", "\u52A8", "damnat"], "absolut": ["\u5F00\u91CA", "\u52A8", "absolut"], "caut": ["\u62C5\u4FDD", "\u52A8", "caut"], "fideiuss": ["\u4FDD\u8BC1", "\u52A8", "fideiuss"], "transact": ["\u548C\u89E3", "\u52A8", "transact"], "arbitr": ["\u4EF2\u88C1", "\u52A8", "arbitr"], "pacti": ["\u7EA6\u5B9A", "\u52A8", "pacti"], "stipulat": ["\u8981\u5F0F", "\u52A8", "stipulat"], "deposit": ["\u5BC4\u5B58", "\u52A8", "deposit"], "commodat": ["\u501F\u7528", "\u52A8", "commodat"], "usucap": ["\u65F6\u6548\u53D6\u5F97", "\u52A8", "usucap"], "possess": ["\u5360\u6709", "\u52A8", "possess"], "domin": ["\u6240\u6709\u6743", "\u52A8", "domin"], "servitut": ["\u5730\u5F79", "\u52A8", "servitut"], "proel": ["\u4F1A\u6218", "\u52A8", "proel"], "acie": ["\u9635\u5217", "\u52A8", "acie"], "pedit": ["\u6B65\u5175", "\u52A8", "pedit"], "arie": ["\u653B\u57CE\u69CC", "\u52A8", "arie"], "agger": ["\u571F\u5792", "\u52A8", "agger"], "spicu": ["\u77DB\u5C16", "\u52A8", "spicu"], "strat": ["\u6218\u7565", "\u52A8", "strat"], "takt": ["\u6218\u672F", "\u52A8", "takt"], "victo": ["\u80DC\u5229", "\u52A8", "victo"], "dedit": ["\u6295\u964D", "\u52A8", "dedit"], "indut": ["\u4F11\u6218", "\u52A8", "indut"], "equita": ["\u9A91\u5175", "\u52A8", "equita"], "sagitt": ["\u7BAD\u624B", "\u52A8", "sagitt"], "fundit": ["\u6295\u77F3\u624B", "\u52A8", "fundit"], "ballist": ["\u5F29\u70AE\u624B", "\u52A8", "ballist"], "signif": ["\u65D7\u624B", "\u52A8", "signif"], "tubic": ["\u53F7\u624B", "\u52A8", "tubic"], "cornic": ["\u53F7\u89D2\u624B", "\u52A8", "cornic"], "obsid": ["\u56F4\u57CE", "\u52A8", "obsid"], "expugn": ["\u5F3A\u653B", "\u52A8", "expugn"], "propugn": ["\u5B88\u5FA1", "\u52A8", "propugn"], "praesidi": ["\u5B88\u5907", "\u52A8", "praesidi"], "excubi": ["\u5C97\u54E8", "\u52A8", "excubi"], "bibli": ["\u85CF\u4E66", "\u7269", "bibli"], "acad": ["\u5B66\u56ED", "\u7269", "acad"], "gym": ["\u4F53\u80B2\u573A", "\u7269", "gym"], "histo": ["\u5386\u53F2", "\u7269", "histo"], "geogr": ["\u5730\u7406", "\u7269", "geogr"], "theol": ["\u795E\u5B66", "\u7269", "theol"], "disput": ["\u8FA9\u8BBA", "\u7269", "disput"], "exper": ["\u5B9E\u9A8C", "\u7269", "exper"], "theore": ["\u5B9A\u7406", "\u7269", "theore"], "didact": ["\u6559\u5B66\u6CD5", "\u7269", "didact"], "paidei": ["\u6559\u5316", "\u7269", "paidei"], "scholar": ["\u5B66\u4EBA", "\u7269", "scholar"], "discipul": ["\u95E8\u751F", "\u7269", "discipul"], "praecept": ["\u6559\u8BEB", "\u7269", "praecept"], "exercit": ["\u7EC3\u4E60", "\u7269", "exercit"], "commen": ["\u6CE8\u758F", "\u7269", "commen"], "gloss": ["\u7B3A\u6CE8", "\u7269", "gloss"], "annotat": ["\u6279\u6CE8", "\u7269", "annotat"], "compend": ["\u7EB2\u8981", "\u7269", "compend"], "epitom": ["\u6458\u8981", "\u7269", "epitom"], "cursus": ["\u8BFE\u7A0B", "\u7269", "cursus"], "studios": ["\u52E4\u5B66\u8005", "\u7269", "studios"], "statu": ["\u96D5\u50CF", "\u7269", "statu"], "trago": ["\u60B2\u5267", "\u7269", "trago"], "comoe": ["\u559C\u5267", "\u7269", "comoe"], "person": ["\u89D2\u8272", "\u7269", "person"], "cithar": ["\u7AD6\u7434", "\u7269", "cithar"], "cymb": ["\u94D9\u94B9", "\u7269", "cymb"], "poes": ["\u8BD7\u827A", "\u7269", "poes"], "metr": ["\u683C\u5F8B", "\u7269", "metr"], "pictor": ["\u753B\u5E08", "\u7269", "pictor"], "sculptor": ["\u96D5\u523B\u5E08", "\u7269", "sculptor"], "archit": ["\u5EFA\u7B51\u5E08", "\u7269", "archit"], "aulos": ["\u53CC\u7BA1\u7B1B", "\u7269", "aulos"], "syrinx": ["\u6392\u7BAB", "\u7269", "syrinx"], "orchestr": ["\u4E50\u6C60", "\u7269", "orchestr"], "pantomim": ["\u54D1\u5267", "\u7269", "pantomim"], "fabulat": ["\u7F16\u5267", "\u7269", "fabulat"], "versific": ["\u4F5C\u8BD7", "\u7269", "versific"], "recitat": ["\u6717\u8BF5", "\u7269", "recitat"], "improvis": ["\u5373\u5174", "\u7269", "improvis"], "virtuos": ["\u540D\u5BB6", "\u7269", "virtuos"], "divus": ["\u795E\u660E", "\u7269", "divus"], "lar": ["\u5BB6\u795E", "\u7269", "lar"], "penat": ["\u5BB6\u795E", "\u7269", "penat"], "geni": ["\u5B88\u62A4\u7075", "\u7269", "geni"], "infe": ["\u51A5\u754C", "\u7269", "infe"], "elys": ["\u4E50\u571F", "\u7269", "elys"], "tartar": ["\u51A5\u6E0A", "\u7269", "tartar"], "char": ["\u6E21\u7075\u8005", "\u7269", "char"], "styx": ["\u51A5\u6CB3", "\u7269", "styx"], "orc": ["\u51A5\u5E9C", "\u7269", "orc"], "provi": ["\u5929\u547D", "\u7269", "provi"], "nemes": ["\u62A5\u5E94", "\u7269", "nemes"], "hybr": ["\u50ED\u8D8A", "\u7269", "hybr"], "piacul": ["\u8D4E\u7F6A", "\u7269", "piacul"], "exorc": ["\u9A71\u90AA", "\u7269", "exorc"], "devot": ["\u5949\u732E", "\u7269", "devot"], "oblat": ["\u4F9B\u7269", "\u7269", "oblat"], "libat": ["\u5960\u9152", "\u7269", "libat"], "incens": ["\u711A\u9999", "\u7269", "incens"], "harus": ["\u80A0\u535C", "\u7269", "harus"], "sibyll": ["\u795E\u8C15\u96C6", "\u7269", "sibyll"], "vaticin": ["\u795E\u8C15\u5BA3\u793A", "\u7269", "vaticin"], "plant": ["\u690D\u7269", "\u7269", "plant"], "vent": ["\u98CE", "\u7269", "vent"], "humu": ["\u571F\u58E4", "\u7269", "humu"], "mundu": ["\u4E16\u754C", "\u7269", "mundu"], "flor": ["\u82B1", "\u7269", "flor"], "faun": ["\u517D\u7FA4", "\u7269", "faun"], "flum": ["\u6CB3\u6D41", "\u7269", "flum"], "litor": ["\u6D77\u6EE8", "\u7269", "litor"], "glare": ["\u783E\u77F3", "\u7269", "glare"], "limos": ["\u6DE4\u6CE5", "\u7269", "limos"], "palud": ["\u6CBC\u6CFD", "\u7269", "palud"], "saltu": ["\u6797\u5730", "\u7269", "saltu"], "coll": ["\u4E18\u9675", "\u7269", "coll"], "planit": ["\u5E73\u539F", "\u7269", "planit"], "desert": ["\u8352\u6F20", "\u7269", "desert"], "oasi": ["\u7EFF\u6D32", "\u7269", "oasi"], "paenin": ["\u534A\u5C9B", "\u7269", "paenin"], "isthm": ["\u5730\u5CE1", "\u7269", "isthm"], "promon": ["\u6D77\u89D2", "\u7269", "promon"], "portu": ["\u6E2F\u6E7E", "\u7269", "portu"], "aestu": ["\u6CB3\u53E3", "\u7269", "aestu"], "iuven": ["\u9752\u6625", "\u7269", "iuven"], "infan": ["\u5E7C\u5E74", "\u7269", "infan"], "puer": ["\u7AE5\u5E74", "\u7269", "puer"], "adole": ["\u5C11\u5E74", "\u7269", "adole"], "femin": ["\u5973\u5B50", "\u7269", "femin"], "mas": ["\u7537\u5B50", "\u7269", "mas"], "prol": ["\u540E\u4EE3", "\u7269", "prol"], "hered": ["\u7EE7\u627F", "\u7269", "hered"], "here": ["\u7EE7\u627F\u4EBA", "\u7269", "here"], "funer": ["\u846C\u793C", "\u7269", "funer"], "sepul": ["\u57CB\u846C", "\u7269", "sepul"], "tumul": ["\u575F\u51A2", "\u7269", "tumul"], "vit": ["\u751F\u547D", "\u7269", "vit"], "natal": ["\u8BDE\u8FB0", "\u7269", "natal"], "obit": ["\u8F9E\u4E16", "\u7269", "obit"], "mortu": ["\u6B7B\u8005", "\u7269", "mortu"], "superstes": ["\u9057\u5B58", "\u7269", "superstes"], "vidu": ["\u5BE1\u5C45", "\u7269", "vidu"], "nubil": ["\u5A5A\u9F84", "\u7269", "nubil"], "caelib": ["\u72EC\u8EAB", "\u7269", "caelib"], "genet": ["\u751F\u80B2", "\u7269", "genet"], "thanat": ["\u6B7B\u4EA1", "\u7269", "thanat"], "physic": ["\u7269\u7406\u5B66", "\u7269", "physic"], "atom": ["\u539F\u5B50", "\u7269", "atom"], "molec": ["\u5206\u5B50", "\u7269", "molec"], "kines": ["\u8FD0\u52A8", "\u7269", "kines"], "statik": ["\u9759\u529B\u5B66", "\u7269", "statik"], "mech": ["\u529B\u5B66", "\u7269", "mech"], "mass": ["\u8D28\u91CF", "\u7269", "mass"], "acceler": ["\u52A0\u901F\u5EA6", "\u7269", "acceler"], "gravit": ["\u5F15\u529B", "\u7269", "gravit"], "inert": ["\u60EF\u6027", "\u7269", "inert"], "elast": ["\u5F39\u6027", "\u7269", "elast"], "vibr": ["\u632F\u52A8", "\u7269", "vibr"], "frequent": ["\u9891\u7387", "\u7269", "frequent"], "amplitud": ["\u632F\u5E45", "\u7269", "amplitud"], "reson": ["\u5171\u632F", "\u7269", "reson"], "fluid": ["\u6D41\u4F53", "\u7269", "fluid"], "viscos": ["\u9ECF\u6027", "\u7269", "viscos"], "entropi": ["\u71B5", "\u7269", "entropi"], "radiat": ["\u8F90\u5C04", "\u7269", "radiat"], "conduct": ["\u4F20\u5BFC", "\u7269", "conduct"], "convect": ["\u5BF9\u6D41", "\u7269", "convect"], "induct": ["\u611F\u5E94", "\u7269", "induct"], "optic": ["\u5149\u5B66", "\u7269", "optic"], "acust": ["\u58F0\u5B66", "\u7269", "acust"], "chemis": ["\u5316\u5B66", "\u7269", "chemis"], "solvent": ["\u6EB6\u5242", "\u7269", "solvent"], "solute": ["\u6EB6\u8D28", "\u7269", "solute"], "reduct": ["\u8FD8\u539F", "\u7269", "reduct"], "compos": ["\u5316\u5408\u7269", "\u7269", "compos"], "neutr": ["\u4E2D\u6027", "\u7269", "neutr"], "ion": ["\u79BB\u5B50", "\u7269", "ion"], "cation": ["\u9633\u79BB\u5B50", "\u7269", "cation"], "anion": ["\u9634\u79BB\u5B50", "\u7269", "anion"], "electro": ["\u7535\u6781", "\u7269", "electro"], "valent": ["\u5316\u5408\u4EF7", "\u7269", "valent"], "mole": ["\u6469\u5C14", "\u7269", "mole"], "concent": ["\u6D53\u5EA6", "\u7269", "concent"], "volatil": ["\u6325\u53D1\u6027", "\u7269", "volatil"], "combust": ["\u71C3\u70E7", "\u7269", "combust"], "inciner": ["\u711A\u5316", "\u7269", "inciner"], "alloy": ["\u5408\u91D1", "\u7269", "alloy"], "amalgam": ["\u6C5E\u9F50", "\u7269", "amalgam"], "reagen": ["\u8BD5\u5242", "\u7269", "reagen"], "crucib": ["\u5769\u57DA", "\u7269", "crucib"], "retort": ["\u84B8\u998F\u5668", "\u7269", "retort"], "alembic": ["\u84B8\u998F\u91DC", "\u7269", "alembic"], "hygro": ["\u5438\u6E7F", "\u7269", "hygro"], "titrat": ["\u6EF4\u5B9A", "\u7269", "titrat"], "kat": ["\u50AC\u5316", "\u7269", "kat"], "cellul": ["\u7EC6\u80DE", "\u7269", "cellul"], "viscer": ["\u810F\u8151", "\u7269", "viscer"], "chromos": ["\u67D3\u8272\u4F53", "\u7269", "chromos"], "evolut": ["\u8FDB\u5316", "\u7269", "evolut"], "ecol": ["\u751F\u6001", "\u7269", "ecol"], "ambie": ["\u73AF\u5883", "\u7269", "ambie"], "biom": ["\u751F\u7269\u7FA4\u7CFB", "\u7269", "biom"], "biosph": ["\u751F\u7269\u5708", "\u7269", "biosph"], "habitat": ["\u6816\u606F\u5730", "\u7269", "habitat"], "niche": ["\u751F\u6001\u4F4D", "\u7269", "niche"], "symbio": ["\u5171\u751F", "\u7269", "symbio"], "parasit": ["\u5BC4\u751F", "\u7269", "parasit"], "nutrien": ["\u517B\u5206", "\u7269", "nutrien"], "metabol": ["\u4EE3\u8C22", "\u7269", "metabol"], "photos": ["\u5149\u5408", "\u7269", "photos"], "germin": ["\u53D1\u82BD", "\u7269", "germin"], "pollinat": ["\u6388\u7C89", "\u7269", "pollinat"], "fecund": ["\u7E41\u6B96\u529B", "\u7269", "fecund"], "steril": ["\u4E0D\u80B2", "\u7269", "steril"], "adapt": ["\u9002\u5E94", "\u7269", "adapt"], "ecosys": ["\u751F\u6001\u7CFB\u7EDF", "\u7269", "ecosys"], "biolo": ["\u751F\u7269\u5B66", "\u7269", "biolo"], "zoolo": ["\u52A8\u7269\u5B66", "\u7269", "zoolo"], "botan": ["\u690D\u7269\u5B66", "\u7269", "botan"], "miner": ["\u77FF\u7269", "\u7269", "miner"], "sediment": ["\u6C89\u79EF", "\u7269", "sediment"], "erosion": ["\u4FB5\u8680", "\u7269", "erosion"], "vulcan": ["\u706B\u5C71", "\u7269", "vulcan"], "seism": ["\u5730\u9707", "\u7269", "seism"], "magma": ["\u5CA9\u6D46", "\u7269", "magma"], "fossil": ["\u5316\u77F3", "\u7269", "fossil"], "tecton": ["\u677F\u5757", "\u7269", "tecton"], "fault": ["\u65AD\u5C42", "\u7269", "fault"], "orogen": ["\u9020\u5C71", "\u7269", "orogen"], "geolo": ["\u5730\u8D28\u5B66", "\u7269", "geolo"], "quarr": ["\u91C7\u77F3\u573A", "\u7269", "quarr"], "vein": ["\u77FF\u8109", "\u7269", "vein"], "chalk": ["\u77FF\u77F3", "\u7269", "chalk"], "stalac": ["\u949F\u4E73\u77F3", "\u7269", "stalac"], "karst": ["\u5580\u65AF\u7279", "\u7269", "karst"], "loess": ["\u9EC4\u571F", "\u7269", "loess"], "clay": ["\u9ECF\u571F", "\u7269", "clay"], "silt": ["\u7C89\u7802", "\u7269", "silt"], "sandst": ["\u7802\u5CA9", "\u7269", "sandst"], "calcar": ["\u77F3\u7070\u5CA9", "\u7269", "calcar"], "granit": ["\u82B1\u5C97\u5CA9", "\u7269", "granit"], "basalt": ["\u7384\u6B66\u5CA9", "\u7269", "basalt"], "slate": ["\u677F\u5CA9", "\u7269", "slate"], "quartz": ["\u77F3\u82F1", "\u7269", "quartz"], "supern": ["\u8D85\u65B0\u661F", "\u7269", "supern"], "quasar": ["\u7C7B\u661F\u4F53", "\u7269", "quasar"], "pulsar": ["\u8109\u51B2\u661F", "\u7269", "pulsar"], "astero": ["\u5C0F\u884C\u661F", "\u7269", "astero"], "meteor": ["\u6D41\u661F", "\u7269", "meteor"], "meteorit": ["\u9668\u77F3", "\u7269", "meteorit"], "satellit": ["\u536B\u661F", "\u7269", "satellit"], "aphel": ["\u8FDC\u65E5\u70B9", "\u7269", "aphel"], "perihe": ["\u8FD1\u65E5\u70B9", "\u7269", "perihe"], "equator": ["\u8D64\u9053", "\u7269", "equator"], "constel": ["\u661F\u5EA7", "\u7269", "constel"], "vacuum": ["\u771F\u7A7A", "\u7269", "vacuum"], "sidere": ["\u6052\u661F\u65F6", "\u7269", "sidere"], "occult": ["\u63A9\u661F", "\u7269", "occult"], "nadir": ["\u5929\u5E95", "\u7269", "nadir"], "azimuth": ["\u65B9\u4F4D\u89D2", "\u7269", "azimuth"], "declin": ["\u8D64\u7EAC", "\u7269", "declin"], "ascen": ["\u8D64\u7ECF", "\u7269", "ascen"], "cosmog": ["\u5B87\u5B99\u8D77\u6E90", "\u7269", "cosmog"], "parall": ["\u89C6\u5DEE", "\u7269", "parall"], "luminos": ["\u5149\u5EA6", "\u7269", "luminos"], "spectr": ["\u5149\u8C31", "\u7269", "spectr"], "radio": ["\u5C04\u7535", "\u7269", "radio"], "infrar": ["\u7EA2\u5916", "\u7269", "infrar"], "ultrav": ["\u7D2B\u5916", "\u7269", "ultrav"], "climat": ["\u6C14\u5019", "\u7269", "climat"], "atmos": ["\u5927\u6C14\u5C42", "\u7269", "atmos"], "barom": ["\u6C14\u538B\u8BA1", "\u7269", "barom"], "anemo": ["\u98CE\u901F\u8BA1", "\u7269", "anemo"], "irid": ["\u8679", "\u7269", "irid"], "halo": ["\u6655", "\u7269", "halo"], "monsun": ["\u5B63\u98CE", "\u7269", "monsun"], "cyclon": ["\u6C14\u65CB", "\u7269", "cyclon"], "anticy": ["\u53CD\u6C14\u65CB", "\u7269", "anticy"], "typh": ["\u53F0\u98CE", "\u7269", "typh"], "tornad": ["\u9F99\u5377", "\u7269", "tornad"], "sleet": ["\u96E8\u5939\u96EA", "\u7269", "sleet"], "droug": ["\u5E72\u65F1", "\u7269", "droug"], "diluv": ["\u5927\u6D2A\u6C34", "\u7269", "diluv"], "blizz": ["\u66B4\u96EA", "\u7269", "blizz"], "drizz": ["\u7EC6\u96E8", "\u7269", "drizz"], "downp": ["\u503E\u76C6", "\u7269", "downp"], "subtro": ["\u4E9A\u70ED\u5E26", "\u7269", "subtro"], "altocu": ["\u9AD8\u79EF\u4E91", "\u7269", "altocu"], "cumulo": ["\u79EF\u96E8\u4E91", "\u7269", "cumulo"], "strati": ["\u5C42\u4E91", "\u7269", "strati"], "cirr": ["\u5377\u4E91", "\u7269", "cirr"], "nimbo": ["\u96E8\u5C42\u4E91", "\u7269", "nimbo"], "condens": ["\u51DD\u7ED3", "\u7269", "condens"], "isoth": ["\u7B49\u6E29\u7EBF", "\u7269", "isoth"], "emot": ["\u60C5\u7EEA", "\u6027", "emot"], "charact": ["\u6027\u683C", "\u6027", "charact"], "intell": ["\u667A\u529B", "\u6027", "intell"], "aptitud": ["\u624D\u80FD", "\u6027", "aptitud"], "instinct": ["\u672C\u80FD", "\u6027", "instinct"], "frustr": ["\u632B\u6298", "\u6027", "frustr"], "conflict": ["\u51B2\u7A81", "\u6027", "conflict"], "depress": ["\u6291\u90C1", "\u6027", "depress"], "mania": ["\u8E81\u72C2", "\u6027", "mania"], "phobia": ["\u6050\u60E7\u75C7", "\u6027", "phobia"], "obsess": ["\u6267\u5FF5", "\u6027", "obsess"], "compuls": ["\u5F3A\u8FEB", "\u6027", "compuls"], "trauma": ["\u521B\u4F24", "\u6027", "trauma"], "accommod": ["\u987A\u5E94", "\u6027", "accommod"], "ego": ["\u81EA\u6211", "\u6027", "ego"], "attitude": ["\u6001\u5EA6", "\u6027", "attitude"], "creden": ["\u4FE1\u5FF5", "\u6027", "creden"], "preju": ["\u504F\u89C1", "\u6027", "preju"], "stereo": ["\u523B\u677F", "\u6027", "stereo"], "empath": ["\u5171\u60C5", "\u6027", "empath"], "sympath": ["\u540C\u60C5", "\u6027", "sympath"], "antipath": ["\u53CD\u611F", "\u6027", "antipath"], "sentiment": ["\u60C5\u611F", "\u6027", "sentiment"], "passion": ["\u6FC0\u60C5", "\u6027", "passion"], "ambition": ["\u96C4\u5FC3", "\u6027", "ambition"], "hierar": ["\u7B49\u7EA7\u5236", "\u7269", "hierar"], "libertus": ["\u81EA\u7531\u6C11", "\u7269", "libertus"], "margin": ["\u8FB9\u7F18\u4EBA", "\u7269", "margin"], "elite": ["\u7CBE\u82F1", "\u7269", "elite"], "prolet": ["\u65E0\u4EA7\u8005", "\u7269", "prolet"], "burgens": ["\u5E02\u6C11", "\u7269", "burgens"], "arist": ["\u8D35\u65CF\u5236", "\u7269", "arist"], "oliga": ["\u5BE1\u5934", "\u7269", "oliga"], "democr": ["\u6C11\u4E3B", "\u7269", "democr"], "monar": ["\u541B\u4E3B\u5236", "\u7269", "monar"], "tyrann": ["\u66B4\u541B", "\u7269", "tyrann"], "republic": ["\u5171\u548C", "\u7269", "republic"], "feud": ["\u5C01\u5EFA", "\u7269", "feud"], "caste": ["\u79CD\u59D3", "\u7269", "caste"], "union": ["\u8054\u76DF", "\u7269", "union"], "faction": ["\u6D3E\u7CFB", "\u7269", "faction"], "assem": ["\u8BAE\u4F1A", "\u7269", "assem"], "parlia": ["\u56FD\u4F1A", "\u7269", "parlia"], "elector": ["\u9009\u6C11", "\u7269", "elector"], "candida": ["\u5019\u9009\u4EBA", "\u7269", "candida"], "presti": ["\u58F0\u671B", "\u7269", "presti"], "mobil": ["\u6D41\u52A8", "\u7269", "mobil"], "inequ": ["\u4E0D\u5E73\u7B49", "\u7269", "inequ"], "privileg": ["\u7279\u6743", "\u7269", "privileg"], "rebell": ["\u53CD\u6297", "\u7269", "rebell"], "suppl": ["\u4F9B\u7ED9", "\u52A8", "suppl"], "deman": ["\u9700\u6C42", "\u52A8", "deman"], "bank": ["\u94F6\u884C", "\u52A8", "bank"], "capital": ["\u8D44\u672C", "\u52A8", "capital"], "consum": ["\u6D88\u8D39", "\u52A8", "consum"], "distribut": ["\u5206\u914D", "\u52A8", "distribut"], "invest": ["\u6295\u8D44", "\u52A8", "invest"], "inflation": ["\u901A\u80C0", "\u52A8", "inflation"], "deflation": ["\u901A\u7F29", "\u52A8", "deflation"], "budget": ["\u9884\u7B97", "\u52A8", "budget"], "reven": ["\u6536\u5165", "\u52A8", "reven"], "expend": ["\u652F\u51FA", "\u52A8", "expend"], "deficit": ["\u8D64\u5B57", "\u52A8", "deficit"], "surplus": ["\u76C8\u4F59", "\u52A8", "surplus"], "tarif": ["\u5173\u7A0E", "\u52A8", "tarif"], "quota": ["\u914D\u989D", "\u52A8", "quota"], "competit": ["\u7ADE\u4E89", "\u52A8", "competit"], "barter": ["\u4EE5\u7269\u6613\u7269", "\u52A8", "barter"], "currency": ["\u901A\u8D27", "\u52A8", "currency"], "stock": ["\u80A1\u4EFD", "\u52A8", "stock"], "dividend": ["\u80A1\u606F", "\u52A8", "dividend"], "oblig": ["\u503A\u5238", "\u52A8", "oblig"], "premium": ["\u4FDD\u8D39", "\u52A8", "premium"], "pension": ["\u5E74\u91D1", "\u52A8", "pension"], "constitu": ["\u5BAA\u6CD5", "\u7269", "constitu"], "statute": ["\u6210\u6587\u6CD5", "\u7269", "statute"], "aequit": ["\u8861\u5E73", "\u7269", "aequit"], "respons": ["\u8D23\u4EFB", "\u7269", "respons"], "innoc": ["\u65E0\u7F6A", "\u7269", "innoc"], "verdict": ["\u88C1\u51B3", "\u7269", "verdict"], "petition": ["\u8BF7\u613F", "\u7269", "petition"], "actor": ["\u539F\u544A", "\u7269", "actor"], "attorn": ["\u4EE3\u7406\u4EBA", "\u7269", "attorn"], "litig": ["\u4E89\u8BBC", "\u7269", "litig"], "iurisd": ["\u7BA1\u8F96", "\u7269", "iurisd"], "preced": ["\u5148\u4F8B", "\u7269", "preced"], "mediation": ["\u8C03\u89E3", "\u7269", "mediation"], "pardon": ["\u8D66\u514D", "\u7269", "pardon"], "amnesty": ["\u5927\u8D66", "\u7269", "amnesty"], "extrad": ["\u5F15\u6E21", "\u7269", "extrad"], "torture": ["\u9177\u5211", "\u7269", "torture"], "citat": ["\u4F20\u5524", "\u7269", "citat"], "warrant": ["\u4EE4\u72B6", "\u7269", "warrant"], "subpoe": ["\u4F20\u7968", "\u7269", "subpoe"], "affidav": ["\u5BA3\u8A93\u4E66", "\u7269", "affidav"], "lien": ["\u7559\u7F6E\u6743", "\u7269", "lien"], "trespass": ["\u4FB5\u5165", "\u7269", "trespass"], "neglig": ["\u8FC7\u5931", "\u7269", "neglig"], "guardi": ["\u76D1\u62A4\u4EBA", "\u7269", "guardi"], "vaccine": ["\u75AB\u82D7", "\u7269", "vaccine"], "immun": ["\u514D\u75AB", "\u7269", "immun"], "antibi": ["\u6297\u751F\u7D20", "\u7269", "antibi"], "virus": ["\u75C5\u6BD2", "\u7269", "virus"], "bacteri": ["\u7EC6\u83CC", "\u7269", "bacteri"], "inflam": ["\u708E\u75C7", "\u7269", "inflam"], "syndrome": ["\u7EFC\u5408\u5F81", "\u7269", "syndrome"], "dosis": ["\u5242\u91CF", "\u7269", "dosis"], "praesc": ["\u5904\u65B9", "\u7269", "praesc"], "clinic": ["\u8BCA\u6240", "\u7269", "clinic"], "hospital": ["\u533B\u9662", "\u7269", "hospital"], "cheirur": ["\u5916\u79D1\u533B\u5E08", "\u7269", "cheirur"], "ambula": ["\u6551\u62A4\u8F66", "\u7269", "ambula"], "scalpe": ["\u624B\u672F\u5200", "\u7269", "scalpe"], "bandag": ["\u7EF7\u5E26", "\u7269", "bandag"], "splint": ["\u5939\u677F", "\u7269", "splint"], "crutch": ["\u62D0\u6756", "\u7269", "crutch"], "prosthe": ["\u5047\u80A2", "\u7269", "prosthe"], "transpl": ["\u79FB\u690D", "\u7269", "transpl"], "dialysis": ["\u900F\u6790", "\u7269", "dialysis"], "transfu": ["\u8F93\u8840", "\u7269", "transfu"], "onco": ["\u80BF\u7624", "\u7269", "onco"], "cardio": ["\u5FC3\u810F", "\u7269", "cardio"], "pediat": ["\u513F\u79D1", "\u7269", "pediat"], "turbine": ["\u6DA1\u8F6E", "\u7269", "turbine"], "generator": ["\u53D1\u7535\u673A", "\u7269", "generator"], "piston": ["\u6D3B\u585E", "\u7269", "piston"], "cylind": ["\u6C7D\u7F38", "\u7269", "cylind"], "bolt": ["\u87BA\u6813", "\u7269", "bolt"], "rivet": ["\u94C6\u9489", "\u7269", "rivet"], "weld": ["\u710A\u63A5", "\u7269", "weld"], "sold": ["\u948E\u710A", "\u7269", "sold"], "foundr": ["\u94F8\u9020\u5382", "\u7269", "foundr"], "lathe": ["\u8F66\u5E8A", "\u7269", "lathe"], "circuit": ["\u7535\u8DEF", "\u7269", "circuit"], "amper": ["\u7535\u6D41", "\u7269", "amper"], "voltag": ["\u7535\u538B", "\u7269", "voltag"], "resist": ["\u7535\u963B", "\u7269", "resist"], "inductor": ["\u7535\u611F", "\u7269", "inductor"], "transistor": ["\u6676\u4F53\u7BA1", "\u7269", "transistor"], "diod": ["\u4E8C\u6781\u7BA1", "\u7269", "diod"], "semico": ["\u534A\u5BFC\u4F53", "\u7269", "semico"], "chip": ["\u82AF\u7247", "\u7269", "chip"], "algor": ["\u7B97\u6CD5", "\u7269", "algor"], "program": ["\u7A0B\u5E8F", "\u7269", "program"], "protocol": ["\u534F\u8BAE", "\u7269", "protocol"], "crypt": ["\u52A0\u5BC6", "\u7269", "crypt"], "binary": ["\u4E8C\u8FDB\u5236", "\u7269", "binary"], "digital": ["\u6570\u5B57", "\u7269", "digital"], "subse": ["\u5B50\u96C6", "\u7269", "subse"], "varia": ["\u53D8\u91CF", "\u7269", "varia"], "limit": ["\u6781\u9650", "\u7269", "limit"], "continuu": ["\u8FDE\u7EED", "\u7269", "continuu"], "deriv": ["\u5BFC\u6570", "\u7269", "deriv"], "differen": ["\u5FAE\u5206", "\u7269", "differen"], "probab": ["\u6982\u7387", "\u7269", "probab"], "statis": ["\u7EDF\u8BA1", "\u7269", "statis"], "averag": ["\u5E73\u5747", "\u7269", "averag"], "varian": ["\u65B9\u5DEE", "\u7269", "varian"], "correl": ["\u76F8\u5173", "\u7269", "correl"], "regres": ["\u56DE\u5F52", "\u7269", "regres"], "sampl": ["\u6837\u672C", "\u7269", "sampl"], "axiom": ["\u516C\u7406", "\u7269", "axiom"], "lemma": ["\u5F15\u7406", "\u7269", "lemma"], "topol": ["\u62D3\u6251", "\u7269", "topol"], "matrix": ["\u77E9\u9635", "\u7269", "matrix"], "determ": ["\u884C\u5217\u5F0F", "\u7269", "determ"], "permut": ["\u6392\u5217", "\u7269", "permut"], "conver": ["\u6536\u655B", "\u7269", "conver"], "diverg": ["\u53D1\u6563", "\u7269", "diverg"], "graph": ["\u56FE", "\u7269", "graph"], "recurs": ["\u9012\u5F52", "\u7269", "recurs"], "optim": ["\u6700\u4F18\u5316", "\u7269", "optim"], "proposit": ["\u547D\u9898", "\u6027", "proposit"], "premiss": ["\u524D\u63D0", "\u6027", "premiss"], "infer": ["\u63A8\u65AD", "\u6027", "infer"], "deduc": ["\u6F14\u7ECE", "\u6027", "deduc"], "abduc": ["\u6EAF\u56E0", "\u6027", "abduc"], "syllog": ["\u4E09\u6BB5\u8BBA", "\u6027", "syllog"], "induc": ["\u5F52\u7EB3", "\u6027", "induc"], "falsif": ["\u8BC1\u4F2A", "\u6027", "falsif"], "verif": ["\u9A8C\u8BC1", "\u6027", "verif"], "consist": ["\u4E00\u81F4", "\u6027", "consist"], "contradict": ["\u77DB\u76FE", "\u6027", "contradict"], "paradox": ["\u6096\u8BBA", "\u6027", "paradox"], "fallac": ["\u8C2C\u8BEF", "\u6027", "fallac"], "sophism": ["\u8BE1\u8FA9", "\u6027", "sophism"], "quantif": ["\u91CF\u5316", "\u6027", "quantif"], "predicat": ["\u8C13\u8BCD", "\u6027", "predicat"], "entail": ["\u8574\u6DB5", "\u6027", "entail"], "implic": ["\u8574\u542B", "\u6027", "implic"], "equival": ["\u7B49\u4EF7", "\u6027", "equival"], "negation": ["\u5426\u5B9A", "\u6027", "negation"], "conjunct": ["\u5408\u53D6", "\u6027", "conjunct"], "disjunct": ["\u6790\u53D6", "\u6027", "disjunct"], "tautolog": ["\u91CD\u8A00", "\u6027", "tautolog"], "assert": ["\u65AD\u8A00", "\u6027", "assert"], "corollar": ["\u7CFB", "\u6027", "corollar"], "literat": ["\u6587\u5B66", "\u7269", "literat"], "prose": ["\u6563\u6587", "\u7269", "prose"], "epic": ["\u53F2\u8BD7", "\u7269", "epic"], "lyric": ["\u6292\u60C5\u8BD7", "\u7269", "lyric"], "elegy": ["\u633D\u6B4C", "\u7269", "elegy"], "sonnet": ["\u5341\u56DB\u884C\u8BD7", "\u7269", "sonnet"], "roman": ["\u957F\u7BC7\u5C0F\u8BF4", "\u7269", "roman"], "romance": ["\u4F20\u5947", "\u7269", "romance"], "tale": ["\u6545\u4E8B", "\u7269", "tale"], "episode": ["\u63D2\u66F2", "\u7269", "episode"], "plot": ["\u60C5\u8282", "\u7269", "plot"], "theme": ["\u4E3B\u9898", "\u7269", "theme"], "motif": ["\u6BCD\u9898", "\u7269", "motif"], "protago": ["\u4E3B\u89D2", "\u7269", "protago"], "antago": ["\u53CD\u6D3E", "\u7269", "antago"], "editor": ["\u7F16\u8F91", "\u7269", "editor"], "publis": ["\u51FA\u7248\u8005", "\u7269", "publis"], "critic": ["\u6279\u8BC4\u5BB6", "\u7269", "critic"], "revie": ["\u8BC4\u8BBA", "\u7269", "revie"], "essay": ["\u968F\u7B14", "\u7269", "essay"], "biogra": ["\u4F20\u8BB0", "\u7269", "biogra"], "memoir": ["\u56DE\u5FC6\u5F55", "\u7269", "memoir"], "anthol": ["\u9009\u96C6", "\u7269", "anthol"], "metaphor": ["\u9690\u55BB", "\u7269", "metaphor"], "parody": ["\u620F\u4EFF", "\u7269", "parody"], "pitch": ["\u97F3\u9AD8", "\u7269", "pitch"], "chord": ["\u548C\u5F26", "\u7269", "chord"], "clef": ["\u8C31\u53F7", "\u7269", "clef"], "staff": ["\u8C31\u8868", "\u7269", "staff"], "ensemble": ["\u5408\u594F", "\u7269", "ensemble"], "solo": ["\u72EC\u594F", "\u7269", "solo"], "duet": ["\u4E8C\u91CD\u594F", "\u7269", "duet"], "conductor": ["\u6307\u6325", "\u7269", "conductor"], "concert": ["\u97F3\u4E50\u4F1A", "\u7269", "concert"], "opera": ["\u6B4C\u5267", "\u7269", "opera"], "operet": ["\u8F7B\u6B4C\u5267", "\u7269", "operet"], "ballet": ["\u82AD\u857E", "\u7269", "ballet"], "puppet": ["\u6728\u5076", "\u7269", "puppet"], "masque": ["\u5047\u9762\u5267", "\u7269", "masque"], "carnival": ["\u72C2\u6B22", "\u7269", "carnival"], "parade": ["\u6E38\u884C", "\u7269", "parade"], "acrobat": ["\u6742\u6280", "\u7269", "acrobat"], "jongl": ["\u6742\u800D", "\u7269", "jongl"], "aria": ["\u548F\u53F9\u8C03", "\u7269", "aria"], "sonata": ["\u594F\u9E23\u66F2", "\u7269", "sonata"], "sympho": ["\u4EA4\u54CD\u4E50", "\u7269", "sympho"], "quartet": ["\u56DB\u91CD\u594F", "\u7269", "quartet"], "prelude": ["\u524D\u594F", "\u7269", "prelude"], "canvas": ["\u753B\u5E03", "\u7269", "canvas"], "pigment": ["\u989C\u6599", "\u7269", "pigment"], "palette": ["\u8C03\u8272\u677F", "\u7269", "palette"], "brush": ["\u753B\u7B14", "\u7269", "brush"], "easel": ["\u753B\u67B6", "\u7269", "easel"], "sketch": ["\u901F\u5199", "\u7269", "sketch"], "portra": ["\u8096\u50CF", "\u7269", "portra"], "landscape": ["\u98CE\u666F", "\u7269", "landscape"], "mural": ["\u58C1\u753B", "\u7269", "mural"], "fresco": ["\u6E7F\u58C1\u753B", "\u7269", "fresco"], "engrav": ["\u7248\u753B", "\u7269", "engrav"], "etch": ["\u8680\u523B", "\u7269", "etch"], "lithog": ["\u77F3\u7248", "\u7269", "lithog"], "woodcu": ["\u6728\u523B", "\u7269", "woodcu"], "relie": ["\u6D6E\u96D5", "\u7269", "relie"], "bust": ["\u80F8\u50CF", "\u7269", "bust"], "medall": ["\u50CF\u7AE0", "\u7269", "medall"], "gallery": ["\u753B\u5ECA", "\u7269", "gallery"], "exhib": ["\u5C55\u89C8", "\u7269", "exhib"], "curator": ["\u7B56\u5C55\u4EBA", "\u7269", "curator"], "aesthe": ["\u7F8E\u5B66", "\u7269", "aesthe"], "perspe": ["\u900F\u89C6", "\u7269", "perspe"], "symmetry": ["\u5BF9\u79F0", "\u7269", "symmetry"], "contrast": ["\u5BF9\u6BD4", "\u7269", "contrast"], "tinct": ["\u6DE1\u8272", "\u7269", "tinct"], "phonet": ["\u8BED\u97F3\u5B66", "\u7269", "phonet"], "phonol": ["\u97F3\u7CFB\u5B66", "\u7269", "phonol"], "morpho": ["\u5F62\u6001\u5B66", "\u7269", "morpho"], "pragma": ["\u8BED\u7528", "\u7269", "pragma"], "sociole": ["\u793E\u4F1A\u65B9\u8A00", "\u7269", "sociole"], "pictog": ["\u8C61\u5F62", "\u7269", "pictog"], "ideog": ["\u8868\u610F", "\u7269", "ideog"], "alphabet": ["\u5B57\u6BCD\u8868", "\u7269", "alphabet"], "graphem": ["\u5B57\u7D20", "\u7269", "graphem"], "alloph": ["\u97F3\u4F4D\u53D8\u4F53", "\u7269", "alloph"], "prefix": ["\u524D\u7F00", "\u7269", "prefix"], "suffix": ["\u540E\u7F00", "\u7269", "suffix"], "infix": ["\u4E2D\u7F00", "\u7269", "infix"], "stem": ["\u8BCD\u5E72", "\u7269", "stem"], "lexem": ["\u8BCD\u4F4D", "\u7269", "lexem"], "paradigm": ["\u8BCD\u5F62\u53D8\u5316", "\u7269", "paradigm"], "declension": ["\u53D8\u683C", "\u7269", "declension"], "conjug": ["\u53D8\u4F4D", "\u7269", "conjug"], "congru": ["\u4E00\u81F4", "\u7269", "congru"], "casus": ["\u683C", "\u7269", "casus"], "aspect": ["\u4F53", "\u7269", "aspect"], "transla": ["\u7FFB\u8BD1", "\u7269", "transla"], "transcr": ["\u8F6C\u5199", "\u7269", "transcr"], "translit": ["\u97F3\u8BD1", "\u7269", "translit"], "orthogr": ["\u6B63\u5B57\u6CD5", "\u7269", "orthogr"], "guilt": ["\u5185\u759A", "\u6027", "guilt"], "superb": ["\u9A84\u50B2", "\u6027", "superb"], "zel": ["\u5992\u7FA1", "\u6027", "zel"], "resent": ["\u6028\u6068", "\u6027", "resent"], "rabi": ["\u66B4\u6012", "\u6027", "rabi"], "furia": ["\u72C2\u6012", "\u6027", "furia"], "wrath": ["\u76DB\u6012", "\u6027", "wrath"], "scorn": ["\u8511\u89C6", "\u6027", "scorn"], "dread": ["\u754F\u60E7", "\u6027", "dread"], "panic": ["\u6050\u614C", "\u6027", "panic"], "shock": ["\u9707\u60CA", "\u6027", "shock"], "surpr": ["\u60CA\u8BB6", "\u6027", "surpr"], "amaze": ["\u60CA\u5F02", "\u6027", "amaze"], "awe": ["\u656C\u754F", "\u6027", "awe"], "rever": ["\u656C\u4EF0", "\u6027", "rever"], "nostal": ["\u6000\u65E7", "\u6027", "nostal"], "grief": ["\u54C0\u75DB", "\u6027", "grief"], "optimis": ["\u4E50\u89C2", "\u6027", "optimis"], "pessim": ["\u60B2\u89C2", "\u6027", "pessim"], "conten": ["\u6EE1\u8DB3", "\u6027", "conten"], "embarr": ["\u5C34\u5C2C", "\u6027", "embarr"], "confid": ["\u81EA\u4FE1", "\u6027", "confid"], "ecsta": ["\u72C2\u559C", "\u6027", "ecsta"], "euphor": ["\u6B23\u5FEB", "\u6027", "euphor"], "irrita": ["\u70E6\u8E81", "\u6027", "irrita"], "vision": ["\u89C6\u89C9", "\u6027", "vision"], "audit": ["\u542C\u89C9", "\u6027", "audit"], "somato": ["\u8EAF\u4F53\u611F\u89C9", "\u6027", "somato"], "nocice": ["\u75DB\u89C9", "\u6027", "nocice"], "thermo": ["\u6E29\u89C9", "\u6027", "thermo"], "proprio": ["\u672C\u4F53\u89C9", "\u6027", "proprio"], "stimulus": ["\u523A\u6FC0", "\u6027", "stimulus"], "threshold": ["\u9608", "\u6027", "threshold"], "sensit": ["\u654F\u611F", "\u6027", "sensit"], "habitu": ["\u4E60\u60EF\u5316", "\u6027", "habitu"], "illusion": ["\u9519\u89C9", "\u6027", "illusion"], "halluc": ["\u5E7B\u89C9", "\u6027", "halluc"], "bright": ["\u4EAE\u5EA6", "\u6027", "bright"], "loudn": ["\u54CD\u5EA6", "\u6027", "loudn"], "reverb": ["\u6DF7\u54CD", "\u6027", "reverb"], "synest": ["\u901A\u611F", "\u6027", "synest"], "kinest": ["\u52A8\u89C9", "\u6027", "kinest"], "apperc": ["\u7EDF\u89C9", "\u6027", "apperc"], "recogn": ["\u8BC6\u522B", "\u6027", "recogn"], "identif": ["\u8FA8\u8BA4", "\u6027", "identif"], "orient": ["\u5B9A\u5411", "\u6027", "orient"], "vestibul": ["\u524D\u5EAD\u89C9", "\u6027", "vestibul"], "sensor": ["\u4F20\u611F\u5668", "\u6027", "sensor"], "rostr": ["\u5599", "\u7269", "rostr"], "ala": ["\u7FFC", "\u7269", "ala"], "ungul": ["\u8E44", "\u7269", "ungul"], "caud": ["\u5C3E", "\u7269", "caud"], "iub": ["\u9B03", "\u7269", "iub"], "vell": ["\u6BDB\u76AE", "\u7269", "vell"], "antenna": ["\u89E6\u89D2", "\u7269", "antenna"], "branchi": ["\u9CC3", "\u7269", "branchi"], "nid": ["\u5DE2", "\u7269", "nid"], "hibern": ["\u51AC\u7720", "\u7269", "hibern"], "rumin": ["\u53CD\u520D", "\u7269", "rumin"], "predat": ["\u6355\u98DF", "\u7269", "predat"], "pinna": ["\u9CCD", "\u7269", "pinna"], "squam": ["\u9CDE", "\u7269", "squam"], "crist": ["\u51A0\u7FBD", "\u7269", "crist"], "gregar": ["\u7FA4\u5C45", "\u7269", "gregar"], "carniv": ["\u98DF\u8089", "\u7269", "carniv"], "herbiv": ["\u98DF\u8349", "\u7269", "herbiv"], "omniv": ["\u6742\u98DF", "\u7269", "omniv"], "larva": ["\u5E7C\u4F53", "\u7269", "larva"], "pupa": ["\u86F9", "\u7269", "pupa"], "nymph": ["\u82E5\u866B", "\u7269", "nymph"], "cocon": ["\u8327", "\u7269", "cocon"], "chrysal": ["\u86F9\u58F3", "\u7269", "chrysal"], "plumag": ["\u7FBD\u8863", "\u7269", "plumag"], "caul": ["\u830E", "\u7269", "caul"], "gemin": ["\u53F6\u82BD", "\u7269", "gemin"], "flosc": ["\u82B1\u51A0", "\u7269", "flosc"], "petal": ["\u82B1\u74E3", "\u7269", "petal"], "stamen": ["\u96C4\u854A", "\u7269", "stamen"], "pistil": ["\u96CC\u854A", "\u7269", "pistil"], "perica": ["\u679C\u76AE", "\u7269", "perica"], "testac": ["\u79CD\u76AE", "\u7269", "testac"], "radicul": ["\u987B\u6839", "\u7269", "radicul"], "tuber": ["\u5757\u830E", "\u7269", "tuber"], "viticul": ["\u85E4\u8513", "\u7269", "viticul"], "decidu": ["\u843D\u53F6", "\u7269", "decidu"], "semperv": ["\u5E38\u7EFF", "\u7269", "semperv"], "pollin": ["\u82B1\u7C89", "\u7269", "pollin"], "insit": ["\u5AC1\u63A5", "\u7269", "insit"], "propag": ["\u6266\u63D2", "\u7269", "propag"], "putat": ["\u4FEE\u526A", "\u7269", "putat"], "tepidar": ["\u6E29\u5BA4", "\u7269", "tepidar"], "pomari": ["\u679C\u56ED", "\u7269", "pomari"], "hortul": ["\u83DC\u5703", "\u7269", "hortul"], "seminari": ["\u82D7\u5703", "\u7269", "seminari"], "stercor": ["\u65BD\u80A5", "\u7269", "stercor"], "herbic": ["\u9664\u8349", "\u7269", "herbic"], "frond": ["\u53F6\u4E1B", "\u7269", "frond"], "bulb": ["\u9CDE\u830E", "\u7269", "bulb"], "platea": ["\u8857\u9053", "\u7269", "platea"], "angipo": ["\u5DF7", "\u7269", "angipo"], "forum": ["\u5E7F\u573A", "\u7269", "forum"], "porta": ["\u57CE\u95E8", "\u7269", "porta"], "dok": ["\u7801\u5934", "\u7269", "dok"], "pharos": ["\u706F\u5854", "\u7269", "pharos"], "fontan": ["\u55B7\u6CC9", "\u7269", "fontan"], "monument": ["\u7EAA\u5FF5\u7891", "\u7269", "monument"], "macell": ["\u5E02\u573A", "\u7269", "macell"], "officina": ["\u4F5C\u574A", "\u7269", "officina"], "arena": ["\u7ADE\u6280\u573A", "\u7269", "arena"], "aquaed": ["\u6C34\u6E20", "\u7269", "aquaed"], "cloaca": ["\u4E0B\u6C34\u9053", "\u7269", "cloaca"], "lantern": ["\u8DEF\u706F", "\u7269", "lantern"], "puteus": ["\u6C34\u4E95", "\u7269", "puteus"], "campan": ["\u949F\u697C", "\u7269", "campan"], "ergast": ["\u7262\u623F", "\u7269", "ergast"], "teloni": ["\u6D77\u5173", "\u7269", "teloni"], "cancell": ["\u6805\u680F", "\u7269", "cancell"], "paviment": ["\u94FA\u9762", "\u7269", "paviment"], "crepidin": ["\u8DEF\u7F18", "\u7269", "crepidin"], "suggest": ["\u8BB2\u575B", "\u7269", "suggest"], "basilica": ["\u4F1A\u5802", "\u7269", "basilica"], "thermae": ["\u6D74\u573A", "\u7269", "thermae"], "hippodro": ["\u8DD1\u9A6C\u573A", "\u7269", "hippodro"], "mensula": ["\u5C0F\u684C", "\u7269", "mensula"], "scamnum": ["\u957F\u51F3", "\u7269", "scamnum"], "lectulus": ["\u5367\u69BB", "\u7269", "lectulus"], "pluteus": ["\u58C1\u67B6", "\u7269", "pluteus"], "calathus": ["\u82B1\u7BEE", "\u7269", "calathus"], "patina": ["\u76D8", "\u7269", "patina"], "catillus": ["\u789F", "\u7269", "catillus"], "urceus": ["\u58F6", "\u7269", "urceus"], "olla": ["\u9505", "\u7269", "olla"], "cacabus": ["\u7096\u9505", "\u7269", "cacabus"], "foculus": ["\u5C0F\u7089", "\u7269", "foculus"], "furca": ["\u53C9", "\u7269", "furca"], "cochlear": ["\u52FA", "\u7269", "cochlear"], "bacill": ["\u5C0F\u68D2\u3001\u7B77", "\u7269", "bacill"], "forfex": ["\u526A", "\u7269", "forfex"], "situla": ["\u6876", "\u7269", "situla"], "ampulla": ["\u74F6", "\u7269", "ampulla"], "candela": ["\u70DB\u53F0", "\u7269", "candela"], "pelvis": ["\u76C6", "\u7269", "pelvis"], "labrum": ["\u6D17\u6DA4\u76C6", "\u7269", "labrum"], "mappa": ["\u9910\u5DFE", "\u7269", "mappa"], "abacus": ["\u7B97\u76D8", "\u7269", "abacus"], "tintin": ["\u94C3", "\u7269", "tintin"], "scrinium": ["\u5377\u7BB1", "\u7269", "scrinium"], "capsula": ["\u5C0F\u76D2", "\u7269", "capsula"], "ablut": ["\u76E5\u6D17", "\u52A8", "ablut"], "lotio": ["\u6D17\u6DA4", "\u52A8", "lotio"], "ters": ["\u64E6\u62ED", "\u52A8", "ters"], "purgat": ["\u6253\u626B", "\u52A8", "purgat"], "compo": ["\u6574\u7406", "\u52A8", "compo"], "sarci": ["\u7F1D\u8865", "\u52A8", "sarci"], "fod": ["\u6316\u6398", "\u52A8", "fod"], "cumul": ["\u5806\u53E0", "\u52A8", "cumul"], "suspend": ["\u60AC\u6302", "\u52A8", "suspend"], "accend": ["\u70B9\u71C3", "\u52A8", "accend"], "extingu": ["\u7184\u706D", "\u52A8", "extingu"], "haur": ["\u8200\u53D6", "\u52A8", "haur"], "pensa": ["\u79F0\u91CF", "\u52A8", "pensa"], "involv": ["\u5305\u88F9", "\u52A8", "involv"], "fasc": ["\u6346\u624E", "\u52A8", "fasc"], "sterna": ["\u94FA\u5C55", "\u52A8", "sterna"], "volv": ["\u5377\u8D77", "\u52A8", "volv"], "scop": ["\u626B\u5E1A", "\u52A8", "scop"], "verrit": ["\u6E05\u626B", "\u52A8", "verrit"], "deterg": ["\u53BB\u6C61", "\u52A8", "deterg"], "laxa": ["\u653E\u677E", "\u52A8", "laxa"], "quiesc": ["\u6B47\u606F", "\u52A8", "quiesc"], "suscit": ["\u5524\u9192", "\u52A8", "suscit"], "pervig": ["\u5B88\u591C", "\u52A8", "pervig"], "famul": ["\u4F8D\u5949", "\u52A8", "famul"], "incumb": ["\u4FEF\u8EAB", "\u52A8", "incumb"], "genu": ["\u8DEA", "\u52A8", "genu"], "serpo": ["\u722C\u884C", "\u52A8", "serpo"], "volut": ["\u7FFB\u6EDA", "\u52A8", "volut"], "levat": ["\u4E3E\u8D77", "\u52A8", "levat"], "iact": ["\u629B\u63B7", "\u52A8", "iact"], "excip": ["\u63A5\u4F4F", "\u52A8", "excip"], "vellic": ["\u62E7\u634F", "\u52A8", "vellic"], "calcat": ["\u8E29\u8E0F", "\u52A8", "calcat"], "alapa": ["\u62CD\u6253", "\u52A8", "alapa"], "calcitr": ["\u8E22", "\u52A8", "calcitr"], "gest": ["\u625B\u62AC", "\u52A8", "gest"], "innu": ["\u70B9\u5934\u793A\u610F", "\u52A8", "innu"], "renu": ["\u6447\u5934\u62D2\u7EDD", "\u52A8", "renu"], "suffl": ["\u5439\u6C14", "\u52A8", "suffl"], "sibil": ["\u5439\u54E8", "\u52A8", "sibil"], "scalpt": ["\u6414", "\u52A8", "scalpt"], "tunde": ["\u6376\u6253", "\u52A8", "tunde"], "nut": ["\u6446\u52A8", "\u52A8", "nut"], "titub": ["\u8E09\u8DC4", "\u52A8", "titub"], "claudic": ["\u8DDB\u884C", "\u52A8", "claudic"], "gress": ["\u8FC8\u6B65", "\u52A8", "gress"], "sess": ["\u5750\u59FF", "\u52A8", "sess"], "fricat": ["\u63C9\u6413", "\u52A8", "fricat"], "laevis": ["\u5E73\u6ED1", "\u6027", "laevis"], "crepit": ["\u567C\u556A", "\u6027", "crepit"], "strid": ["\u523A\u8033", "\u6027", "strid"], "murmur": ["\u4F4E\u8BED\u58F0", "\u6027", "murmur"], "susurr": ["\u7AB8\u7AA3", "\u6027", "susurr"], "fragr": ["\u82AC\u82B3", "\u6027", "fragr"], "putid": ["\u6076\u81ED", "\u6027", "putid"], "sapid": ["\u6709\u5473", "\u6027", "sapid"], "insuls": ["\u65E0\u5473", "\u6027", "insuls"], "squal": ["\u6C61\u79FD", "\u6027", "squal"], "limpid": ["\u6E05\u6F88", "\u6027", "limpid"], "turbid": ["\u6D51\u6D4A", "\u6027", "turbid"], "lucid": ["\u660E\u4EAE", "\u6027", "lucid"], "tenebr": ["\u5E7D\u6697", "\u6027", "tenebr"], "pallid": ["\u82CD\u767D", "\u6027", "pallid"], "ferrugin": ["\u94C1\u9508\u8272", "\u6027", "ferrugin"], "ianthin": ["\u7D2B\u7F57\u5170\u8272", "\u6027", "ianthin"], "punic": ["\u7EDB\u7EA2", "\u6027", "punic"], "smaragd": ["\u7FE0\u7EFF", "\u6027", "smaragd"], "sapphir": ["\u5929\u84DD", "\u6027", "sapphir"], "amethyst": ["\u7D2B\u6676", "\u6027", "amethyst"], "ochr": ["\u8D6D\u77F3", "\u6027", "ochr"], "miniat": ["\u6731\u7EA2", "\u6027", "miniat"], "nive": ["\u96EA\u767D", "\u6027", "nive"], "fulgid": ["\u95EA\u8000", "\u6027", "fulgid"], "primav": ["\u65E9\u6625", "\u7269", "primav"], "hiem": ["\u4E25\u51AC", "\u7269", "hiem"], "canic": ["\u4F0F\u5929", "\u7269", "canic"], "nival": ["\u964D\u96EA", "\u7269", "nival"], "pluvial": ["\u96E8\u5B63", "\u7269", "pluvial"], "siccit": ["\u65F1\u5B63", "\u7269", "siccit"], "aestiv": ["\u590F\u4EE4", "\u7269", "aestiv"], "vernal": ["\u6625\u4EE4", "\u7269", "vernal"], "nubos": ["\u591A\u4E91", "\u7269", "nubos"], "fulmin": ["\u6253\u96F7", "\u7269", "fulmin"], "grandin": ["\u4E0B\u96F9", "\u7269", "grandin"], "pruin": ["\u7ED3\u971C", "\u7269", "pruin"], "roran": ["\u964D\u9732", "\u7269", "roran"], "calig": ["\u96FE\u972D", "\u7269", "calig"], "flatus": ["\u9635\u98CE", "\u7269", "flatus"], "afflat": ["\u5439\u62C2", "\u7269", "afflat"], "imbrif": ["\u591A\u96E8", "\u7269", "imbrif"], "gelid": ["\u4E25\u5BD2", "\u7269", "gelid"], "tepor": ["\u5FAE\u6E29", "\u7269", "tepor"], "umbrat": ["\u836B\u51C9", "\u7269", "umbrat"], "apric": ["\u5411\u9633", "\u7269", "apric"], "roscid": ["\u5E26\u9732", "\u7269", "roscid"], "nimbos": ["\u9634\u4E91", "\u7269", "nimbos"], "ventos": ["\u591A\u98CE", "\u7269", "ventos"], "frigor": ["\u5BD2\u6C14", "\u7269", "frigor"], "vehicul": ["\u8F66\u8F86", "\u7269", "vehicul"], "carpent": ["\u8F66\u67B6", "\u7269", "carpent"], "cisi": ["\u8F7B\u8F66", "\u7269", "cisi"], "essed": ["\u6218\u8F66", "\u7269", "essed"], "carruc": ["\u7BF7\u8F66", "\u7269", "carruc"], "lectic": ["\u80A9\u8206", "\u7269", "lectic"], "stiva": ["\u8F66\u8F95", "\u7269", "stiva"], "temo": ["\u8F66\u8F95", "\u7269", "temo"], "canth": ["\u8F6E\u8F8B", "\u7269", "canth"], "modiol": ["\u8F6E\u6BC2", "\u7269", "modiol"], "iugum": ["\u8F6D", "\u7269", "iugum"], "habena": ["\u7F30\u7EF3", "\u7269", "habena"], "fren": ["\u9A6C\u56BC", "\u7269", "fren"], "mutat": ["\u6362\u9A6C", "\u7269", "mutat"], "tabell": ["\u4FE1\u4F7F", "\u7269", "tabell"], "rheda": ["\u56DB\u8F6E\u8F66", "\u7269", "rheda"], "clabul": ["\u8D27\u8F66", "\u7269", "clabul"], "remig": ["\u5212\u6868", "\u7269", "remig"], "velific": ["\u626C\u5E06", "\u7269", "velific"], "navig": ["\u822A\u884C", "\u7269", "navig"], "prora": ["\u8239\u9996", "\u7269", "prora"], "puppis": ["\u8239\u5C3E", "\u7269", "puppis"], "malus": ["\u6845", "\u7269", "malus"], "antemna": ["\u5E06\u6841", "\u7269", "antemna"], "rudens": ["\u7F06\u7EF3", "\u7269", "rudens"], "venalic": ["\u8D29\u5356", "\u7269", "venalic"], "auctio": ["\u62CD\u5356", "\u7269", "auctio"], "licitat": ["\u7ADE\u4EF7", "\u7269", "licitat"], "campon": ["\u5E97\u4E3B", "\u7269", "campon"], "propola": ["\u96F6\u552E\u5546", "\u7269", "propola"], "sector": ["\u56E4\u79EF\u8005", "\u7269", "sector"], "argentar": ["\u94B1\u5E84", "\u7269", "argentar"], "mensari": ["\u5151\u6362\u5546", "\u7269", "mensari"], "trapezit": ["\u94B1\u5546", "\u7269", "trapezit"], "syngraph": ["\u501F\u636E", "\u7269", "syngraph"], "apocha": ["\u6536\u636E", "\u7269", "apocha"], "portitor": ["\u627F\u8FD0\u4EBA", "\u7269", "portitor"], "naulum": ["\u8FD0\u8D39", "\u7269", "naulum"], "vectura": ["\u8FD0\u8F93", "\u7269", "vectura"], "mercim": ["\u8D27\u7269", "\u7269", "mercim"], "promptuar": ["\u8D27\u6808", "\u7269", "promptuar"], "apotheca": ["\u8D27\u4ED3", "\u7269", "apotheca"], "empori": ["\u5546\u57E0", "\u7269", "empori"], "redempt": ["\u8D4E\u4E70", "\u7269", "redempt"], "redemptor": ["\u627F\u5305\u4EBA", "\u7269", "redemptor"], "locator": ["\u51FA\u79DF\u4EBA", "\u7269", "locator"], "fructuar": ["\u6536\u76CA\u4EBA", "\u7269", "fructuar"], "impensa": ["\u5F00\u9500", "\u7269", "impensa"], "sumptus": ["\u8D39\u7528", "\u7269", "sumptus"], "lucellum": ["\u5C0F\u5229", "\u7269", "lucellum"], "satio": ["\u64AD\u79CD", "\u52A8", "satio"], "plantat": ["\u683D\u79CD", "\u52A8", "plantat"], "sarri": ["\u9664\u8349", "\u52A8", "sarri"], "runca": ["\u62D4\u8349", "\u52A8", "runca"], "mess": ["\u6536\u5272", "\u52A8", "mess"], "tritur": ["\u8131\u7C92", "\u52A8", "tritur"], "ventil": ["\u626C\u8C37", "\u52A8", "ventil"], "granar": ["\u8C37\u4ED3", "\u7269", "granar"], "frug": ["\u6536\u6210", "\u7269", "frug"], "noval": ["\u4F11\u8015\u5730", "\u7269", "noval"], "hiberna": ["\u8D8A\u51AC", "\u52A8", "hiberna"], "pecuaria": ["\u755C\u7267", "\u52A8", "pecuaria"], "mulctr": ["\u6324\u5976", "\u52A8", "mulctr"], "tonsur": ["\u526A\u6BDB", "\u52A8", "tonsur"], "veller": ["\u7F8A\u6BDB", "\u7269", "veller"], "apicul": ["\u517B\u8702", "\u52A8", "apicul"], "sericu": ["\u517B\u8695", "\u52A8", "sericu"], "vivarium": ["\u517B\u6B96\u573A", "\u7269", "vivarium"], "compasc": ["\u5171\u7267", "\u52A8", "compasc"], "clausur": ["\u56F4\u5708", "\u52A8", "clausur"], "olivet": ["\u6A44\u6984\u56ED", "\u7269", "olivet"], "viridari": ["\u82B1\u56ED", "\u7269", "viridari"], "rosari": ["\u73AB\u7470\u56ED", "\u7269", "rosari"], "herbari": ["\u8349\u836F\u56ED", "\u7269", "herbari"], "falc": ["\u9570\u5200", "\u7269", "falc"], "figul": ["\u9676\u5DE5", "\u52A8", "figul"], "coctur": ["\u70E7\u5236", "\u52A8", "coctur"], "emal": ["\u73D0\u7405", "\u52A8", "emal"], "frit": ["\u91C9\u6599", "\u52A8", "frit"], "vitrif": ["\u6210\u73BB\u7483", "\u52A8", "vitrif"], "fusor": ["\u94F8\u5DE5", "\u52A8", "fusor"], "flatil": ["\u5439\u5236", "\u52A8", "flatil"], "politor": ["\u78E8\u5DE5", "\u52A8", "politor"], "fullon": ["\u6F02\u6D17\u5DE5", "\u52A8", "fullon"], "ting": ["\u67D3\u8272", "\u52A8", "ting"], "textrin": ["\u7EC7\u574A", "\u52A8", "textrin"], "netr": ["\u7EBA\u7EB1", "\u52A8", "netr"], "lanific": ["\u6BDB\u7EBA", "\u52A8", "lanific"], "pellio": ["\u76AE\u5320", "\u52A8", "pellio"], "coriar": ["\u5236\u9769", "\u52A8", "coriar"], "sarcinat": ["\u7F1D\u8865\u5320", "\u52A8", "sarcinat"], "sutrin": ["\u978B\u5320\u94FA", "\u52A8", "sutrin"], "scob": ["\u6728\u5C51", "\u52A8", "scob"], "rasur": ["\u5228\u82B1", "\u52A8", "rasur"], "torn": ["\u65CB\u524A", "\u52A8", "torn"], "caelam": ["\u933E\u523B", "\u52A8", "caelam"], "bractea": ["\u91D1\u7B94", "\u52A8", "bractea"], "murex": ["\u9AA8\u87BA\u7D2B", "\u52A8", "murex"], "purpurar": ["\u67D3\u574A", "\u52A8", "purpurar"], "lanari": ["\u6BDB\u7EC7\u5DE5", "\u52A8", "lanari"], "sphygm": ["\u8109\u640F", "\u52A8", "sphygm"], "arteri": ["\u52A8\u8109", "\u52A8", "arteri"], "medull": ["\u9AA8\u9AD3", "\u52A8", "medull"], "tendin": ["\u808C\u8171", "\u52A8", "tendin"], "articul": ["\u5173\u8282", "\u52A8", "articul"], "cartilag": ["\u8F6F\u9AA8", "\u52A8", "cartilag"], "ligament": ["\u97E7\u5E26", "\u52A8", "ligament"], "glandul": ["\u817A", "\u52A8", "glandul"], "splen": ["\u813E", "\u52A8", "splen"], "vesic": ["\u8180\u80F1", "\u52A8", "vesic"], "ureter": ["\u8F93\u5C3F\u7BA1", "\u52A8", "ureter"], "phleb": ["\u9759\u8109", "\u52A8", "phleb"], "gangli": ["\u795E\u7ECF\u8282", "\u52A8", "gangli"], "synaps": ["\u7A81\u89E6", "\u52A8", "synaps"], "neuron": ["\u795E\u7ECF\u5143", "\u52A8", "neuron"], "cerebr": ["\u5927\u8111", "\u52A8", "cerebr"], "cerebell": ["\u5C0F\u8111", "\u52A8", "cerebell"], "lymph": ["\u6DCB\u5DF4", "\u52A8", "lymph"], "serum": ["\u8840\u6E05", "\u52A8", "serum"], "plasma": ["\u8840\u6D46", "\u52A8", "plasma"], "hormon": ["\u6FC0\u7D20", "\u52A8", "hormon"], "enzym": ["\u9176", "\u52A8", "enzym"], "vitamin": ["\u7EF4\u751F\u7D20", "\u52A8", "vitamin"], "febrif": ["\u9000\u70ED", "\u52A8", "febrif"], "sedat": ["\u9547\u9759", "\u52A8", "sedat"], "expect": ["\u671F\u5F85", "\u6027", "expect"], "disapp": ["\u5931\u671B", "\u6027", "disapp"], "paenit": ["\u540E\u6094", "\u6027", "paenit"], "haesit": ["\u72B9\u8C6B", "\u6027", "haesit"], "destin": ["\u51B3\u610F", "\u6027", "destin"], "confirm": ["\u786E\u8BA4", "\u6027", "confirm"], "trepid": ["\u614C\u4E71", "\u6027", "trepid"], "solac": ["\u6170\u85C9", "\u6027", "solac"], "cruci": ["\u714E\u71AC", "\u6027", "cruci"], "animat": ["\u632F\u4F5C", "\u6027", "animat"], "despond": ["\u6D88\u6C89", "\u6027", "despond"], "elat": ["\u5F97\u610F", "\u6027", "elat"], "abject": ["\u81EA\u5F03", "\u6027", "abject"], "pudibund": ["\u7F9E\u602F", "\u6027", "pudibund"], "aequanim": ["\u5E73\u9759", "\u6027", "aequanim"], "perturb": ["\u70E6\u4E71", "\u6027", "perturb"], "concitat": ["\u6FC0\u52A8", "\u6027", "concitat"], "langu": ["\u5026\u6020", "\u6027", "langu"], "alacr": ["\u632F\u594B", "\u6027", "alacr"], "indign": ["\u6124\u6168", "\u6027", "indign"], "obsequ": ["\u987A\u4ECE", "\u6027", "obsequ"], "contumac": ["\u5014\u5F3A", "\u6027", "contumac"], "impavid": ["\u65E0\u754F", "\u6027", "impavid"], "exsult": ["\u96C0\u8DC3", "\u6027", "exsult"], "lament": ["\u54C0\u53F9", "\u6027", "lament"], "congrat": ["\u9053\u8D3A", "\u52A8", "congrat"], "invit": ["\u9080\u8BF7", "\u52A8", "invit"], "epul": ["\u5BB4\u98E8", "\u52A8", "epul"], "propin": ["\u656C\u9152", "\u52A8", "propin"], "officios": ["\u6BB7\u52E4", "\u52A8", "officios"], "comitat": ["\u793C\u8BA9", "\u52A8", "comitat"], "urbanit": ["\u6587\u96C5", "\u52A8", "urbanit"], "rusticit": ["\u7C97\u9C81", "\u52A8", "rusticit"], "assent": ["\u9644\u548C", "\u52A8", "assent"], "obtrect": ["\u8D2C\u635F", "\u52A8", "obtrect"], "maledict": ["\u5492\u9A82", "\u52A8", "maledict"], "congress": ["\u4F1A\u9762", "\u52A8", "congress"], "conloq": ["\u4EA4\u8C08", "\u52A8", "conloq"], "sermocin": ["\u95F2\u8C08", "\u52A8", "sermocin"], "facet": ["\u8BD9\u8C10", "\u52A8", "facet"], "conviva": ["\u540C\u5E2D", "\u52A8", "conviva"], "familiar": ["\u4EB2\u8FD1", "\u52A8", "familiar"], "gratios": ["\u627F\u6B22", "\u52A8", "gratios"], "obviam": ["\u8FCE\u5019", "\u52A8", "obviam"], "deduct": ["\u9001\u884C", "\u52A8", "deduct"], "prosequ": ["\u9001\u522B", "\u52A8", "prosequ"], "sectat": ["\u968F\u4ECE", "\u52A8", "sectat"], "assect": ["\u4F8D\u4ECE", "\u52A8", "assect"], "lepor": ["\u98CE\u8DA3", "\u52A8", "lepor"], "comis": ["\u548C\u853C", "\u52A8", "comis"], "cacumen": ["\u5C71\u5CF0", "\u7269", "cacumen"], "cliv": ["\u5C71\u5761", "\u7269", "cliv"], "convall": ["\u5CE1\u8C37", "\u7269", "convall"], "antrum": ["\u6D1E\u7A74", "\u7269", "antrum"], "spelunc": ["\u5CA9\u6D1E", "\u7269", "spelunc"], "cataract": ["\u7011\u5E03", "\u7269", "cataract"], "torren": ["\u6025\u6D41", "\u7269", "torren"], "tundr": ["\u51BB\u539F", "\u7269", "tundr"], "crater": ["\u706B\u5C71\u53E3", "\u7269", "crater"], "fumarol": ["\u55B7\u6C14\u5B54", "\u7269", "fumarol"], "scatebr": ["\u6CC9\u6E90", "\u7269", "scatebr"], "rup": ["\u5CED\u58C1", "\u7269", "rup"], "moles": ["\u5DE8\u5CA9", "\u7269", "moles"], "cautes": ["\u7901\u77F3", "\u7269", "cautes"], "scopul": ["\u7901\u5CA9", "\u7269", "scopul"], "dune": ["\u6C99\u4E18", "\u7269", "dune"], "loam": ["\u58E4\u571F", "\u7269", "loam"], "marl": ["\u6CE5\u7070", "\u7269", "marl"], "peat": ["\u6CE5\u70AD", "\u7269", "peat"], "bog": ["\u6CE5\u6CBC", "\u7269", "bog"], "moor": ["\u8352\u6CBC", "\u7269", "moor"], "heath": ["\u77F3\u5357\u8352\u539F", "\u7269", "heath"], "steppe": ["\u8349\u539F", "\u7269", "steppe"], "savanna": ["\u7A00\u6811\u8349\u539F", "\u7269", "savanna"], "jungle": ["\u4E1B\u6797", "\u7269", "jungle"], "administr": ["\u884C\u653F", "\u7269", "administr"], "regim": ["\u653F\u4F53", "\u7269", "regim"], "rescript": ["\u6555\u7B54", "\u7269", "rescript"], "diplom": ["\u6587\u4E66", "\u7269", "diplom"], "codicill": ["\u9644\u6555", "\u7269", "codicill"], "formul": ["\u7A0B\u5F0F", "\u7269", "formul"], "procurat": ["\u4EE3\u7406", "\u7269", "procurat"], "praefec": ["\u957F\u5B98\u7F72", "\u7269", "praefec"], "proconsul": ["\u603B\u7763", "\u7269", "proconsul"], "internunt": ["\u4E2D\u4ECB", "\u7269", "internunt"], "praetori": ["\u7981\u536B", "\u7269", "praetori"], "comitatus": ["\u968F\u4ECE", "\u7269", "comitatus"], "scrini": ["\u6863\u6848\u5E93", "\u7269", "scrini"], "magistrat": ["\u5B98\u804C", "\u7269", "magistrat"], "quaestur": ["\u8D22\u52A1\u5B98\u7F72", "\u7269", "quaestur"], "censur": ["\u76D1\u5BDF\u804C", "\u7269", "censur"], "tribunat": ["\u62A4\u6C11\u5B98\u804C", "\u7269", "tribunat"], "consulat": ["\u6267\u653F\u5B98\u804C", "\u7269", "consulat"], "dictatur": ["\u72EC\u88C1\u804C", "\u7269", "dictatur"], "princeps": ["\u5143\u9996", "\u7269", "princeps"], "equester": ["\u9A91\u58EB\u9636", "\u7269", "equester"], "apparit": ["\u4F8D\u4ECE\u5B98", "\u7269", "apparit"], "lictor": ["\u6248\u4ECE", "\u7269", "lictor"], "lis": ["\u8BC9\u8BBC", "\u52A8", "lis"], "controvers": ["\u4E89\u8BBC", "\u52A8", "controvers"], "cognitio": ["\u5BA1\u7406", "\u52A8", "cognitio"], "testimon": ["\u8BC1\u8A00", "\u52A8", "testimon"], "pandect": ["\u6CD5\u5178", "\u52A8", "pandect"], "digest": ["\u6C47\u7E82", "\u52A8", "digest"], "institut": ["\u6CD5\u5B66\u9636\u68AF", "\u52A8", "institut"], "novell": ["\u65B0\u6555", "\u52A8", "novell"], "supplic": ["\u8BF7\u613F", "\u52A8", "supplic"], "intercess": ["\u5F02\u8BAE", "\u52A8", "intercess"], "veto": ["\u5426\u51B3", "\u52A8", "veto"], "tribunic": ["\u5426\u51B3\u6743", "\u52A8", "tribunic"], "cognitor": ["\u8BC9\u8BBC\u4EE3\u7406\u4EBA", "\u52A8", "cognitor"], "procurator": ["\u4EE3\u8BC9\u4EBA", "\u52A8", "procurator"], "delator": ["\u544A\u53D1\u8005", "\u52A8", "delator"], "vindex": ["\u62C5\u4FDD\u4EBA", "\u52A8", "vindex"], "fideiussor": ["\u4FDD\u8BC1\u4EBA", "\u52A8", "fideiussor"], "hypothec": ["\u62B5\u62BC", "\u52A8", "hypothec"], "mancip": ["\u8981\u5F0F\u4E70\u5356", "\u52A8", "mancip"], "nexum": ["\u503A\u52A1\u5974\u5F79", "\u52A8", "nexum"], "addict": ["\u5224\u5F52\u503A\u4E3B", "\u52A8", "addict"], "obnox": ["\u8D1F\u503A", "\u52A8", "obnox"], "poenal": ["\u5211\u7F5A\u7684", "\u52A8", "poenal"], "exsil": ["\u6D41\u653E", "\u52A8", "exsil"], "deport": ["\u653E\u9010", "\u52A8", "deport"], "dimens": ["\u5C3A\u5BF8", "\u7269", "dimens"], "interstit": ["\u95F4\u9699", "\u7269", "interstit"], "ponder": ["\u79F0\u91CD", "\u7269", "ponder"], "cubat": ["\u5BB9\u79EF", "\u7269", "cubat"], "convers": ["\u6362\u7B97", "\u7269", "convers"], "scalae": ["\u6807\u5C3A", "\u7269", "scalae"], "calibr": ["\u6821\u51C6", "\u7269", "calibr"], "uncial": ["\u4E00\u5BF8\u7684", "\u7269", "uncial"], "pedal": ["\u4E00\u5C3A\u7684", "\u7269", "pedal"], "libral": ["\u4E00\u78C5\u7684", "\u7269", "libral"], "cyath": ["\u676F\u91CF", "\u7269", "cyath"], "sextar": ["\u5347\u91CF", "\u7269", "sextar"], "hemin": ["\u534A\u5347", "\u7269", "hemin"], "choenix": ["\u65E5\u7CAE\u91CF", "\u7269", "choenix"], "medimn": ["\u6597\u91CF", "\u7269", "medimn"], "congius": ["\u52A0\u4ED1\u91CF", "\u7269", "congius"], "metric": ["\u5EA6\u91CF\u5B66", "\u7269", "metric"], "geodes": ["\u6D4B\u5730", "\u7269", "geodes"], "hypsom": ["\u6D4B\u9AD8", "\u7269", "hypsom"], "thermom": ["\u6E29\u5EA6\u8BA1", "\u7269", "thermom"], "chronom": ["\u7CBE\u5BC6\u8BA1\u65F6", "\u7269", "chronom"], "odomet": ["\u8BA1\u7A0B", "\u7269", "odomet"], "peramb": ["\u6D4B\u8DDD\u8F6E", "\u7269", "peramb"], "aequipond": ["\u914D\u91CD", "\u7269", "aequipond"], "examen": ["\u8861\u5668", "\u7269", "examen"], "sustent": ["\u7EF4\u7CFB", "\u7269", "sustent"], "pollut": ["\u6C61\u67D3", "\u7269", "pollut"], "contamin": ["\u73B7\u6C61", "\u7269", "contamin"], "purific": ["\u51C0\u5316", "\u7269", "purific"], "recycl": ["\u5FAA\u73AF", "\u7269", "recycl"], "diversit": ["\u591A\u6837", "\u7269", "diversit"], "extinct": ["\u706D\u7EDD", "\u7269", "extinct"], "endang": ["\u6FD2\u5371", "\u7269", "endang"], "sanctuar": ["\u4FDD\u62A4\u533A", "\u7269", "sanctuar"], "reserv": ["\u4FDD\u7559", "\u7269", "reserv"], "reforest": ["\u518D\u9020\u6797", "\u7269", "reforest"], "afforest": ["\u9020\u6797", "\u7269", "afforest"], "drainag": ["\u6392\u6C34", "\u7269", "drainag"], "desali": ["\u8131\u76D0", "\u7269", "desali"], "fertil": ["\u80A5\u6C83", "\u7269", "fertil"], "saliniz": ["\u76D0\u6E0D\u5316", "\u7269", "saliniz"], "laterit": ["\u7EA2\u571F", "\u7269", "laterit"], "humif": ["\u8150\u6B96\u5316", "\u7269", "humif"], "compost": ["\u5806\u80A5", "\u7269", "compost"], "conservat": ["\u517B\u62A4", "\u7269", "conservat"], "parcim": ["\u8282\u7EA6", "\u7269", "parcim"], "frugal": ["\u4FED\u6734", "\u7269", "frugal"], "sterilit": ["\u8D2B\u7620", "\u7269", "sterilit"], "silvicul": ["\u80B2\u6797", "\u7269", "silvicul"], "piscicul": ["\u517B\u9C7C", "\u7269", "piscicul"], "mola": ["\u78E8\u7C89", "\u7269", "mola"], "subig": ["\u63C9\u9762", "\u7269", "subig"], "elix": ["\u71AC\u716E", "\u7269", "elix"], "acet": ["\u918B", "\u7269", "acet"], "gar": ["\u9C7C\u9171", "\u7269", "gar"], "sapa": ["\u6D53\u6D46", "\u7269", "sapa"], "defrut": ["\u679C\u6D46", "\u7269", "defrut"], "salit": ["\u814C\u6E0D", "\u7269", "salit"], "fumig": ["\u718F\u5236", "\u7269", "fumig"], "siccat": ["\u98CE\u5E72", "\u7269", "siccat"], "tost": ["\u70D8\u70E4", "\u7269", "tost"], "pins": ["\u6363\u997C", "\u7269", "pins"], "crust": ["\u9165\u76AE", "\u7269", "crust"], "placen": ["\u8584\u997C", "\u7269", "placen"], "libum": ["\u7CD5", "\u7269", "libum"], "pulment": ["\u7FB9", "\u7269", "pulment"], "condim": ["\u4F50\u6599", "\u7269", "condim"], "cinnam": ["\u8089\u6842", "\u7269", "cinnam"], "zingib": ["\u59DC", "\u7269", "zingib"], "passum": ["\u679C\u5E72", "\u7269", "passum"], "must": ["\u65B0\u9152", "\u7269", "must"], "mulsum": ["\u871C\u9152", "\u7269", "mulsum"], "lora": ["\u6DE1\u9152", "\u7269", "lora"], "amyl": ["\u6DC0\u7C89", "\u7269", "amyl"], "gelat": ["\u80F6\u51BB", "\u7269", "gelat"], "collar": ["\u8863\u9886", "\u7269", "collar"], "manic": ["\u8896", "\u7269", "manic"], "sinu": ["\u8863\u8936", "\u7269", "sinu"], "instita": ["\u7F18\u9970", "\u7269", "instita"], "nodus": ["\u7EBD\u7ED3", "\u7269", "nodus"], "sutur": ["\u7F1D\u7EBF", "\u7269", "sutur"], "pannic": ["\u886C\u91CC", "\u7269", "pannic"], "chirot": ["\u624B\u5957", "\u7269", "chirot"], "tibial": ["\u80EB\u8863\u3001\u889C", "\u7269", "tibial"], "caligu": ["\u957F\u9774", "\u7269", "caligu"], "sagum": ["\u6597\u7BF7", "\u7269", "sagum"], "paenul": ["\u62AB\u98CE", "\u7269", "paenul"], "perizo": ["\u56F4\u88D9", "\u7269", "perizo"], "amicu": ["\u62AB\u80A9", "\u7269", "amicu"], "velam": ["\u9762\u7EB1", "\u7269", "velam"], "crinal": ["\u7C2A", "\u7269", "crinal"], "limbus": ["\u7F18\u5E26", "\u7269", "limbus"], "clavus": ["\u7D2B\u6761\u7EB9", "\u7269", "clavus"], "filum": ["\u4E1D\u7EBF", "\u7269", "filum"], "fusus": ["\u7EBA\u9524", "\u7269", "fusus"], "pecten": ["\u7B58", "\u7269", "pecten"], "tela": ["\u7EC7\u5E03", "\u7269", "tela"], "mitra": ["\u5934\u5DFE", "\u7269", "mitra"], "galer": ["\u76AE\u5E3D", "\u7269", "galer"], "cucull": ["\u515C\u5E3D", "\u7269", "cucull"], "cortil": ["\u5EAD\u9662", "\u7269", "cortil"], "pergul": ["\u9732\u53F0", "\u7269", "pergul"], "clathr": ["\u680F\u6746", "\u7269", "clathr"], "luminar": ["\u5929\u7A97", "\u7269", "luminar"], "fumarium": ["\u70DF\u56F1", "\u7269", "fumarium"], "cellar": ["\u5730\u7A96", "\u7269", "cellar"], "tabulat": ["\u9601\u697C", "\u7269", "tabulat"], "equile": ["\u9A6C\u53A9", "\u7269", "equile"], "alveus": ["\u6C34\u69FD", "\u7269", "alveus"], "peribol": ["\u56F4\u5899", "\u7269", "peribol"], "propyl": ["\u95E8\u5ECA", "\u7269", "propyl"], "tectorium": ["\u7070\u6CE5", "\u7269", "tectorium"], "culmen": ["\u5C4B\u810A", "\u7269", "culmen"], "fastig": ["\u5C71\u5899", "\u7269", "fastig"], "hypoca": ["\u5730\u6696", "\u7269", "hypoca"], "lacunar": ["\u85FB\u4E95", "\u7269", "lacunar"], "antefix": ["\u6A90\u9970", "\u7269", "antefix"], "acrote": ["\u5C71\u82B1\u9970", "\u7269", "acrote"], "stylob": ["\u53F0\u57FA", "\u7269", "stylob"], "metopa": ["\u95F4\u677F", "\u7269", "metopa"], "trigly": ["\u4E09\u8054\u69FD", "\u7269", "trigly"], "architr": ["\u989D\u678B", "\u7269", "architr"], "zophor": ["\u9970\u5E26", "\u7269", "zophor"], "ambulac": ["\u56DE\u5ECA", "\u7269", "ambulac"], "xyst": ["\u6797\u836B\u9053", "\u7269", "xyst"], "frons": ["\u989D", "\u7269", "frons"], "gena": ["\u988A", "\u7269", "gena"], "mentum": ["\u988F", "\u7269", "mentum"], "cervix": ["\u9888", "\u7269", "cervix"], "umerus": ["\u80A9", "\u7269", "umerus"], "cubitus": ["\u8098", "\u7269", "cubitus"], "carpus": ["\u8155", "\u7269", "carpus"], "palma": ["\u638C", "\u7269", "palma"], "talus": ["\u8E1D", "\u7269", "talus"], "calcane": ["\u8E35", "\u7269", "calcane"], "dorsum": ["\u80CC", "\u7269", "dorsum"], "lumbus": ["\u8170", "\u7269", "lumbus"], "costa": ["\u808B", "\u7269", "costa"], "pectus": ["\u80F8", "\u7269", "pectus"], "clunis": ["\u81C0", "\u7269", "clunis"], "guttur": ["\u5589", "\u7269", "guttur"], "pharynx": ["\u54BD", "\u7269", "pharynx"], "superci": ["\u7709", "\u7269", "superci"], "cilium": ["\u776B", "\u7269", "cilium"], "pupilla": ["\u77B3", "\u7269", "pupilla"], "gingiva": ["\u9F88", "\u7269", "gingiva"], "labium": ["\u5507", "\u7269", "labium"], "bucca": ["\u53E3\u8154", "\u7269", "bucca"], "naris": ["\u9F3B\u5B54", "\u7269", "naris"], "palatum": ["\u816D", "\u7269", "palatum"], "vepres": ["\u8346\u68D8", "\u7269", "vepres"], "harundo": ["\u82A6\u82C7", "\u7269", "harundo"], "caries": ["\u8150\u6728", "\u7269", "caries"], "sarment": ["\u67AF\u679D", "\u7269", "sarment"], "ramale": ["\u843D\u679D", "\u7269", "ramale"], "putamen": ["\u679C\u6838", "\u7269", "putamen"], "glans": ["\u6A61\u5B9E", "\u7269", "glans"], "cupula": ["\u58F3\u6597", "\u7269", "cupula"], "volva": ["\u83CC\u6258", "\u7269", "volva"], "stipes": ["\u83CC\u67C4", "\u7269", "stipes"], "uligo": ["\u6E7F\u5730", "\u7269", "uligo"], "calculus": ["\u5375\u77F3", "\u7269", "calculus"], "furfur": ["\u9EB8\u76AE", "\u7269", "furfur"], "palea": ["\u8C37\u58F3", "\u7269", "palea"], "acervus": ["\u5806", "\u7269", "acervus"], "gemma": ["\u82B1\u82BD", "\u7269", "gemma"], "turio": ["\u5AE9\u82BD", "\u7269", "turio"], "surculus": ["\u65B0\u679D", "\u7269", "surculus"], "stolo": ["\u6839\u8616", "\u7269", "stolo"], "flagell": ["\u7EA4\u679D", "\u7269", "flagell"], "capreo": ["\u5377\u987B", "\u7269", "capreo"], "aculeus": ["\u8702\u523A", "\u7269", "aculeus"], "ulva": ["\u6C34\u8349", "\u7269", "ulva"], "carex": ["\u82D4\u8349", "\u7269", "carex"], "juncus": ["\u706F\u82AF\u8349", "\u7269", "juncus"], "fulgor": ["\u95EA\u5149", "\u7269", "fulgor"], "coruscat": ["\u7535\u5149", "\u7269", "coruscat"], "fulmen": ["\u96F7\u51FB", "\u7269", "fulmen"], "stilla": ["\u6C34\u73E0", "\u7269", "stilla"], "floccus": ["\u96EA\u7247", "\u7269", "floccus"], "ventulus": ["\u5FAE\u98CE", "\u7269", "ventulus"], "flamen": ["\u6C14\u6D41", "\u7269", "flamen"], "jubar": ["\u661F\u8F89", "\u7269", "jubar"], "penumbra": ["\u534A\u5F71", "\u7269", "penumbra"], "scintill": ["\u95EA\u70C1", "\u7269", "scintill"], "mic": ["\u95EA\u8000", "\u7269", "mic"], "lucifer": ["\u542F\u660E\u661F", "\u7269", "lucifer"], "noctiluc": ["\u591C\u5149", "\u7269", "noctiluc"], "halitus": ["\u8584\u96FE", "\u7269", "halitus"], "chasma": ["\u4E91\u9699\u5149", "\u7269", "chasma"], "anthel": ["\u5E7B\u65E5", "\u7269", "anthel"], "parheli": ["\u5E7B\u65E5", "\u7269", "parheli"], "aureola": ["\u5149\u6655", "\u7269", "aureola"], "serenum": ["\u6674\u7A7A", "\u7269", "serenum"], "nubilum": ["\u9634\u5929", "\u7269", "nubilum"], "occasus": ["\u65E5\u843D", "\u7269", "occasus"], "ortus": ["\u65E5\u51FA", "\u7269", "ortus"], "contici": ["\u591C\u6DF1", "\u7269", "contici"], "gallic": ["\u9E21\u9E23\u65F6", "\u7269", "gallic"], "dilucu": ["\u7834\u6653", "\u7269", "dilucu"], "aequab": ["\u6C89\u7A33", "\u6027", "aequab"], "liberal": ["\u6177\u6168", "\u6027", "liberal"], "parc": ["\u541D\u556C", "\u6027", "parc"], "probit": ["\u8BDA\u5B9E", "\u6027", "probit"], "fucat": ["\u865A\u4F2A", "\u6027", "fucat"], "fortitud": ["\u52C7\u6562", "\u6027", "fortitud"], "ignav": ["\u602F\u61E6", "\u6027", "ignav"], "indulg": ["\u5BBD\u5BB9", "\u6027", "indulg"], "faceti": ["\u5E7D\u9ED8", "\u6027", "faceti"], "serios": ["\u4E25\u8083", "\u6027", "serios"], "versut": ["\u5706\u6ED1", "\u6027", "versut"], "rigid": ["\u803F\u76F4", "\u6027", "rigid"], "suspic": ["\u591A\u7591", "\u6027", "suspic"], "credul": ["\u8F7B\u4FE1", "\u6027", "credul"], "frugi": ["\u6DE1\u6CCA", "\u6027", "frugi"], "abstin": ["\u514B\u5DF1", "\u6027", "abstin"], "intemp": ["\u653E\u7EB5", "\u6027", "intemp"], "tenac": ["\u575A\u97E7", "\u6027", "tenac"], "languid": ["\u9893\u5510", "\u6027", "languid"], "fervid": ["\u70ED\u5FF1", "\u6027", "fervid"], "frigid": ["\u51B7\u6F20", "\u6027", "frigid"], "mansuet": ["\u6E29\u9A6F", "\u6027", "mansuet"], "trucul": ["\u51F6\u6A2A", "\u6027", "trucul"], "moros": ["\u4E56\u50FB", "\u6027", "moros"], "scurril": ["\u7C97\u4FD7", "\u6027", "scurril"], "consoci": ["\u7ED3\u793E", "\u7269", "consoci"], "convent": ["\u805A\u4F1A", "\u7269", "convent"], "stipem": ["\u52DF\u6350", "\u7269", "stipem"], "discept": ["\u8FA9\u8BBA", "\u7269", "discept"], "reclam": ["\u6297\u8BAE", "\u7269", "reclam"], "interced": ["\u8C03\u505C", "\u7269", "interced"], "exsequ": ["\u5C65\u7EA6", "\u7269", "exsequ"], "spons": ["\u62C5\u4FDD", "\u7269", "spons"], "mutuum": ["\u8D4A\u6B20", "\u7269", "mutuum"], "exsolu": ["\u6E05\u507F", "\u7269", "exsolu"], "decoct": ["\u7834\u4EA7", "\u7269", "decoct"], "confus": ["\u517C\u5E76", "\u7269", "confus"], "foederat": ["\u7ED3\u76DF", "\u7269", "foederat"], "defect": ["\u53DB\u79BB", "\u7269", "defect"], "secess": ["\u5206\u79BB", "\u7269", "secess"], "coit": ["\u8054\u5408", "\u7269", "coit"], "conjur": ["\u76DF\u8A93", "\u7269", "conjur"], "tumult": ["\u9A9A\u52A8", "\u7269", "tumult"], "coercit": ["\u5F39\u538B", "\u7269", "coercit"], "proscr": ["\u516C\u654C\u5BA3\u544A", "\u7269", "proscr"], "confisc": ["\u6CA1\u6536", "\u7269", "confisc"], "multat": ["\u7F5A\u6B3E", "\u7269", "multat"], "frument": ["\u5F81\u7CAE", "\u7269", "frument"], "compar": ["\u6BD4\u8F83", "\u7269", "compar"], "perpens": ["\u6743\u8861", "\u7269", "perpens"], "refut": ["\u53CD\u9A73", "\u7269", "refut"], "conject": ["\u63A8\u6D4B", "\u7269", "conject"], "temer": ["\u81C6\u65AD", "\u7269", "temer"], "discern": ["\u660E\u8FA8", "\u7269", "discern"], "confund": ["\u6DF7\u6DC6", "\u7269", "confund"], "malint": ["\u8BEF\u89E3", "\u7269", "malint"], "perspicu": ["\u6D1E\u89C1", "\u7269", "perspicu"], "recogit": ["\u53CD\u601D", "\u7269", "recogit"], "excogit": ["\u63A8\u6572", "\u7269", "excogit"], "aestim": ["\u5BA1\u5EA6", "\u7269", "aestim"], "deliber": ["\u6289\u62E9", "\u7269", "deliber"], "select": ["\u53D6\u820D", "\u7269", "select"], "dijud": ["\u8FA8\u6790", "\u7269", "dijud"], "sentisc": ["\u4F53\u5BDF", "\u7269", "sentisc"], "compreh": ["\u9886\u609F", "\u7269", "compreh"], "cognos": ["\u53C2\u609F", "\u7269", "cognos"], "praesag": ["\u9884\u5224", "\u7269", "praesag"], "retros": ["\u56DE\u987E", "\u7269", "retros"], "dubit": ["\u8D28\u7591", "\u7269", "dubit"], "notion": ["\u6982\u5FF5", "\u7269", "notion"], "examin": ["\u5BA1\u67E5", "\u7269", "examin"], "fascic": ["\u675F", "\u7269", "fascic"], "manip": ["\u628A\u3001\u675F", "\u7269", "manip"], "corymb": ["\u4E32", "\u7269", "corymb"], "strues": ["\u5806", "\u7269", "strues"], "turba": ["\u4EBA\u7FA4", "\u7269", "turba"], "caterva": ["\u961F", "\u7269", "caterva"], "globus": ["\u56E2", "\u7269", "globus"], "gutta": ["\u6EF4", "\u7269", "gutta"], "micul": ["\u7C92", "\u7269", "micul"], "triens": ["\u4E09\u5206\u4E4B\u4E00", "\u7269", "triens"], "duplus": ["\u53CC\u500D", "\u7269", "duplus"], "triplus": ["\u4E09\u500D", "\u7269", "triplus"], "quadrupl": ["\u56DB\u500D", "\u7269", "quadrupl"], "nemo": ["\u65E0\u4EBA", "\u7269", "nemo"], "quotus": ["\u7B2C\u51E0", "\u7269", "quotus"], "tantun": ["\u540C\u91CF", "\u7269", "tantun"], "quantul": ["\u5C11\u8BB8", "\u7269", "quantul"], "tantil": ["\u4E9B\u5FAE", "\u7269", "tantil"], "aliquan": ["\u82E5\u5E72", "\u7269", "aliquan"], "singuli": ["\u5404\u4E00", "\u7269", "singuli"], "bini": ["\u6BCF\u4E8C", "\u7269", "bini"], "terni": ["\u6BCF\u4E09", "\u7269", "terni"], "seni": ["\u6BCF\u516D", "\u7269", "seni"], "viceni": ["\u6BCF\u4E8C\u5341", "\u7269", "viceni"], "centeni": ["\u6BCF\u767E", "\u7269", "centeni"], "tremor": ["\u9707\u54CD", "\u7269", "tremor"], "eruptio": ["\u55B7\u53D1", "\u7269", "eruptio"], "lava": ["\u7194\u5CA9", "\u7269", "lava"], "inundat": ["\u6CDB\u6EE5", "\u7269", "inundat"], "alluvio": ["\u51B2\u79EF", "\u7269", "alluvio"], "diluvies": ["\u6D2A\u6CDB", "\u7269", "diluvies"], "ariditas": ["\u5E72\u65F1", "\u7269", "ariditas"], "turbo": ["\u65CB\u98CE", "\u7269", "turbo"], "vortex": ["\u6F29\u6DA1", "\u7269", "vortex"], "fissura": ["\u88C2\u7F1D", "\u7269", "fissura"], "labes": ["\u5D29\u584C", "\u7269", "labes"], "crepitus": ["\u7206\u88C2\u58F0", "\u7269", "crepitus"], "sonitus": ["\u8F70\u9E23", "\u7269", "sonitus"], "terraem": ["\u5730\u9707", "\u7269", "terraem"], "incend": ["\u5927\u706B", "\u7269", "incend"], "naufrag": ["\u6D77\u96BE", "\u7269", "naufrag"], "calamit": ["\u707E\u7978", "\u7269", "calamit"], "vorago": ["\u6DF1\u6E0A\u6F29\u6DA1", "\u7269", "vorago"], "barath": ["\u6DF1\u6E0A", "\u7269", "barath"], "thorax": ["\u80F8\u7532", "\u7269", "thorax"], "ocrea": ["\u80EB\u7532", "\u7269", "ocrea"], "parma": ["\u5706\u76FE", "\u7269", "parma"], "clypeus": ["\u5706\u76FE", "\u7269", "clypeus"], "pugio": ["\u77ED\u5251", "\u7269", "pugio"], "sica": ["\u66F2\u5251", "\u7269", "sica"], "spatha": ["\u957F\u5251", "\u7269", "spatha"], "lancea": ["\u957F\u67AA", "\u7269", "lancea"], "tragula": ["\u8F7B\u6807\u67AA", "\u7269", "tragula"], "funda": ["\u6295\u77F3\u7D22", "\u7269", "funda"], "insigne": ["\u5FBD\u8BB0", "\u7269", "insigne"], "balteus": ["\u8170\u5E26", "\u7269", "balteus"], "verutum": ["\u91CD\u6807\u67AA", "\u7269", "verutum"], "matteris": ["\u91CD\u77DB", "\u7269", "matteris"], "cateia": ["\u6218\u69CC", "\u7269", "cateia"], "caestus": ["\u62F3\u5957", "\u7269", "caestus"], "clava": ["\u68CD\u68D2", "\u7269", "clava"], "fustis": ["\u77ED\u68CD", "\u7269", "fustis"], "contus": ["\u957F\u6746", "\u7269", "contus"], "sarissa": ["\u957F\u77DB", "\u7269", "sarissa"], "romphae": ["\u5DE8\u5251", "\u7269", "romphae"], "bipennis": ["\u53CC\u5203\u65A7", "\u7269", "bipennis"], "dolabra": ["\u951B\u65A7", "\u7269", "dolabra"], "harpe": ["\u5F2F\u5200", "\u7269", "harpe"], "tormentum": ["\u5F29\u70AE", "\u7269", "tormentum"], "dominus": ["\u4E3B\u4EBA\u3001\u5148\u751F", "\u7269", "dominus"], "domina": ["\u5973\u4E3B\u4EBA", "\u7269", "domina"], "senior": ["\u957F\u8005", "\u7269", "senior"], "iunior": ["\u665A\u8F88", "\u7269", "iunior"], "hospes": ["\u5BA2\u4EBA", "\u7269", "hospes"], "patronus": ["\u6069\u4E3B", "\u7269", "patronus"], "collega": ["\u540C\u50DA", "\u7269", "collega"], "affinis": ["\u59FB\u4EB2", "\u7269", "affinis"], "avuncu": ["\u53D4\u4F2F", "\u7269", "avuncu"], "amita": ["\u59D1\u59E8", "\u7269", "amita"], "socer": ["\u5CB3\u7236", "\u7269", "socer"], "socrus": ["\u5CB3\u6BCD", "\u7269", "socrus"], "gener": ["\u5973\u5A7F", "\u7269", "gener"], "nurus": ["\u513F\u5AB3", "\u7269", "nurus"], "levir": ["\u592B\u5144", "\u7269", "levir"], "privig": ["\u7EE7\u5B50", "\u7269", "privig"], "vitricus": ["\u7EE7\u7236", "\u7269", "vitricus"], "noverca": ["\u7EE7\u6BCD", "\u7269", "noverca"], "comes": ["\u4F8D\u4ECE", "\u7269", "comes"], "famulus": ["\u4EC6\u4ECE", "\u7269", "famulus"], "ancilla": ["\u5A62\u5973", "\u7269", "ancilla"], "verna": ["\u5BB6\u751F\u5974", "\u7269", "verna"], "nutrix": ["\u4E73\u6BCD", "\u7269", "nutrix"], "tutor": ["\u76D1\u62A4\u4EBA", "\u7269", "tutor"], "hospita": ["\u5973\u4E3B\u4EBA", "\u7269", "hospita"], "statura": ["\u8EAB\u6750", "\u6027", "statura"], "procer": ["\u9AD8\u5927", "\u6027", "procer"], "pumilus": ["\u77EE\u5C0F", "\u6027", "pumilus"], "obesus": ["\u80A5\u80D6", "\u6027", "obesus"], "macilent": ["\u7626\u524A", "\u6027", "macilent"], "formos": ["\u4FCA\u7F8E", "\u6027", "formos"], "deform": ["\u4E11\u964B", "\u6027", "deform"], "robust": ["\u5065\u58EE", "\u6027", "robust"], "debilit": ["\u8870\u5F31", "\u6027", "debilit"], "canus": ["\u767D\u53D1", "\u6027", "canus"], "calvus": ["\u79C3\u9876", "\u6027", "calvus"], "barbat": ["\u6709\u987B", "\u6027", "barbat"], "comat": ["\u957F\u53D1", "\u6027", "comat"], "luscus": ["\u72EC\u773C", "\u6027", "luscus"], "claudus": ["\u8DDB\u8DB3", "\u6027", "claudus"], "gibber": ["\u9A7C\u80CC", "\u6027", "gibber"], "strenuus": ["\u77EB\u5065", "\u6027", "strenuus"], "agilis": ["\u7075\u5DE7", "\u6027", "agilis"], "torosus": ["\u808C\u8089\u53D1\u8FBE", "\u6027", "torosus"], "pallens": ["\u82CD\u767D", "\u6027", "pallens"], "rubens": ["\u7EA2\u6DA6", "\u6027", "rubens"], "stigma": ["\u70D9\u5370", "\u6027", "stigma"], "livor": ["\u9752\u7D2B", "\u6027", "livor"], "vibex": ["\u97AD\u75D5", "\u6027", "vibex"], "loquac": ["\u591A\u8A00", "\u52A8", "loquac"], "taciturn": ["\u5BE1\u8A00", "\u52A8", "taciturn"], "argut": ["\u5DE7\u8FA9", "\u52A8", "argut"], "blandil": ["\u751C\u8A00", "\u52A8", "blandil"], "iura": ["\u7ACB\u8A93", "\u52A8", "iura"], "cachinn": ["\u5927\u7B11", "\u52A8", "cachinn"], "subrid": ["\u5FAE\u7B11", "\u52A8", "subrid"], "gem": ["\u547B\u541F", "\u52A8", "gem"], "eiul": ["\u54C0\u53F7", "\u52A8", "eiul"], "querul": ["\u62B1\u6028", "\u52A8", "querul"], "obtest": ["\u6073\u6C42", "\u52A8", "obtest"], "obsecr": ["\u54C0\u6C42", "\u52A8", "obsecr"], "minit": ["\u5A01\u80C1", "\u52A8", "minit"], "increpit": ["\u65A5\u8D23", "\u52A8", "increpit"], "exprobr": ["\u8D23\u96BE", "\u52A8", "exprobr"], "convic": ["\u8FB1\u9A82", "\u52A8", "convic"], "suggill": ["\u8BA5\u8BBD", "\u52A8", "suggill"], "subsann": ["\u5632\u7B11", "\u52A8", "subsann"], "dissent": ["\u5F02\u8BAE", "\u52A8", "dissent"], "peror": ["\u9648\u8BCD", "\u52A8", "peror"], "declam": ["\u6717\u8BF5", "\u52A8", "declam"], "recit": ["\u80CC\u8BF5", "\u52A8", "recit"], "pronun": ["\u5BA3\u544A", "\u52A8", "pronun"], "praelo": ["\u5F00\u573A\u767D", "\u52A8", "praelo"], "epilog": ["\u7ED3\u8BED", "\u52A8", "epilog"], "incant": ["\u541F\u5531\u65BD\u6CD5", "\u52A8", "incant"], "excant": ["\u89E3\u5492", "\u52A8", "excant"], "devov": ["\u8BC5\u5492", "\u52A8", "devov"], "exsecr": ["\u5492\u9010", "\u52A8", "exsecr"], "run": ["\u7B26\u6587", "\u52A8", "run"], "glyph": ["\u523B\u7B26", "\u52A8", "glyph"], "tessera": ["\u7B26\u724C", "\u52A8", "tessera"], "amulet": ["\u62A4\u7B26", "\u52A8", "amulet"], "talisman": ["\u6CD5\u5B9D", "\u52A8", "talisman"], "philtrum": ["\u8FF7\u836F", "\u52A8", "philtrum"], "venefic": ["\u65BD\u6BD2", "\u52A8", "venefic"], "malefic": ["\u90AA\u672F", "\u52A8", "malefic"], "benefic": ["\u5584\u672F", "\u52A8", "benefic"], "goet": ["\u5DEB\u672F", "\u52A8", "goet"], "magir": ["\u6CD5\u672F", "\u52A8", "magir"], "sortil": ["\u62BD\u7B7E\u5360\u535C", "\u52A8", "sortil"], "abjur": ["\u5F03\u8A93", "\u52A8", "abjur"], "adjur": ["\u4E25\u4EE4", "\u52A8", "adjur"], "imprec": ["\u7948\u7978", "\u52A8", "imprec"], "deprec": ["\u7948\u514D", "\u52A8", "deprec"], "arcane": ["\u79D8\u4F20", "\u52A8", "arcane"], "esoter": ["\u79D8\u6559", "\u52A8", "esoter"], "exoter": ["\u663E\u6559", "\u52A8", "exoter"], "hierat": ["\u5723\u804C\u7684", "\u52A8", "hierat"], "telet": ["\u5165\u6559\u793C", "\u52A8", "telet"], "affix": ["\u9644\u7740", "\u52A8", "affix"], "adhaer": ["\u9ECF\u9644", "\u52A8", "adhaer"], "concit": ["\u6FC0\u8D77", "\u52A8", "concit"], "impell": ["\u9A71\u52A8", "\u52A8", "impell"], "transmut": ["\u5B17\u53D8", "\u52A8", "transmut"], "phaenom": ["\u73B0\u8C61", "\u52A8", "phaenom"], "inhib": ["\u6291\u5236", "\u52A8", "inhib"], "amplif": ["\u653E\u5927", "\u52A8", "amplif"], "attenu": ["\u8870\u51CF", "\u52A8", "attenu"], "refract": ["\u6298\u5C04", "\u52A8", "refract"], "reflect": ["\u53CD\u5C04", "\u52A8", "reflect"], "absorb": ["\u5438\u6536", "\u52A8", "absorb"], "emitt": ["\u53D1\u5C04", "\u52A8", "emitt"], "diffus": ["\u6269\u6563", "\u52A8", "diffus"], "polar": ["\u6781\u6027", "\u52A8", "polar"], "aether": ["\u4EE5\u592A", "\u52A8", "aether"], "quinte": ["\u7B2C\u4E94\u5143\u7D20", "\u52A8", "quinte"], "phlogist": ["\u71C3\u7D20", "\u52A8", "phlogist"], "mana": ["\u739B\u90A3", "\u52A8", "mana"], "virtu": ["\u5FB7\u80FD", "\u52A8", "virtu"], "elan": ["\u6D3B\u529B", "\u52A8", "elan"], "chakra": ["\u8109\u8F6E", "\u52A8", "chakra"], "prana": ["\u6C14", "\u52A8", "prana"], "telesm": ["\u6CD5\u5668", "\u52A8", "telesm"], "arcanum": ["\u5965\u79D8", "\u52A8", "arcanum"], "illumin": ["\u7167\u4EAE", "\u52A8", "illumin"], "obscur": ["\u4F7F\u6697\u3001\u853D", "\u52A8", "obscur"], "lassit": ["\u75B2\u4E4F", "\u52A8", "lassit"], "palpit": ["\u5FC3\u60B8", "\u52A8", "palpit"], "sudor": ["\u6C57", "\u52A8", "sudor"], "lacrima": ["\u6CEA", "\u52A8", "lacrima"], "saliva": ["\u553E\u6DB2", "\u52A8", "saliva"], "mucus": ["\u9F3B\u6D95", "\u52A8", "mucus"], "urina": ["\u5C3F", "\u52A8", "urina"], "pulsus": ["\u8109\u640F", "\u52A8", "pulsus"], "torpor": ["\u9EBB\u6728", "\u52A8", "torpor"], "rigor": ["\u5BD2\u6218", "\u52A8", "rigor"], "vigor": ["\u7CBE\u529B", "\u52A8", "vigor"], "stamina": ["\u8010\u529B", "\u52A8", "stamina"], "sopor": ["\u660F\u7761", "\u52A8", "sopor"], "letarg": ["\u660F\u7761\u75C7", "\u52A8", "letarg"], "syncop": ["\u6655\u53A5", "\u52A8", "syncop"], "spasm": ["\u75C9\u631B", "\u52A8", "spasm"], "tetan": ["\u5F3A\u76F4", "\u52A8", "tetan"], "prurig": ["\u75D2\u75C7", "\u52A8", "prurig"], "rubor": ["\u7EA2\u80BF", "\u52A8", "rubor"], "algid": ["\u9177\u5BD2\u611F", "\u52A8", "algid"], "aestumat": ["\u71E5\u70ED", "\u52A8", "aestumat"], "inedia": ["\u7EDD\u98DF", "\u52A8", "inedia"], "crapula": ["\u5BBF\u9189", "\u52A8", "crapula"], "ebriet": ["\u9189\u9152", "\u52A8", "ebriet"], "aestus": ["\u6F6E\u6C50", "\u7269", "aestus"], "access": ["\u6DA8\u6F6E", "\u7269", "access"], "recess": ["\u843D\u6F6E", "\u7269", "recess"], "fluctus": ["\u6D6A\u5934", "\u7269", "fluctus"], "brevia": ["\u6D45\u6EE9", "\u7269", "brevia"], "canalis": ["\u822A\u9053", "\u7269", "canalis"], "navale": ["\u8239\u575E", "\u7269", "navale"], "latera": ["\u8237\u4FA7", "\u7269", "latera"], "constrat": ["\u7532\u677F", "\u7269", "constrat"], "saburra": ["\u538B\u8231", "\u7269", "saburra"], "remex": ["\u6868\u624B", "\u7269", "remex"], "gubernator": ["\u8235\u624B", "\u7269", "gubernator"], "proreta": ["\u9886\u822A", "\u7269", "proreta"], "nautic": ["\u822A\u6D77\u672F", "\u7269", "nautic"], "acta": ["\u6D77\u5CB8", "\u7269", "acta"], "salum": ["\u6D77\u6D8C", "\u7269", "salum"], "pontus": ["\u6DF1\u6D77", "\u7269", "pontus"], "aequor": ["\u6D77\u9762", "\u7269", "aequor"], "remigi": ["\u6868\u5217", "\u7269", "remigi"], "velum": ["\u5E06", "\u7269", "velum"], "syrtic": ["\u6697\u6C99", "\u7269", "syrtic"], "charyb": ["\u5927\u6F29\u6DA1", "\u7269", "charyb"], "scyll": ["\u7901\u5CA9", "\u7269", "scyll"], "harpax": ["\u94A9\u951A", "\u7269", "harpax"], "sentina": ["\u8231\u5E95\u6C61\u6C34", "\u7269", "sentina"], "venabu": ["\u730E\u77DB", "\u52A8", "venabu"], "pedica": ["\u6355\u517D\u5939", "\u52A8", "pedica"], "aucup": ["\u6355\u9E1F", "\u52A8", "aucup"], "sagena": ["\u62D6\u7F51", "\u52A8", "sagena"], "nassa": ["\u9C7C\u7B3C", "\u52A8", "nassa"], "indago": ["\u56F4\u730E", "\u52A8", "indago"], "vestig": ["\u8FFD\u8E2A", "\u52A8", "vestig"], "latibu": ["\u517D\u7A74", "\u52A8", "latibu"], "spolium": ["\u730E\u7269\u76AE", "\u52A8", "spolium"], "exuvi": ["\u8715\u58F3", "\u52A8", "exuvi"], "collect": ["\u91C7\u96C6", "\u52A8", "collect"], "baca": ["\u6D46\u679C", "\u52A8", "baca"], "casses": ["\u7F57\u7F51", "\u52A8", "casses"], "plaga": ["\u7F51\u7F57", "\u52A8", "plaga"], "tendic": ["\u7ECA\u7D22", "\u52A8", "tendic"], "decipula": ["\u9677\u9631", "\u52A8", "decipula"], "fovea": ["\u9677\u5751", "\u52A8", "fovea"], "cuspis": ["\u77DB\u5C16", "\u52A8", "cuspis"], "esca": ["\u8BF1\u9975", "\u52A8", "esca"], "illece": ["\u8BF1\u7269", "\u52A8", "illece"], "visci": ["\u7C98\u9E1F\u80F6", "\u52A8", "visci"], "trophae": ["\u730E\u83B7\u7EAA\u5FF5", "\u52A8", "trophae"], "aucupat": ["\u6355\u9E1F\u8005", "\u52A8", "aucupat"], "venatric": ["\u5973\u730E\u624B", "\u52A8", "venatric"], "decoqu": ["\u71AC\u716E", "\u52A8", "decoqu"], "excoqu": ["\u714E\u5E72", "\u52A8", "excoqu"], "incoqu": ["\u7096", "\u52A8", "incoqu"], "percoq": ["\u7096\u70C2", "\u52A8", "percoq"], "subfri": ["\u5FAE\u714E", "\u52A8", "subfri"], "inass": ["\u5165\u7089\u70E4", "\u52A8", "inass"], "farc": ["\u586B\u6599", "\u52A8", "farc"], "infund": ["\u503E\u6CE8", "\u52A8", "infund"], "perfund": ["\u6D47\u6DCB", "\u52A8", "perfund"], "asperg": ["\u6D12", "\u52A8", "asperg"], "consperg": ["\u6492\u7C89", "\u52A8", "consperg"], "inting": ["\u8638", "\u52A8", "inting"], "sorbill": ["\u555C", "\u52A8", "sorbill"], "exsug": ["\u542E", "\u52A8", "exsug"], "cremor": ["\u6D53\u6C64", "\u52A8", "cremor"], "iuscul": ["\u8584\u6C64", "\u52A8", "iuscul"], "offula": ["\u8089\u7247", "\u52A8", "offula"], "sorbitio": ["\u996E\u5242", "\u52A8", "sorbitio"], "frustum": ["\u5757", "\u52A8", "frustum"], "segmen": ["\u7247", "\u52A8", "segmen"], "buccel": ["\u4E00\u53E3", "\u52A8", "buccel"], "daps": ["\u76DB\u5BB4", "\u52A8", "daps"], "ferculum": ["\u83DC\u80B4", "\u52A8", "ferculum"], "oenopho": ["\u9152\u5668", "\u52A8", "oenopho"], "patella": ["\u6D45\u9505", "\u52A8", "patella"], "pens": ["\u7EBA\u7EBF", "\u52A8", "pens"], "colus": ["\u7EBA\u9524\u6746", "\u52A8", "colus"], "carmin": ["\u68B3\u7406", "\u52A8", "carmin"], "trama": ["\u7EAC\u7EBF", "\u52A8", "trama"], "subteg": ["\u7EAC\u7EB1", "\u52A8", "subteg"], "licium": ["\u7EFC\u7EBF", "\u52A8", "licium"], "insili": ["\u7ECF\u7EBF", "\u52A8", "insili"], "mordant": ["\u5A92\u67D3", "\u52A8", "mordant"], "alumen": ["\u660E\u77FE", "\u52A8", "alumen"], "coccum": ["\u80ED\u8102\u866B\u7EA2", "\u52A8", "coccum"], "indig": ["\u975B\u84DD", "\u52A8", "indig"], "glastum": ["\u83D8\u84DD", "\u52A8", "glastum"], "rubia": ["\u831C\u8349", "\u52A8", "rubia"], "crocus": ["\u756A\u7EA2\u82B1", "\u52A8", "crocus"], "netrix": ["\u7EBA\u5973", "\u52A8", "netrix"], "fullonica": ["\u6F02\u6D17\u574A", "\u52A8", "fullonica"], "tinctor": ["\u67D3\u5DE5", "\u52A8", "tinctor"], "calamis": ["\u70EB\u8936\u5668", "\u52A8", "calamis"], "carbasum": ["\u7EC6\u9EBB", "\u52A8", "carbasum"], "polymita": ["\u591A\u8272\u7EC7\u7269", "\u52A8", "polymita"], "plumat": ["\u7FBD\u7EC7", "\u52A8", "plumat"], "scutul": ["\u65B9\u683C\u7EB9", "\u52A8", "scutul"], "undulata": ["\u6CE2\u7EB9", "\u52A8", "undulata"], "gausapa": ["\u7ED2\u9762", "\u52A8", "gausapa"], "trilix": ["\u4E09\u80A1\u7EBF", "\u52A8", "trilix"], "domit": ["\u9A6F\u670D", "\u52A8", "domit"], "iug": ["\u5957\u8F6D", "\u52A8", "iug"], "mansue": ["\u9A6F\u5316", "\u52A8", "mansue"], "allig": ["\u62F4\u7CFB", "\u52A8", "allig"], "admiss": ["\u914D\u79CD", "\u52A8", "admiss"], "fetus": ["\u4EA7\u4ED4", "\u52A8", "fetus"], "sagin": ["\u80B2\u80A5", "\u52A8", "sagin"], "castrat": ["\u53BB\u52BF", "\u52A8", "castrat"], "inust": ["\u70D9\u5370", "\u52A8", "inust"], "agit": ["\u9A71\u8D76", "\u52A8", "agit"], "revoc": ["\u5524\u56DE", "\u52A8", "revoc"], "stabul": ["\u53A9\u517B", "\u52A8", "stabul"], "praese": ["\u9972\u69FD", "\u52A8", "praese"], "pabulum": ["\u8349\u6599", "\u52A8", "pabulum"], "adaqu": ["\u996E\u6C34", "\u52A8", "adaqu"], "sericar": ["\u8695\u5BA4", "\u52A8", "sericar"], "alvear": ["\u8702\u7BB1", "\u52A8", "alvear"], "bubul": ["\u7267\u725B\u4EBA", "\u52A8", "bubul"], "opilio": ["\u7267\u7F8A\u4EBA", "\u52A8", "opilio"], "subulc": ["\u7267\u732A\u4EBA", "\u52A8", "subulc"], "equiso": ["\u9A6C\u592B", "\u52A8", "equiso"], "capistr": ["\u7B3C\u5934", "\u52A8", "capistr"], "fiscella": ["\u8349\u7F16\u98DF\u7BEE", "\u52A8", "fiscella"], "forceps": ["\u94B3", "\u52A8", "forceps"], "stimul": ["\u523A\u68D2", "\u52A8", "stimul"], "intue": ["\u51DD\u89C6", "\u52A8", "intue"], "conspic": ["\u6CE8\u89C6", "\u52A8", "conspic"], "adspect": ["\u77A5\u89C1", "\u52A8", "adspect"], "limis": ["\u659C\u89C6", "\u52A8", "limis"], "prospic": ["\u8FDC\u773A", "\u52A8", "prospic"], "perscrut": ["\u7EC6\u5BDF", "\u52A8", "perscrut"], "scrut": ["\u63A2\u7A76", "\u52A8", "scrut"], "auscult": ["\u503E\u542C", "\u52A8", "auscult"], "degust": ["\u54C1\u5C1D", "\u52A8", "degust"], "attrect": ["\u89E6\u6478", "\u52A8", "attrect"], "contrect": ["\u629A\u5F04", "\u52A8", "contrect"], "tent": ["\u8BD5\u63A2", "\u52A8", "tent"], "negleg": ["\u5FFD\u7565", "\u52A8", "negleg"], "contu": ["\u6253\u91CF", "\u52A8", "contu"], "subleg": ["\u5077\u542C", "\u52A8", "subleg"], "rim": ["\u7AA5\u63A2", "\u52A8", "rim"], "obtut": ["\u51DD\u89C6", "\u52A8", "obtut"], "tuit": ["\u6CE8\u89C6", "\u52A8", "tuit"], "conniv": ["\u95ED\u773C", "\u52A8", "conniv"], "olfact": ["\u55C5\u95FB", "\u52A8", "olfact"], "contempl": ["\u9ED8\u89C2", "\u52A8", "contempl"], "persent": ["\u89C9\u5BDF", "\u52A8", "persent"], "animad": ["\u7559\u610F", "\u52A8", "animad"], "reper": ["\u53D1\u73B0", "\u52A8", "reper"], "nutus": ["\u9894\u9996", "\u52A8", "nutus"], "renutus": ["\u6447\u5934", "\u52A8", "renutus"], "subrisus": ["\u6D45\u7B11", "\u52A8", "subrisus"], "fletus": ["\u54ED\u6CE3", "\u52A8", "fletus"], "gemitus": ["\u53F9\u606F", "\u52A8", "gemitus"], "suspir": ["\u957F\u53F9", "\u52A8", "suspir"], "stupor": ["\u5446\u6EDE", "\u52A8", "stupor"], "fremitus": ["\u54AC\u7259", "\u52A8", "fremitus"], "stridor": ["\u54AC\u7259\u58F0", "\u52A8", "stridor"], "torvi": ["\u51F6\u76F8", "\u52A8", "torvi"], "hilarit": ["\u559C\u8272", "\u52A8", "hilarit"], "tristit": ["\u6101\u5BB9", "\u52A8", "tristit"], "severit": ["\u4E25\u5389\u795E\u8272", "\u52A8", "severit"], "verecun": ["\u8D67\u8272", "\u52A8", "verecun"], "constan": ["\u9547\u5B9A", "\u52A8", "constan"], "iactant": ["\u5F97\u610F\u4E4B\u8272", "\u52A8", "iactant"], "fastus": ["\u50B2\u6162\u4E4B\u8272", "\u52A8", "fastus"], "maestit": ["\u60B2\u621A", "\u52A8", "maestit"], "habitus": ["\u4E3E\u6B62", "\u52A8", "habitus"], "gestus": ["\u624B\u52BF", "\u52A8", "gestus"], "incessus": ["\u6B65\u6001", "\u52A8", "incessus"], "facies": ["\u9762\u8272", "\u52A8", "facies"], "exanim": ["\u5931\u8272", "\u52A8", "exanim"], "gradior": ["\u8FC8\u6B65", "\u52A8", "gradior"], "proper": ["\u75BE\u884C", "\u52A8", "proper"], "lente": ["\u7F13\u884C", "\u52A8", "lente"], "errab": ["\u5F98\u5F8A", "\u52A8", "errab"], "morat": ["\u9017\u7559", "\u52A8", "morat"], "substit": ["\u9A7B\u8DB3", "\u52A8", "substit"], "innit": ["\u501A\u9760", "\u52A8", "innit"], "recumb": ["\u659C\u501A", "\u52A8", "recumb"], "assid": ["\u7AEF\u5750", "\u52A8", "assid"], "procumb": ["\u530D\u5310", "\u52A8", "procumb"], "result": ["\u8DC3\u8D77", "\u52A8", "result"], "corrui": ["\u683D\u5012", "\u52A8", "corrui"], "adrep": ["\u530D\u5310\u800C\u884C", "\u52A8", "adrep"], "circumi": ["\u73AF\u884C", "\u52A8", "circumi"], "praegred": ["\u5148\u884C", "\u52A8", "praegred"], "subsequ": ["\u968F\u884C", "\u52A8", "subsequ"], "obambul": ["\u8E31\u6B65", "\u52A8", "obambul"], "deambul": ["\u6563\u6B65", "\u52A8", "deambul"], "contend": ["\u75BE\u5954", "\u52A8", "contend"], "festin": ["\u8D76\u8DEF", "\u52A8", "festin"], "rept": ["\u722C\u884C", "\u52A8", "rept"], "sublim": ["\u767B\u9AD8", "\u52A8", "sublim"], "nixus": ["\u594B\u529B", "\u52A8", "nixus"], "conat": ["\u5C1D\u8BD5", "\u52A8", "conat"], "tardig": ["\u7F13\u6B65", "\u52A8", "tardig"], "graveol": ["\u6D53\u81ED", "\u7269", "graveol"], "putor": ["\u8150\u81ED", "\u7269", "putor"], "rancor": ["\u54C8\u5587\u5473", "\u7269", "rancor"], "nidor": ["\u6CB9\u70DF\u5473", "\u7269", "nidor"], "sulf": ["\u786B\u5473", "\u7269", "sulf"], "muria": ["\u54B8\u8165", "\u7269", "muria"], "nardus": ["\u7518\u677E\u9999", "\u7269", "nardus"], "tus": ["\u4E73\u9999", "\u7269", "tus"], "myrrha": ["\u6CA1\u836F", "\u7269", "myrrha"], "balsam": ["\u9999\u818F", "\u7269", "balsam"], "ambra": ["\u9F99\u6D8E\u9999", "\u7269", "ambra"], "mosch": ["\u9E9D\u9999", "\u7269", "mosch"], "sandal": ["\u6A80\u9999", "\u7269", "sandal"], "camphor": ["\u6A1F\u8111", "\u7269", "camphor"], "thurib": ["\u9999\u7089", "\u7269", "thurib"], "acerra": ["\u9999\u76D2", "\u7269", "acerra"], "suffim": ["\u718F\u9999", "\u7269", "suffim"], "odoram": ["\u9999\u6599", "\u7269", "odoram"], "foetor": ["\u6076\u81ED", "\u7269", "foetor"], "exhalat": ["\u6563\u51FA", "\u7269", "exhalat"], "redol": ["\u6563\u53D1\u9999\u6C14", "\u7269", "redol"], "olens": ["\u6709\u6C14\u5473\u7684", "\u7269", "olens"], "iners": ["\u65E0\u5473\u7684", "\u7269", "iners"], "flagran": ["\u6C14\u5473\u6D53\u70C8", "\u7269", "flagran"], "dulcedo": ["\u7518\u5473", "\u6027", "dulcedo"], "amaror": ["\u82E6\u5473", "\u6027", "amaror"], "salsedo": ["\u54B8\u5473", "\u6027", "salsedo"], "austerus": ["\u6DA9", "\u6027", "austerus"], "ponticus": ["\u9178\u6DA9", "\u6027", "ponticus"], "oleag": ["\u6CB9\u6DA6", "\u6027", "oleag"], "farinac": ["\u7C89\u8D28", "\u6027", "farinac"], "friab": ["\u9165\u8106", "\u6027", "friab"], "crisp": ["\u9165\u8106\u58F0", "\u6027", "crisp"], "lentus": ["\u9ECF\u97E7", "\u6027", "lentus"], "succulent": ["\u591A\u6C41", "\u6027", "succulent"], "vapidus": ["\u8D70\u5473", "\u6027", "vapidus"], "insipidus": ["\u65E0\u5473", "\u6027", "insipidus"], "apian": ["\u871C\u751C", "\u6027", "apian"], "nauseos": ["\u4EE4\u4EBA\u4F5C\u5455", "\u6027", "nauseos"], "fastidios": ["\u5012\u80C3", "\u6027", "fastidios"], "saturit": ["\u9971\u817B", "\u6027", "saturit"], "mellitus": ["\u871C\u6E0D", "\u6027", "mellitus"], "dulciar": ["\u751C\u98DF", "\u6027", "dulciar"], "bellaria": ["\u751C\u70B9", "\u6027", "bellaria"], "crustulum": ["\u9165\u70B9", "\u6027", "crustulum"], "libari": ["\u7CD5\u70B9", "\u6027", "libari"], "potulent": ["\u996E\u54C1", "\u6027", "potulent"], "esculent": ["\u98DF\u54C1", "\u6027", "esculent"], "nitor": ["\u5149\u6CFD", "\u6027", "nitor"], "albedo": ["\u768E\u767D", "\u6027", "albedo"], "nigredo": ["\u9EDD\u9ED1", "\u6027", "nigredo"], "rubedo": ["\u8D64\u7EA2", "\u6027", "rubedo"], "viridit": ["\u7FE0\u7EFF", "\u6027", "viridit"], "caerul": ["\u851A\u84DD", "\u6027", "caerul"], "flavedo": ["\u6A59\u9EC4", "\u6027", "flavedo"], "marmorat": ["\u6591\u9A73", "\u6027", "marmorat"], "opacit": ["\u4E0D\u900F\u660E", "\u6027", "opacit"], "transluc": ["\u534A\u900F", "\u6027", "transluc"], "perlucid": ["\u900F\u4EAE", "\u6027", "perlucid"], "nitens": ["\u6DA6\u6CFD", "\u6027", "nitens"], "levor": ["\u5149\u6ED1\u5EA6", "\u6027", "levor"], "asperit": ["\u7C97\u7CD9\u611F", "\u6027", "asperit"], "glabri": ["\u65E0\u6BDB\u7684", "\u6027", "glabri"], "scabri": ["\u51F9\u51F8", "\u6027", "scabri"], "obscurit": ["\u5E7D\u6697", "\u6027", "obscurit"], "clarit": ["\u660E\u4EAE", "\u6027", "clarit"], "colorat": ["\u7740\u8272", "\u6027", "colorat"], "luminesc": ["\u53D1\u5149", "\u6027", "luminesc"], "phosphor": ["\u78F7\u5149", "\u6027", "phosphor"], "iridesc": ["\u8679\u5F69", "\u6027", "iridesc"], "refulg": ["\u8FD4\u7167", "\u6027", "refulg"], "opert": ["\u906E\u853D", "\u6027", "opert"], "reteg": ["\u663E\u9732", "\u6027", "reteg"], "sonor": ["\u6D2A\u4EAE", "\u6027", "sonor"], "clangor": ["\u94FF\u9535", "\u6027", "clangor"], "tinnit": ["\u8033\u9E23", "\u6027", "tinnit"], "bombus": ["\u55E1\u55E1", "\u6027", "bombus"], "sibilus": ["\u5636\u58F0", "\u6027", "sibilus"], "ululat": ["\u568E\u58F0", "\u6027", "ululat"], "plausus": ["\u638C\u58F0", "\u6027", "plausus"], "modulat": ["\u6291\u626C", "\u6027", "modulat"], "canor": ["\u65CB\u5F8B\u7F8E", "\u6027", "canor"], "disson": ["\u4E0D\u8C10", "\u6027", "disson"], "conson": ["\u8C10\u548C", "\u6027", "conson"], "fremor": ["\u4F4E\u6C89\u58F0", "\u6027", "fremor"], "raucit": ["\u6C99\u54D1", "\u6027", "raucit"], "arguti": ["\u5C16\u7EC6", "\u6027", "arguti"], "clariso": ["\u6E05\u4EAE", "\u6027", "clariso"], "obtusus": ["\u95F7\u54CD", "\u6027", "obtusus"], "acut": ["\u5C16\u9510", "\u6027", "acut"], "perstrep": ["\u55A7\u817E", "\u6027", "perstrep"], "obstre": ["\u5608\u6742", "\u6027", "obstre"], "stridul": ["\u5431\u5440", "\u6027", "stridul"], "modulam": ["\u66F2\u8C03", "\u6027", "modulam"], "numeri": ["\u8282\u62CD", "\u6027", "numeri"], "sonorit": ["\u54CD\u4EAE", "\u6027", "sonorit"], "boatus": ["\u725B\u9E23\u58F0", "\u6027", "boatus"], "lentor": ["\u9ECF\u6EDE", "\u6027", "lentor"], "punctur": ["\u523A\u75DB", "\u6027", "punctur"], "formicat": ["\u53D1\u9EBB", "\u6027", "formicat"], "ardor": ["\u707C\u75DB", "\u6027", "ardor"], "morsus": ["\u54AC\u75DB", "\u6027", "morsus"], "pulsat": ["\u640F\u52A8", "\u6027", "pulsat"], "callosit": ["\u8327", "\u6027", "callosit"], "mollit": ["\u67D4\u8F6F\u611F", "\u6027", "mollit"], "durit": ["\u575A\u786C\u611F", "\u6027", "durit"], "scabies": ["\u75A5\u7663", "\u6027", "scabies"], "papula": ["\u4E18\u75B9", "\u6027", "papula"], "pustula": ["\u8113\u75B1", "\u6027", "pustula"], "torridus": ["\u707C\u70ED", "\u6027", "torridus"], "tepid": ["\u5FAE\u6E29", "\u6027", "tepid"], "lubricus": ["\u6ED1\u6E9C", "\u6027", "lubricus"], "scaber": ["\u7C97\u7CD9\u9762", "\u6027", "scaber"], "rasilis": ["\u5149\u6ED1\u6613\u78E8", "\u6027", "rasilis"], "mucor": ["\u9709\u6ED1", "\u6027", "mucor"], "scalpor": ["\u523A\u75DB\u611F", "\u6027", "scalpor"], "algidit": ["\u5BD2\u51B7", "\u6027", "algidit"], "calidit": ["\u6E29\u70ED", "\u6027", "calidit"], "horrip": ["\u8D77\u9E21\u76AE", "\u6027", "horrip"], "tormina": ["\u7EDE\u75DB", "\u6027", "tormina"], "mordic": ["\u523A\u75DB", "\u6027", "mordic"], "praecipi": ["\u5760\u5D16\u5211", "\u7269", "praecipi"], "supplicium": ["\u6781\u5211", "\u7269", "supplicium"], "crux": ["\u5341\u5B57\u5211", "\u7269", "crux"], "flagrum": ["\u97AD", "\u7269", "flagrum"], "virga": ["\u6756", "\u7269", "virga"], "compes": ["\u811A\u9563", "\u7269", "compes"], "boiae": ["\u9879\u5708\u67B7", "\u7269", "boiae"], "metallum": ["\u77FF\u5F79", "\u7269", "metallum"], "decoll": ["\u65A9\u9996", "\u7269", "decoll"], "patibu": ["\u5211\u67B6", "\u7269", "patibu"], "verber": ["\u7B1E\u6253", "\u7269", "verber"], "talio": ["\u540C\u6001\u590D\u4EC7", "\u7269", "talio"], "eculeus": ["\u62F7\u95EE\u67B6", "\u7269", "eculeus"], "ungula": ["\u94B3\u70D9", "\u7269", "ungula"], "lamina": ["\u70D9\u94C1", "\u7269", "lamina"], "catasta": ["\u5211\u53F0", "\u7269", "catasta"], "manicae": ["\u624B\u94D0", "\u7269", "manicae"], "numella": ["\u8DB3\u67B7", "\u7269", "numella"], "cippus": ["\u6728\u67B7", "\u7269", "cippus"], "cruciat": ["\u9177\u5211", "\u7269", "cruciat"], "excarn": ["\u51CC\u8FDF", "\u7269", "excarn"], "strangul": ["\u7EDE\u6740", "\u7269", "strangul"], "submer": ["\u6EBA\u5211", "\u7269", "submer"], "ustion": ["\u706B\u5211", "\u7269", "ustion"], "mulcta": ["\u7F5A\u91D1", "\u7269", "mulcta"], "dot": ["\u5AC1\u5986", "\u7269", "dot"], "thalamus": ["\u5A5A\u623F", "\u7269", "thalamus"], "pronuba": ["\u4F34\u5A18", "\u7269", "pronuba"], "auspex": ["\u8BC1\u5A5A", "\u7269", "auspex"], "taeda": ["\u5A5A\u70AC", "\u7269", "taeda"], "confarr": ["\u9EA6\u997C\u5A5A", "\u7269", "confarr"], "repudium": ["\u4F11\u5A5A", "\u7269", "repudium"], "iustit": ["\u56FD\u4E27", "\u7269", "iustit"], "lugubr": ["\u4E27\u670D", "\u7269", "lugubr"], "planctus": ["\u6376\u80F8\u54C0\u54ED", "\u7269", "planctus"], "naenia": ["\u633D\u6B4C", "\u7269", "naenia"], "rogus": ["\u706B\u846C\u5806", "\u7269", "rogus"], "bustum": ["\u706B\u846C\u573A", "\u7269", "bustum"], "sarcoph": ["\u77F3\u68FA", "\u7269", "sarcoph"], "parental": ["\u796D\u7956\u8282", "\u7269", "parental"], "inferiae": ["\u796D\u4EA1", "\u7269", "inferiae"], "novendi": ["\u4E5D\u65E5\u796D", "\u7269", "novendi"], "silicer": ["\u4E27\u5BB4", "\u7269", "silicer"], "iusta": ["\u846C\u793C", "\u7269", "iusta"], "elogium": ["\u5893\u5FD7\u94ED", "\u7269", "elogium"], "cunae": ["\u6447\u7BEE", "\u7269", "cunae"], "togavir": ["\u6210\u5E74\u888D", "\u7269", "togavir"], "deductio": ["\u8FCE\u4EB2", "\u7269", "deductio"], "pompa": ["\u4EEA\u4ED7", "\u7269", "pompa"], "fasces": ["\u6743\u6807", "\u7269", "fasces"], "sors": ["\u4EFD\u989D", "\u7269", "sors"], "symbola": ["\u5206\u644A", "\u7269", "symbola"], "collecta": ["\u644A\u6D3E", "\u7269", "collecta"], "collatio": ["\u51D1\u4EFD", "\u7269", "collatio"], "pensita": ["\u644A\u8FD8", "\u7269", "pensita"], "decuma": ["\u4EC0\u4E00\u7A0E", "\u7269", "decuma"], "centesi": ["\u767E\u5206\u7A0E", "\u7269", "centesi"], "vicensi": ["\u4E8C\u5341\u5206\u7A0E", "\u7269", "vicensi"], "multa": ["\u7F5A\u91D1", "\u7269", "multa"], "manubi": ["\u6218\u5229\u54C1", "\u7269", "manubi"], "donativ": ["\u8D4F\u8D50", "\u7269", "donativ"], "congiar": ["\u8D50\u7CAE", "\u7269", "congiar"], "largitio": ["\u8D4F\u8D49", "\u7269", "largitio"], "sortit": ["\u62BD\u7B7E\u5206\u914D", "\u7269", "sortit"], "adsigna": ["\u5206\u914D", "\u7269", "adsigna"], "attribu": ["\u5F52\u5C5E", "\u7269", "attribu"], "dispens": ["\u8C03\u5EA6", "\u7269", "dispens"], "erogat": ["\u53D1\u653E", "\u7269", "erogat"], "ratioci": ["\u6838\u7B97", "\u7269", "ratioci"], "expensum": ["\u652F\u51FA\u8D26", "\u7269", "expensum"], "accept": ["\u6536\u5165\u8D26", "\u7269", "accept"], "collybus": ["\u5151\u6362\u7387", "\u7269", "collybus"], "fenerat": ["\u653E\u8D37\u8005", "\u7269", "fenerat"], "peculi": ["\u79C1\u4EA7", "\u7269", "peculi"], "ephipp": ["\u9A6C\u978D", "\u7269", "ephipp"], "stapes": ["\u9A6C\u956B", "\u7269", "stapes"], "scutica": ["\u97AD", "\u7269", "scutica"], "crepida": ["\u8E44\u94C1", "\u7269", "crepida"], "culcitra": ["\u978D\u8925", "\u7269", "culcitra"], "cingulum": ["\u809A\u5E26", "\u7269", "cingulum"], "calcari": ["\u9A6C\u523A", "\u7269", "calcari"], "sagma": ["\u9A6E\u67B6", "\u7269", "sagma"], "clitell": ["\u9A6E\u978D", "\u7269", "clitell"], "lupatum": ["\u9A6C\u8854\u94C1", "\u7269", "lupatum"], "desultor": ["\u9A6C\u672F\u5E08", "\u7269", "desultor"], "veredus": ["\u9A7F\u9A6C", "\u7269", "veredus"], "caballus": ["\u9A7D\u9A6C", "\u7269", "caballus"], "sonipes": ["\u8E44\u58F0\u9A6C", "\u7269", "sonipes"], "quadriga": ["\u56DB\u9A6C\u6218\u8F66", "\u7269", "quadriga"], "bige": ["\u53CC\u9A6C\u8F66", "\u7269", "bige"], "hippoco": ["\u9A6C\u592B", "\u7269", "hippoco"], "strator": ["\u9A6C\u592B", "\u7269", "strator"], "parhipp": ["\u526F\u9A6C", "\u7269", "parhipp"], "faler": ["\u9A6C\u9970", "\u7269", "faler"], "mulus": ["\u9AA1", "\u7269", "mulus"], "burdo": ["\u5F79\u9AA1", "\u7269", "burdo"], "iument": ["\u5F79\u755C", "\u7269", "iument"], "curso": ["\u8DD1\u9A6C", "\u7269", "curso"], "equirr": ["\u8D5B\u9A6C\u8282", "\u7269", "equirr"], "astrag": ["\u9AB0\u9AA8", "\u52A8", "astrag"], "scacc": ["\u68CB\u5B50", "\u52A8", "scacc"], "latrunc": ["\u8DF3\u68CB", "\u52A8", "latrunc"], "pila": ["\u73A9\u7403", "\u52A8", "pila"], "harpast": ["\u62A2\u7403\u620F", "\u52A8", "harpast"], "trigon": ["\u4E09\u89D2\u7403\u620F", "\u52A8", "trigon"], "certamen": ["\u7ADE\u8D5B", "\u52A8", "certamen"], "palaest": ["\u89D2\u529B\u573A", "\u52A8", "palaest"], "luctam": ["\u89D2\u529B", "\u52A8", "luctam"], "pancrat": ["\u5168\u80FD\u640F\u6597", "\u52A8", "pancrat"], "discus": ["\u94C1\u997C", "\u52A8", "discus"], "iaculum": ["\u6807\u67AA", "\u52A8", "iaculum"], "funamb": ["\u8D70\u7D22", "\u52A8", "funamb"], "praestig": ["\u5E7B\u672F", "\u52A8", "praestig"], "agon": ["\u7ADE\u8D5B", "\u52A8", "agon"], "athlet": ["\u7ADE\u6280\u8005", "\u52A8", "athlet"], "gymnic": ["\u7ADE\u6280\u7684", "\u52A8", "gymnic"], "stadio": ["\u7ADE\u8D70", "\u52A8", "stadio"], "diaul": ["\u5F80\u8FD4\u8DD1", "\u52A8", "diaul"], "coryc": ["\u7EC3\u62F3\u888B", "\u52A8", "coryc"], "halter": ["\u54D1\u94C3", "\u52A8", "halter"], "sphaeri": ["\u7403\u5BA4", "\u52A8", "sphaeri"], "aleator": ["\u8D4C\u5F92", "\u52A8", "aleator"], "fritill": ["\u9AB0\u7B52", "\u52A8", "fritill"], "petaur": ["\u8DF3\u677F", "\u52A8", "petaur"], "ascesis": ["\u82E6\u4FEE", "\u7269", "ascesis"], "meditatio": ["\u51A5\u60F3", "\u7269", "meditatio"], "ieiunium": ["\u658B\u6212", "\u7269", "ieiunium"], "litania": ["\u8FDE\u7977", "\u7269", "litania"], "psalmus": ["\u5723\u548F", "\u7269", "psalmus"], "monachus": ["\u4FEE\u58EB", "\u7269", "monachus"], "anacho": ["\u9690\u4FEE\u8005", "\u7269", "anacho"], "abbas": ["\u9662\u957F", "\u7269", "abbas"], "prioris": ["\u5973\u9662\u957F", "\u7269", "prioris"], "novic": ["\u521D\u5B66\u751F", "\u7269", "novic"], "obedientia": ["\u670D\u4ECE", "\u7269", "obedientia"], "paupertas": ["\u6E05\u8D2B", "\u7269", "paupertas"], "castitas": ["\u5B88\u8D1E", "\u7269", "castitas"], "oratorium": ["\u7948\u7977\u5BA4", "\u7269", "oratorium"], "cenobi": ["\u56E2\u4FEE\u9662", "\u7269", "cenobi"], "stupa": ["\u5854\u5E99", "\u7269", "stupa"], "pagoda": ["\u4F5B\u5854", "\u7269", "pagoda"], "sangha": ["\u50E7\u56E2", "\u7269", "sangha"], "bhikkhu": ["\u6BD4\u4E18", "\u7269", "bhikkhu"], "yogi": ["\u745C\u4F3D\u58EB", "\u7269", "yogi"], "asana": ["\u5750\u59FF", "\u7269", "asana"], "mantra": ["\u771F\u8A00", "\u7269", "mantra"], "sutra": ["\u7ECF", "\u7269", "sutra"], "dharma": ["\u6CD5\u7406", "\u7269", "dharma"], "karma": ["\u4E1A", "\u7269", "karma"], "cephala": ["\u5934\u75DB", "\u7269", "cephala"], "odontal": ["\u7259\u75DB", "\u7269", "odontal"], "arthrit": ["\u5173\u8282\u708E", "\u7269", "arthrit"], "podagra": ["\u75DB\u98CE", "\u7269", "podagra"], "colic": ["\u7EDE\u75DB", "\u7269", "colic"], "diarrh": ["\u8179\u6CFB", "\u7269", "diarrh"], "dysent": ["\u75E2\u75BE", "\u7269", "dysent"], "obstip": ["\u4FBF\u79D8", "\u7269", "obstip"], "lipoth": ["\u660F\u53A5", "\u7269", "lipoth"], "convuls": ["\u62BD\u6410", "\u7269", "convuls"], "paralys": ["\u762B\u75EA", "\u7269", "paralys"], "caecit": ["\u5931\u660E", "\u7269", "caecit"], "surdit": ["\u8033\u804B", "\u7269", "surdit"], "aphasia": ["\u5931\u8BED", "\u7269", "aphasia"], "amnesia": ["\u5065\u5FD8", "\u7269", "amnesia"], "icterus": ["\u9EC4\u75B8", "\u7269", "icterus"], "hydrops": ["\u6C34\u80BF", "\u7269", "hydrops"], "abscess": ["\u8113\u80BF", "\u7269", "abscess"], "gangrae": ["\u574F\u75BD", "\u7269", "gangrae"], "febricula": ["\u4F4E\u70ED", "\u7269", "febricula"], "struma": ["\u7630\u75AC", "\u7269", "struma"], "variola": ["\u5929\u82B1", "\u7269", "variola"], "morbill": ["\u9EBB\u75B9", "\u7269", "morbill"], "scarlat": ["\u7329\u7EA2\u70ED", "\u7269", "scarlat"], "diphthe": ["\u767D\u5589", "\u7269", "diphthe"], "faex": ["\u9152\u6E23", "\u52A8", "faex"], "vinace": ["\u8461\u8404\u6E23", "\u52A8", "vinace"], "torcul": ["\u538B\u69A8\u673A", "\u52A8", "torcul"], "prelum": ["\u69A8\u673A", "\u52A8", "prelum"], "lacus": ["\u9152\u6C60", "\u52A8", "lacus"], "cupa": ["\u9152\u6876", "\u52A8", "cupa"], "penus": ["\u50A8\u7CAE", "\u52A8", "penus"], "silo": ["\u5730\u7A96\u4ED3", "\u52A8", "silo"], "salitur": ["\u814C\u85CF", "\u52A8", "salitur"], "liquam": ["\u9C7C\u9171\u6C41", "\u52A8", "liquam"], "conditu": ["\u814C\u6E0D", "\u52A8", "conditu"], "carnar": ["\u8089\u5E93", "\u52A8", "carnar"], "doliar": ["\u6876\u5320", "\u52A8", "doliar"], "cupar": ["\u6876\u5320", "\u52A8", "cupar"], "vindemia": ["\u91C7\u8461\u8404", "\u52A8", "vindemia"], "torcular": ["\u69A8\u9152", "\u52A8", "torcular"], "caroen": ["\u716E\u9152", "\u52A8", "caroen"], "oleari": ["\u6CB9\u5546", "\u52A8", "oleari"], "vinari": ["\u9152\u5546", "\u52A8", "vinari"], "cetari": ["\u9C7C\u5546", "\u52A8", "cetari"], "frigida": ["\u51B7\u85CF\u5BA4", "\u52A8", "frigida"], "carnifi": ["\u5C60\u5BB0\u573A", "\u52A8", "carnifi"], "salsam": ["\u814C\u9C7C", "\u52A8", "salsam"], "salsur": ["\u76D0\u6E0D", "\u52A8", "salsur"], "fumos": ["\u718F\u5236\u7684", "\u52A8", "fumos"], "discrim": ["\u53D1\u7F1D", "\u7269", "discrim"], "crinale": ["\u53D1\u9488", "\u7269", "crinale"], "pulvis": ["\u7C89", "\u7269", "pulvis"], "cerussa": ["\u94C5\u7C89", "\u7269", "cerussa"], "purpuris": ["\u80ED\u8102", "\u7269", "purpuris"], "rubrica": ["\u8D6D\u7EA2", "\u7269", "rubrica"], "stibi": ["\u9EDB", "\u7269", "stibi"], "unguent": ["\u9999\u818F", "\u7269", "unguent"], "myrothe": ["\u9999\u6CB9\u76D2", "\u7269", "myrothe"], "narthe": ["\u836F\u818F\u76D2", "\u7269", "narthe"], "tonstrin": ["\u5243\u53D1\u94FA", "\u7269", "tonstrin"], "novacula": ["\u5243\u5200", "\u7269", "novacula"], "volsella": ["\u954A", "\u7269", "volsella"], "depil": ["\u62D4\u6BDB", "\u7269", "depil"], "smegma": ["\u64E6\u8EAB\u818F", "\u7269", "smegma"], "strigilis": ["\u522E\u8EAB\u5668", "\u7269", "strigilis"], "sudator": ["\u6C57\u6D74\u5BA4", "\u7269", "sudator"], "tepidarium": ["\u6E29\u6D74\u5BA4", "\u7269", "tepidarium"], "capilla": ["\u53D1\u5F0F", "\u7269", "capilla"], "ciniflo": ["\u70EB\u53D1\u5E08", "\u7269", "ciniflo"], "crinis": ["\u53D1\u4E1D", "\u7269", "crinis"], "collyr": ["\u773C\u818F", "\u7269", "collyr"], "psilot": ["\u8131\u6BDB\u836F", "\u7269", "psilot"], "sapo": ["\u7682", "\u7269", "sapo"], "puella": ["\u5973\u5B69", "\u7269", "puella"], "parvul": ["\u5E7C\u7AE5", "\u7269", "parvul"], "lactens": ["\u4E73\u513F", "\u7269", "lactens"], "crepund": ["\u6447\u94C3", "\u7269", "crepund"], "oscill": ["\u5C0F\u9762\u5177", "\u7269", "oscill"], "turben": ["\u9640\u87BA", "\u7269", "turben"], "trochus": ["\u94C1\u73AF", "\u7269", "trochus"], "pilula": ["\u5C0F\u7403", "\u7269", "pilula"], "gerula": ["\u80B2\u513F\u5AC2", "\u7269", "gerula"], "ludicrum": ["\u73A9\u7269", "\u7269", "ludicrum"], "crepitac": ["\u6447\u54CD\u5668", "\u7269", "crepitac"], "rhombus": ["\u9640\u87BA", "\u7269", "rhombus"], "lusus": ["\u6E38\u620F", "\u7269", "lusus"], "nugae": ["\u7410\u620F", "\u7269", "nugae"], "gerrae": ["\u73A9\u610F\u513F", "\u7269", "gerrae"], "inepti": ["\u5B09\u95F9", "\u7269", "inepti"], "ludibrium": ["\u7B11\u67C4\u73A9\u7269", "\u7269", "ludibrium"], "puerilis": ["\u7A1A\u6C14", "\u7269", "puerilis"], "vagitus": ["\u5A74\u513F\u557C", "\u7269", "vagitus"], "balbut": ["\u54BF\u5440", "\u7269", "balbut"], "mammula": ["\u513F\u8BED\u5988", "\u7269", "mammula"], "pusio": ["\u5C0F\u7537\u5B69", "\u7269", "pusio"], "pusa": ["\u5C0F\u5973\u5B69", "\u7269", "pusa"], "paegnium": ["\u73A9\u7269", "\u7269", "paegnium"], "infantil": ["\u5E7C\u513F\u7684", "\u7269", "infantil"], "vomer": ["\u7281\u94E7", "\u7269", "vomer"], "dental": ["\u7281\u9F7F", "\u7269", "dental"], "raster": ["\u8019", "\u7269", "raster"], "sarcul": ["\u9504", "\u7269", "sarcul"], "bidens": ["\u53CC\u9F7F\u9504", "\u7269", "bidens"], "secula": ["\u9570\u5200", "\u7269", "secula"], "vannus": ["\u7C38\u7B95", "\u7269", "vannus"], "tribel": ["\u8131\u7C92\u5668", "\u7269", "tribel"], "pala": ["\u94F2", "\u7269", "pala"], "rutrum": ["\u9539", "\u7269", "rutrum"], "ligo": ["\u9E64\u5634\u9504", "\u7269", "ligo"], "marra": ["\u5927\u9504", "\u7269", "marra"], "occator": ["\u8019\u5730\u8005", "\u7269", "occator"], "fossor": ["\u6398\u571F\u8005", "\u7269", "fossor"], "sator": ["\u64AD\u79CD\u8005", "\u7269", "sator"], "messor": ["\u6536\u5272\u8005", "\u7269", "messor"], "arator": ["\u8015\u8005", "\u7269", "arator"], "putator": ["\u4FEE\u526A\u8005", "\u7269", "putator"], "fiscina": ["\u8349\u7BEE", "\u7269", "fiscina"], "corbis": ["\u7CAE\u7B50", "\u7269", "corbis"], "qualus": ["\u7BD3", "\u7269", "qualus"], "sporta": ["\u7BEE\u7B50", "\u7269", "sporta"], "rutellum": ["\u5C0F\u9539", "\u7269", "rutellum"], "marculus": ["\u5C0F\u9524", "\u7269", "marculus"], "falcula": ["\u5C0F\u9570", "\u7269", "falcula"], "officin": ["\u5320\u4EBA", "\u7269", "officin"], "tegular": ["\u74E6\u5320", "\u7269", "tegular"], "dealba": ["\u7C89\u5237\u5320", "\u7269", "dealba"], "scenogr": ["\u5E03\u666F\u5E08", "\u7269", "scenogr"], "glutinat": ["\u88F1\u7CCA\u5320", "\u7269", "glutinat"], "clavar": ["\u9501\u5320", "\u7269", "clavar"], "serrar": ["\u952F\u5320", "\u7269", "serrar"], "vitrar": ["\u73BB\u7483\u5320", "\u7269", "vitrar"], "aurif": ["\u91D1\u5320", "\u7269", "aurif"], "argentari": ["\u94F6\u5668\u5320", "\u7269", "argentari"], "lignar": ["\u6728\u5320", "\u7269", "lignar"], "marmorar": ["\u77F3\u5320", "\u7269", "marmorar"], "calcinar": ["\u70E7\u7070\u5320", "\u7269", "calcinar"], "laterar": ["\u7816\u5320", "\u7269", "laterar"], "fictor": ["\u5851\u5320", "\u7269", "fictor"], "ceropla": ["\u8721\u5851\u5320", "\u7269", "ceropla"], "coronar": ["\u82B1\u51A0\u5320", "\u7269", "coronar"], "unguentar": ["\u9999\u818F\u5320", "\u7269", "unguentar"], "saponar": ["\u5236\u7682\u5320", "\u7269", "saponar"], "armamentar": ["\u5175\u5668\u5320", "\u7269", "armamentar"], "scutar": ["\u76FE\u5320", "\u7269", "scutar"], "sellular": ["\u6905\u5320", "\u7269", "sellular"], "lecticar": ["\u80A9\u8206\u5320", "\u7269", "lecticar"], "tornat": ["\u65CB\u5DE5", "\u7269", "tornat"], "limat": ["\u9509\u5DE5", "\u7269", "limat"], "aula": ["\u5BAB\u5EF7", "\u7269", "aula"], "regia": ["\u738B\u5BAB", "\u7269", "regia"], "palatium": ["\u5BAB\u6BBF", "\u7269", "palatium"], "thronus": ["\u738B\u5EA7", "\u7269", "thronus"], "diadema": ["\u738B\u51A0", "\u7269", "diadema"], "sceptrum": ["\u6743\u6756", "\u7269", "sceptrum"], "infula": ["\u7EF6\u5E26", "\u7269", "infula"], "audientia": ["\u89D0\u89C1", "\u7269", "audientia"], "admissio": ["\u53EC\u89C1", "\u7269", "admissio"], "salutat": ["\u671D\u8D3A", "\u7269", "salutat"], "processi": ["\u4EEA\u4ED7\u6E38\u884C", "\u7269", "processi"], "nomencl": ["\u5531\u540D\u5B98", "\u7269", "nomencl"], "cubicul": ["\u4F8D\u5BDD\u5B98", "\u7269", "cubicul"], "aulae": ["\u5BAB\u4EBA", "\u7269", "aulae"], "sellacur": ["\u8C61\u7259\u6905", "\u7269", "sellacur"], "chlamys": ["\u5BAB\u888D", "\u7269", "chlamys"], "paludam": ["\u5143\u5E05\u62AB\u98CE", "\u7269", "paludam"], "cathedra": ["\u5B9D\u5EA7", "\u7269", "cathedra"], "solium": ["\u5FA1\u5EA7", "\u7269", "solium"], "referen": ["\u594F\u4E8B\u5B98", "\u7269", "referen"], "silentia": ["\u9759\u9ED8\u5B98", "\u7269", "silentia"], "castren": ["\u5BAB\u5EF7\u603B\u7BA1", "\u7269", "castren"], "sacella": ["\u5E93\u5B98", "\u7269", "sacella"], "ostiar": ["\u95E8\u5B98", "\u7269", "ostiar"], "decanus": ["\u5341\u4EBA\u957F", "\u7269", "decanus"], "sollemn": ["\u5E86\u5178", "\u7269", "sollemn"], "circens": ["\u7ADE\u6280\u4F1A", "\u7269", "circens"], "saturnal": ["\u519C\u795E\u8282", "\u7269", "saturnal"], "luperca": ["\u7267\u795E\u8282", "\u7269", "luperca"], "floral": ["\u82B1\u795E\u8282", "\u7269", "floral"], "compita": ["\u8DEF\u53E3\u8282", "\u7269", "compita"], "rosali": ["\u73AB\u7470\u8282", "\u7269", "rosali"], "amburb": ["\u7ED5\u57CE\u796D", "\u7269", "amburb"], "muner": ["\u89D2\u6597\u8868\u6F14", "\u7269", "muner"], "naumach": ["\u6D77\u6218\u8868\u6F14", "\u7269", "naumach"], "bacchan": ["\u9152\u795E\u8282", "\u7269", "bacchan"], "cereal": ["\u8C37\u795E\u8282", "\u7269", "cereal"], "vestal": ["\u7076\u795E\u8282", "\u7269", "vestal"], "quirina": ["\u5E02\u6C11\u8282", "\u7269", "quirina"], "fordici": ["\u5B55\u725B\u796D", "\u7269", "fordici"], "ambarva": ["\u7530\u5DE1\u796D", "\u7269", "ambarva"], "terminal": ["\u754C\u77F3\u8282", "\u7269", "terminal"], "regifug": ["\u9010\u738B\u8282", "\u7269", "regifug"], "nefast": ["\u51F6\u65E5", "\u7269", "nefast"], "intercal": ["\u95F0\u6708", "\u7269", "intercal"], "vinali": ["\u9152\u8282", "\u7269", "vinali"], "meditri": ["\u65B0\u9152\u8282", "\u7269", "meditri"], "fontin": ["\u6CC9\u8282", "\u7269", "fontin"], "robiga": ["\u795B\u9508\u8282", "\u7269", "robiga"], "opali": ["\u4E30\u4EA7\u8282", "\u7269", "opali"], "schedula": ["\u5C0F\u7B7E", "\u7269", "schedula"], "frontis": ["\u6249\u9875", "\u7269", "frontis"], "praefat": ["\u5E8F\u8A00", "\u7269", "praefat"], "prooemi": ["\u7EEA\u8BBA", "\u7269", "prooemi"], "appendi": ["\u9644\u5F55", "\u7269", "appendi"], "marginal": ["\u9875\u8FB9\u6CE8", "\u7269", "marginal"], "scholi": ["\u7B3A\u6CE8", "\u7269", "scholi"], "coloph": ["\u9898\u8DCB", "\u7269", "coloph"], "explicit": ["\u5377\u672B\u9898", "\u7269", "explicit"], "incipit": ["\u5377\u9996\u9898", "\u7269", "incipit"], "quatern": ["\u4E66\u5E16", "\u7269", "quatern"], "pugilla": ["\u624B\u672D\u677F", "\u7269", "pugilla"], "diptych": ["\u53CC\u6298\u677F", "\u7269", "diptych"], "tripty": ["\u4E09\u6298\u677F", "\u7269", "tripty"], "polypty": ["\u591A\u6298\u677F", "\u7269", "polypty"], "subscri": ["\u5377\u672B\u7F72\u540D", "\u7269", "subscri"], "bybl": ["\u7EB8\u838E\u8349\u82AF", "\u7269", "bybl"], "bombyci": ["\u68C9\u7EB8", "\u7269", "bombyci"], "pumex": ["\u78E8\u7EB8\u77F3", "\u7269", "pumex"], "commenta": ["\u6CE8\u8BB0", "\u7269", "commenta"], "diar": ["\u65E5\u8BB0", "\u7269", "diar"], "adversa": ["\u6742\u8BB0", "\u7269", "adversa"], "capitula": ["\u6555\u4EE4\u96C6", "\u7269", "capitula"], "breviar": ["\u8282\u672C", "\u7269", "breviar"], "florileg": ["\u82B1\u7D6E\u96C6", "\u7269", "florileg"], "molitura": ["\u78E8\u7C89", "\u52A8", "molitura"], "pistur": ["\u8202\u7C73", "\u52A8", "pistur"], "cribrat": ["\u7B5B\u7C89", "\u52A8", "cribrat"], "subact": ["\u63C9\u9762", "\u52A8", "subact"], "assatur": ["\u7099\u70E4", "\u52A8", "assatur"], "frictur": ["\u6CB9\u70B8", "\u52A8", "frictur"], "infusio": ["\u6D78\u6CE1", "\u52A8", "infusio"], "macera": ["\u6D78\u6E0D", "\u52A8", "macera"], "torrefa": ["\u7119\u7092", "\u52A8", "torrefa"], "pressur": ["\u538B\u69A8", "\u52A8", "pressur"], "gelatio": ["\u51BB\u7ED3", "\u52A8", "gelatio"], "mellif": ["\u917F\u871C", "\u52A8", "mellif"], "vinif": ["\u917F\u9152", "\u52A8", "vinif"], "acetif": ["\u917F\u918B", "\u52A8", "acetif"], "caseif": ["\u5236\u916A", "\u52A8", "caseif"], "panif": ["\u5236\u9762\u5305", "\u52A8", "panif"], "oleif": ["\u69A8\u6CB9", "\u52A8", "oleif"], "saccharif": ["\u5236\u7CD6", "\u52A8", "saccharif"], "farinari": ["\u78E8\u574A\u4E3B", "\u52A8", "farinari"], "molito": ["\u78E8\u574A\u4E3B", "\u52A8", "molito"], "condito": ["\u8C03\u5473\u8005", "\u52A8", "condito"], "salsamen": ["\u814C\u9C7C\u5320", "\u52A8", "salsamen"], "carnari": ["\u8089\u8D29", "\u52A8", "carnari"], "cisterna": ["\u84C4\u6C34\u6C60", "\u7269", "cisterna"], "rotaqua": ["\u6C34\u8F66", "\u7269", "rotaqua"], "molaaqu": ["\u6C34\u78E8", "\u7269", "molaaqu"], "incile": ["\u5F15\u6C34\u6E20", "\u7269", "incile"], "emissar": ["\u6392\u6C34\u9053", "\u7269", "emissar"], "colare": ["\u6EE4\u6C34", "\u7269", "colare"], "fistula": ["\u6C34\u7BA1", "\u7269", "fistula"], "castella": ["\u6C34\u5854", "\u7269", "castella"], "hydraul": ["\u6C34\u529B\u673A\u68B0", "\u7269", "hydraul"], "noria": ["\u6C34\u8F66", "\u7269", "noria"], "aquilex": ["\u627E\u6C34\u4EBA", "\u7269", "aquilex"], "groma": ["\u6D4B\u89D2\u4EEA", "\u7269", "groma"], "choroba": ["\u6C34\u51C6\u4EEA", "\u7269", "choroba"], "dioptra": ["\u6D4B\u89D2\u5668", "\u7269", "dioptra"], "puteal": ["\u4E95\u680F", "\u7269", "puteal"], "substruc": ["\u57FA\u5824", "\u7269", "substruc"], "fulcimen": ["\u652F\u67F1", "\u7269", "fulcimen"], "aquagi": ["\u6C34\u9053\u7A0E", "\u7269", "aquagi"], "navigi": ["\u901A\u822A", "\u7269", "navigi"], "ripa": ["\u6CB3\u5CB8", "\u7269", "ripa"], "molendi": ["\u78E8\u574A", "\u7269", "molendi"], "siphunc": ["\u5C0F\u7BA1", "\u7269", "siphunc"], "canalic": ["\u5C0F\u6E20", "\u7269", "canalic"], "aquari": ["\u6C34\u5DE5", "\u7269", "aquari"], "librator": ["\u6C34\u51C6\u6D4B\u91CF\u5458", "\u7269", "librator"], "celox": ["\u5FEB\u8239", "\u7269", "celox"], "liburna": ["\u8F7B\u5E06\u8239", "\u7269", "liburna"], "triremis": ["\u4E09\u5217\u6868\u8239", "\u7269", "triremis"], "quinqueremis": ["\u4E94\u5217\u6868\u8239", "\u7269", "quinqueremis"], "actuaria": ["\u5FEB\u8247", "\u7269", "actuaria"], "ponto": ["\u5E73\u5E95\u8239", "\u7269", "ponto"], "scapha": ["\u5C0F\u8247", "\u7269", "scapha"], "horia": ["\u6E14\u8239", "\u7269", "horia"], "onerari": ["\u5546\u8239", "\u7269", "onerari"], "longa": ["\u6218\u8239", "\u7269", "longa"], "lembus": ["\u8F7B\u821F", "\u7269", "lembus"], "cercur": ["\u8D5B\u666E\u52D2\u65AF\u8239", "\u7269", "cercur"], "catasco": ["\u4FA6\u5BDF\u8239", "\u7269", "catasco"], "hippago": ["\u8FD0\u9A6C\u8239", "\u7269", "hippago"], "schedia": ["\u7B4F", "\u7269", "schedia"], "utricul": ["\u76AE\u7B4F", "\u7269", "utricul"], "carabus": ["\u67F3\u6761\u8247", "\u7269", "carabus"], "nauclerus": ["\u8239\u4E3B", "\u7269", "nauclerus"], "celeus": ["\u6868\u624B\u957F", "\u7269", "celeus"], "apparat": ["\u7D22\u5177", "\u7269", "apparat"], "anquina": ["\u5E06\u811A\u7D22", "\u7269", "anquina"], "scalmus": ["\u6868\u67B6", "\u7269", "scalmus"], "tonsa": ["\u6868\u53F6", "\u7269", "tonsa"], "portisc": ["\u6868\u624B\u6B4C\u8005", "\u7269", "portisc"], "hortat": ["\u50AC\u6868\u8005", "\u7269", "hortat"], "madeo": ["\u6D78\u6E7F", "\u52A8", "madeo"], "madid": ["\u6E7F\u900F", "\u52A8", "madid"], "udus": ["\u6F6E\u6E7F", "\u52A8", "udus"], "bulla": ["\u6C34\u6CE1", "\u52A8", "bulla"], "spuma": ["\u6CE1\u6CAB", "\u52A8", "spuma"], "merso": ["\u6C89\u6CA1", "\u52A8", "merso"], "fluito": ["\u6F02\u6D6E", "\u52A8", "fluito"], "subsid": ["\u4E0B\u6C89", "\u52A8", "subsid"], "emerg": ["\u6D6E\u51FA", "\u52A8", "emerg"], "stillici": ["\u6EF4\u6C34", "\u52A8", "stillici"], "proluvi": ["\u51B2\u79EF", "\u52A8", "proluvi"], "colluvi": ["\u6DE4\u79EF", "\u52A8", "colluvi"], "manatio": ["\u6D8C\u6D41", "\u52A8", "manatio"], "profluvi": ["\u6D41\u51FA", "\u52A8", "profluvi"], "redunda": ["\u6EA2\u51FA", "\u52A8", "redunda"], "exundat": ["\u6CDB\u6EE5", "\u52A8", "exundat"], "irrigu": ["\u704C\u533A", "\u52A8", "irrigu"], "aquatio": ["\u53D6\u6C34", "\u52A8", "aquatio"], "haurito": ["\u6C72\u6C34\u5904", "\u52A8", "haurito"], "umecto": ["\u6DA6\u6E7F", "\u52A8", "umecto"], "roro": ["\u964D\u9732", "\u52A8", "roro"], "pluo": ["\u4E0B\u96E8", "\u52A8", "pluo"], "ningo": ["\u4E0B\u96EA", "\u52A8", "ningo"], "madefac": ["\u4F7F\u6E7F", "\u52A8", "madefac"], "arefaci": ["\u4F7F\u5E72", "\u52A8", "arefaci"], "cymatium": ["\u7EBF\u811A", "\u7269", "cymatium"], "capitellum": ["\u67F1\u5934", "\u7269", "capitellum"], "scamillus": ["\u67F1\u7840", "\u7269", "scamillus"], "anaglyph": ["\u6D6E\u96D5", "\u7269", "anaglyph"], "polychr": ["\u5F69\u7ED8", "\u7269", "polychr"], "encaust": ["\u8721\u753B", "\u7269", "encaust"], "opussect": ["\u9576\u5D4C\u77F3", "\u7269", "opussect"], "crustat": ["\u8D34\u9762", "\u7269", "crustat"], "albari": ["\u767D\u7070", "\u7269", "albari"], "signinum": ["\u788E\u77F3\u5730", "\u7269", "signinum"], "lithost": ["\u94FA\u77F3", "\u7269", "lithost"], "sectil": ["\u62FC\u82B1", "\u7269", "sectil"], "sima": ["\u6A90\u53E3", "\u7269", "sima"], "emblem": ["\u9576\u5D4C\u56FE", "\u7269", "emblem"], "hypaeth": ["\u9732\u5929\u9876", "\u7269", "hypaeth"], "columnat": ["\u5217\u67F1", "\u7269", "columnat"], "peristy": ["\u5217\u67F1\u4E2D\u5EAD", "\u7269", "peristy"], "strobil": ["\u67F1\u5934\u5377\u53F6", "\u7269", "strobil"], "voluta": ["\u6DA1\u5377", "\u7269", "voluta"], "acanthus": ["\u831B\u82D5\u53F6\u9970", "\u7269", "acanthus"], "fasciola": ["\u5C0F\u5E26\u9970", "\u7269", "fasciola"], "scotia": ["\u51F9\u5706\u7EBF", "\u7269", "scotia"], "mutulus": ["\u6A90\u4E0B\u6258\u5757", "\u7269", "mutulus"], "denticu": ["\u9F7F\u9970", "\u7269", "denticu"], "anthemion": ["\u82B1\u9970", "\u7269", "anthemion"], "campana": ["\u949F", "\u7269", "campana"], "crotalum": ["\u54CD\u677F", "\u7269", "crotalum"], "sistrum": ["\u53C9\u94C3", "\u7269", "sistrum"], "pandura": ["\u4E09\u5F26", "\u7269", "pandura"], "nablium": ["\u7AD6\u7434", "\u7269", "nablium"], "psalterium": ["\u745F", "\u7269", "psalterium"], "hydraulus": ["\u6C34\u529B\u98CE\u7434", "\u7269", "hydraulus"], "monaulus": ["\u5355\u7BA1", "\u7269", "monaulus"], "scabellum": ["\u62CD\u677F", "\u7269", "scabellum"], "melos": ["\u66F2\u8C03", "\u7269", "melos"], "tonus": ["\u8C03", "\u7269", "tonus"], "choraul": ["\u7B1B\u4F34\u6B4C\u8005", "\u7269", "choraul"], "citharo": ["\u7434\u6B4C\u8005", "\u7269", "citharo"], "auloed": ["\u7BA1\u6B4C\u8005", "\u7269", "auloed"], "tibicen": ["\u7B1B\u624B", "\u7269", "tibicen"], "fidicen": ["\u7434\u624B", "\u7269", "fidicen"], "symphon": ["\u4E50\u5E08", "\u7269", "symphon"], "musicus": ["\u4E50\u4EBA", "\u7269", "musicus"], "cantor": ["\u6B4C\u8005", "\u7269", "cantor"], "psaltes": ["\u5F39\u745F\u8005", "\u7269", "psaltes"], "saltato": ["\u821E\u8005", "\u7269", "saltato"], "exodium": ["\u5E55\u95F4\u5267", "\u7269", "exodium"], "emboli": ["\u63D2\u66F2", "\u7269", "emboli"], "minus": ["\u54D1\u5267", "\u7269", "minus"], "atellana": ["\u7B11\u5267", "\u7269", "atellana"], "tranquil": ["\u5B89\u5B81", "\u6027", "tranquil"], "fiducia": ["\u4FE1\u8D56", "\u6027", "fiducia"], "formido": ["\u60CA\u60F6", "\u6027", "formido"], "angustia": ["\u90C1\u7ED3", "\u6027", "angustia"], "moeror": ["\u60B2\u6078", "\u6027", "moeror"], "luctus": ["\u54C0\u6078", "\u6027", "luctus"], "desider": ["\u7737\u604B", "\u6027", "desider"], "dedecus": ["\u803B\u8FB1", "\u6027", "dedecus"], "ignomin": ["\u7F9E\u8FB1", "\u6027", "ignomin"], "probrum": ["\u4E11\u884C", "\u6027", "probrum"], "blandimen": ["\u67D4\u60C5", "\u6027", "blandimen"], "commotio": ["\u6FC0\u52A8", "\u6027", "commotio"], "permotio": ["\u60C5\u7EEA\u9707\u52A8", "\u6027", "permotio"], "turbatio": ["\u70E6\u4E71", "\u6027", "turbatio"], "abomina": ["\u618E\u6076", "\u6027", "abomina"], "detesta": ["\u5ACC\u6076", "\u6027", "detesta"], "aversat": ["\u53CD\u611F", "\u6027", "aversat"], "compunc": ["\u6094\u6068", "\u6027", "compunc"], "remors": ["\u6094\u610F", "\u6027", "remors"], "querimo": ["\u6028\u8BC9", "\u6027", "querimo"], "complor": ["\u54C0\u53F7", "\u6027", "complor"], "consolat": ["\u6170\u85C9", "\u6027", "consolat"], "exhorta": ["\u9F13\u52B1", "\u6027", "exhorta"], "adhorta": ["\u529D\u52C9", "\u6027", "adhorta"], "rotundus": ["\u5706\u7684", "\u6027", "rotundus"], "quadratus": ["\u65B9\u7684", "\u6027", "quadratus"], "oblongus": ["\u957F\u65B9\u7684", "\u6027", "oblongus"], "curvus": ["\u5F2F\u7684", "\u6027", "curvus"], "flexuos": ["\u66F2\u6298\u7684", "\u6027", "flexuos"], "sinuos": ["\u873F\u8712\u7684", "\u6027", "sinuos"], "angulos": ["\u591A\u89D2\u7684", "\u6027", "angulos"], "striatus": ["\u6761\u7EB9\u7684", "\u6027", "striatus"], "maculos": ["\u6591\u70B9\u7684", "\u6027", "maculos"], "globos": ["\u7403\u72B6\u7684", "\u6027", "globos"], "ovatus": ["\u5375\u5F62\u7684", "\u6027", "ovatus"], "conic": ["\u9525\u5F62\u7684", "\u6027", "conic"], "planus": ["\u5E73\u7684", "\u6027", "planus"], "convexus": ["\u51F8\u7684", "\u6027", "convexus"], "concavus": ["\u51F9\u7684", "\u6027", "concavus"], "nodos": ["\u591A\u8282\u7684", "\u6027", "nodos"], "sphaeric": ["\u7403\u9762\u7684", "\u6027", "sphaeric"], "cubicus": ["\u7ACB\u65B9\u7684", "\u6027", "cubicus"], "triangul": ["\u4E09\u89D2\u7684", "\u6027", "triangul"], "hexagon": ["\u516D\u89D2\u7684", "\u6027", "hexagon"], "acumina": ["\u5C16\u7684", "\u6027", "acumina"], "retusus": ["\u949D\u7684", "\u6027", "retusus"], "hamatus": ["\u94A9\u72B6\u7684", "\u6027", "hamatus"], "serratus": ["\u952F\u9F7F\u7684", "\u6027", "serratus"], "stellat": ["\u661F\u5F62\u7684", "\u6027", "stellat"], "sumo": ["\u62FF\u8D77", "\u52A8", "sumo"], "pono": ["\u653E\u4E0B", "\u52A8", "pono"], "extraho": ["\u62D4\u51FA", "\u52A8", "extraho"], "imprimo": ["\u538B\u5165", "\u52A8", "imprimo"], "compon": ["\u5BF9\u9F50", "\u52A8", "compon"], "aequa": ["\u5F04\u5E73", "\u52A8", "aequa"], "hebeto": ["\u5F04\u949D", "\u52A8", "hebeto"], "acuo": ["\u78E8\u5229", "\u52A8", "acuo"], "diruo": ["\u62C6\u6BC1", "\u52A8", "diruo"], "trado": ["\u4EA4\u4ED8", "\u52A8", "trado"], "abdo": ["\u85CF\u533F", "\u52A8", "abdo"], "recond": ["\u6536\u85CF", "\u52A8", "recond"], "promo": ["\u53D6\u51FA", "\u52A8", "promo"], "repono": ["\u653E\u56DE", "\u52A8", "repono"], "eximo": ["\u53D6\u51FA", "\u52A8", "eximo"], "erigo": ["\u7AD6\u7ACB", "\u52A8", "erigo"], "inclino": ["\u503E\u659C", "\u52A8", "inclino"], "percuti": ["\u6572\u51FB", "\u52A8", "percuti"], "ferio": ["\u6253\u51FB", "\u52A8", "ferio"], "verso": ["\u7FFB\u52A8", "\u52A8", "verso"], "figo": ["\u9489\u4F4F", "\u52A8", "figo"], "infigo": ["\u9489\u5165", "\u52A8", "infigo"], "defigo": ["\u9489\u7262", "\u52A8", "defigo"], "scindo": ["\u5288\u5F00", "\u52A8", "scindo"], "findo": ["\u88C2\u5F00", "\u52A8", "findo"], "grand": ["\u5B8F\u5927", "\u6027", "grand"], "ingen": ["\u5E9E\u5927", "\u6027", "ingen"], "imman": ["\u5DE8\u5927", "\u6027", "imman"], "enorm": ["\u5F02\u5E38\u5927", "\u6027", "enorm"], "spatios": ["\u5BBD\u655E", "\u6027", "spatios"], "copios": ["\u4E30\u5BCC", "\u6027", "copios"], "abund": ["\u4E30\u88D5", "\u6027", "abund"], "larg": ["\u4E30\u76DB", "\u6027", "larg"], "profus": ["\u5145\u6C9B", "\u6027", "profus"], "multip": ["\u7E41\u591A", "\u6027", "multip"], "numeros": ["\u4F17\u591A", "\u6027", "numeros"], "frequens": ["\u7A20\u5BC6", "\u6027", "frequens"], "creber": ["\u5BC6\u96C6", "\u6027", "creber"], "opim": ["\u4E30\u9976", "\u6027", "opim"], "uber": ["\u591A\u4EA7", "\u6027", "uber"], "locupl": ["\u5BCC\u88D5", "\u6027", "locupl"], "sumptu": ["\u5962\u534E", "\u6027", "sumptu"], "magnif": ["\u5B8F\u4F1F", "\u6027", "magnif"], "grandil": ["\u8C6A\u8A00", "\u6027", "grandil"], "august": ["\u5E84\u4E25", "\u6027", "august"], "coloss": ["\u5DE8\u578B", "\u6027", "coloss"], "titan": ["\u5DE8\u64D8", "\u6027", "titan"], "gigan": ["\u5DE8\u4EBA\u7684", "\u6027", "gigan"], "prolix": ["\u5197\u957F", "\u6027", "prolix"], "pusill": ["\u5FAE\u5C0F", "\u6027", "pusill"], "exigu": ["\u7A00\u5C11", "\u6027", "exigu"], "minut": ["\u7EC6\u5FAE", "\u6027", "minut"], "subtil": ["\u7CBE\u7EC6", "\u6027", "subtil"], "modic": ["\u9002\u4E2D", "\u6027", "modic"], "infreq": ["\u7A00\u5C11", "\u6027", "infreq"], "jejun": ["\u8D2B\u7620", "\u6027", "jejun"], "inops": ["\u8D2B\u4E4F", "\u6027", "inops"], "egens": ["\u532E\u4E4F", "\u6027", "egens"], "indige": ["\u77ED\u7F3A", "\u6027", "indige"], "nugax": ["\u7410\u5C51", "\u6027", "nugax"], "frivol": ["\u7410\u788E", "\u6027", "frivol"], "levid": ["\u6D45\u8584", "\u6027", "levid"], "atomus": ["\u5FAE\u5C18", "\u6027", "atomus"], "puncil": ["\u5FAE\u5C0F\u70B9", "\u6027", "puncil"], "brevil": ["\u7B80\u77ED", "\u6027", "brevil"], "exili": ["\u8D2B\u8584", "\u6027", "exili"], "macer": ["\u7626\u7620", "\u6027", "macer"], "gracil": ["\u7EA4\u7EC6", "\u6027", "gracil"], "angust": ["\u72ED\u7A84", "\u6027", "angust"], "arct": ["\u7D27\u7A84", "\u6027", "arct"], "strict": ["\u6536\u7D27", "\u6027", "strict"], "coarct": ["\u538B\u7F29", "\u6027", "coarct"], "contrac": ["\u6536\u7F29", "\u6027", "contrac"], "compres": ["\u538B\u7F29", "\u6027", "compres"], "velox": ["\u8FC5\u6377", "\u6027", "velox"], "pernix": ["\u654F\u6377", "\u6027", "pernix"], "ocior": ["\u66F4\u5FEB", "\u6027", "ocior"], "praepes": ["\u75BE\u98DE", "\u6027", "praepes"], "rapid": ["\u6025\u901F", "\u6027", "rapid"], "vehem": ["\u731B\u70C8", "\u6027", "vehem"], "incit": ["\u75BE\u884C", "\u6027", "incit"], "segnis": ["\u8FDF\u7F13", "\u6027", "segnis"], "piger": ["\u6020\u60F0", "\u6027", "piger"], "deses": ["\u61D2\u6563", "\u6027", "deses"], "morosus": ["\u62D6\u5EF6", "\u6027", "morosus"], "cunct": ["\u8FDF\u7F13", "\u6027", "cunct"], "remora": ["\u8FDF\u5EF6", "\u6027", "remora"], "praecep": ["\u6025\u4FC3", "\u6027", "praecep"], "subitus": ["\u7A81\u7136", "\u6027", "subitus"], "repens": ["\u7A81\u5140", "\u6027", "repens"], "extemp": ["\u7ACB\u523B", "\u6027", "extemp"], "seroti": ["\u8FDF\u6765", "\u6027", "seroti"], "praecox": ["\u65E9\u719F", "\u6027", "praecox"], "assidu": ["\u4E0D\u95F4\u65AD", "\u6027", "assidu"], "morato": ["\u62D6\u5EF6\u8005", "\u6027", "morato"], "cuncta": ["\u62D6\u5EF6\u8005", "\u6027", "cuncta"], "pernici": ["\u8FC5\u75BE", "\u6027", "pernici"], "propera": ["\u4ED3\u4FC3", "\u6027", "propera"], "valid": ["\u5F3A\u58EE", "\u6027", "valid"], "nervos": ["\u6709\u529B", "\u6027", "nervos"], "lacert": ["\u5065\u7855", "\u6027", "lacert"], "praepot": ["\u81F3\u5F3A", "\u6027", "praepot"], "opulen": ["\u5BCC\u529B", "\u6027", "opulen"], "infirm": ["\u75C5\u5F31", "\u6027", "infirm"], "fragil": ["\u6613\u788E", "\u6027", "fragil"], "caduc": ["\u6613\u5012", "\u6027", "caduc"], "enerv": ["\u65E0\u529B", "\u6027", "enerv"], "effetus": ["\u8870\u7AED", "\u6027", "effetus"], "marcid": ["\u840E\u5F31", "\u6027", "marcid"], "tabid": ["\u6D88\u8017", "\u6027", "tabid"], "valetud": ["\u591A\u75C5", "\u6027", "valetud"], "praeval": ["\u5360\u4F18", "\u6027", "praeval"], "superan": ["\u8D85\u8D8A", "\u6027", "superan"], "invictus": ["\u4E0D\u8D25", "\u6027", "invictus"], "impoten": ["\u65E0\u529B", "\u6027", "impoten"], "invalid": ["\u65E0\u529B", "\u6027", "invalid"], "tenellus": ["\u5A07\u5F31", "\u6027", "tenellus"], "delica": ["\u5A07\u5F31", "\u6027", "delica"], "fessus": ["\u75B2\u60EB", "\u6027", "fessus"], "lassus": ["\u75B2\u5026", "\u6027", "lassus"], "defess": ["\u7CBE\u75B2\u529B\u7AED", "\u6027", "defess"], "exhaus": ["\u8017\u7AED", "\u6027", "exhaus"], "confect": ["\u8870\u9893", "\u6027", "confect"], "specio": ["\u534E\u7F8E", "\u6027", "specio"], "decor": ["\u96C5\u81F4", "\u6027", "decor"], "elegan": ["\u4F18\u96C5", "\u6027", "elegan"], "comptus": ["\u4FEE\u9970", "\u6027", "comptus"], "lautus": ["\u7CBE\u7F8E", "\u6027", "lautus"], "concinn": ["\u5DE5\u5DE7", "\u6027", "concinn"], "lepid": ["\u98CE\u8DA3", "\u6027", "lepid"], "amabil": ["\u53EF\u7231", "\u6027", "amabil"], "suavis": ["\u7518\u7F8E", "\u6027", "suavis"], "taeter": ["\u4E11\u6076", "\u6027", "taeter"], "horrid": ["\u7C97\u964B", "\u6027", "horrid"], "monstros": ["\u602A\u5F02", "\u6027", "monstros"], "pulchel": ["\u79C0\u7F8E", "\u6027", "pulchel"], "splendid": ["\u7480\u74A8", "\u6027", "splendid"], "eximi": ["\u5353\u5F02", "\u6027", "eximi"], "insign": ["\u975E\u51E1", "\u6027", "insign"], "praest": ["\u5353\u8D8A", "\u6027", "praest"], "mediocr": ["\u5E73\u5EB8", "\u6027", "mediocr"], "turpitu": ["\u4E11\u884C", "\u6027", "turpitu"], "foedit": ["\u6C61\u79FD", "\u6027", "foedit"], "rutilus": ["\u7EA2\u8273", "\u6027", "rutilus"], "florens": ["\u7E41\u76DB", "\u6027", "florens"], "vernan": ["\u6625\u610F", "\u6027", "vernan"], "ornat": ["\u534E\u9970", "\u6027", "ornat"], "cultus": ["\u4FEE\u9970", "\u6027", "cultus"], "fari": ["\u8A00\u8BF4", "\u52A8", "fari"], "effar": ["\u5BA3\u8BF4", "\u52A8", "effar"], "proloq": ["\u5410\u9732", "\u52A8", "proloq"], "alloq": ["\u642D\u8BDD", "\u52A8", "alloq"], "eloq": ["\u9648\u8BF4", "\u52A8", "eloq"], "interloq": ["\u63D2\u8BDD", "\u52A8", "interloq"], "obloq": ["\u53CD\u9A73", "\u52A8", "obloq"], "colloq": ["\u4EA4\u8C08", "\u52A8", "colloq"], "refer": ["\u8F6C\u8FF0", "\u52A8", "refer"], "enarr": ["\u8BE6\u8FF0", "\u52A8", "enarr"], "expon": ["\u9648\u8FF0", "\u52A8", "expon"], "signifi": ["\u8868\u660E", "\u52A8", "signifi"], "declar": ["\u58F0\u660E", "\u52A8", "declar"], "testari": ["\u4F5C\u8BC1", "\u52A8", "testari"], "profit": ["\u5BA3\u79F0", "\u52A8", "profit"], "asser": ["\u4E3B\u5F20", "\u52A8", "asser"], "inscrib": ["\u9898\u5199", "\u52A8", "inscrib"], "adscrib": ["\u9644\u8BB0", "\u52A8", "adscrib"], "edic": ["\u9881\u5E03", "\u52A8", "edic"], "interdic": ["\u7981\u6B62", "\u52A8", "interdic"], "praedic": ["\u9884\u544A", "\u52A8", "praedic"], "dicax": ["\u597D\u8BA5\u8BBD", "\u52A8", "dicax"], "verbos": ["\u5197\u8A00", "\u52A8", "verbos"], "garrul": ["\u9976\u820C", "\u52A8", "garrul"], "facund": ["\u96C4\u8FA9", "\u52A8", "facund"], "aspic": ["\u6CE8\u89C6", "\u52A8", "aspic"], "circums": ["\u73AF\u89C6", "\u52A8", "circums"], "respic": ["\u56DE\u770B", "\u52A8", "respic"], "despic": ["\u8F7B\u89C6", "\u52A8", "despic"], "dispici": ["\u8FA8\u8BA4", "\u52A8", "dispici"], "inspic": ["\u5BA1\u89C6", "\u52A8", "inspic"], "perlust": ["\u904D\u89C8", "\u52A8", "perlust"], "tueri": ["\u5B88\u62A4\u770B", "\u52A8", "tueri"], "exaud": ["\u542C\u6E05", "\u52A8", "exaud"], "obaud": ["\u542C\u4ECE", "\u52A8", "obaud"], "inaud": ["\u542C\u95FB", "\u52A8", "inaud"], "subaud": ["\u542C\u51FA", "\u52A8", "subaud"], "peraud": ["\u542C\u904D", "\u52A8", "peraud"], "oculat": ["\u76EE\u51FB\u7684", "\u52A8", "oculat"], "aurit": ["\u6709\u8033\u7684", "\u52A8", "aurit"], "inspect": ["\u7EC6\u770B", "\u52A8", "inspect"], "patul": ["\u5F20\u5F00", "\u52A8", "patul"], "nosc": ["\u8BA4\u8BC6", "\u52A8", "nosc"], "agnosc": ["\u8BA4\u51FA", "\u52A8", "agnosc"], "vener": ["\u77BB\u4EF0", "\u52A8", "vener"], "ador": ["\u656C\u62DC", "\u52A8", "ador"], "aspecta": ["\u51DD\u671B", "\u52A8", "aspecta"], "visere": ["\u9020\u8BBF\u770B", "\u52A8", "visere"], "invis": ["\u63A2\u770B", "\u52A8", "invis"], "revis": ["\u91CD\u8BBF", "\u52A8", "revis"], "provis": ["\u9884\u5BDF", "\u52A8", "provis"], "capi": ["\u6293\u53D6", "\u52A8", "capi"], "prend": ["\u6349", "\u52A8", "prend"], "fero": ["\u6301\u8FD0", "\u52A8", "fero"], "sustin": ["\u6258\u4F4F", "\u52A8", "sustin"], "recipi": ["\u63A5\u56DE", "\u52A8", "recipi"], "retin": ["\u7559\u4F4F", "\u52A8", "retin"], "dimitt": ["\u653E\u5F00", "\u52A8", "dimitt"], "omitt": ["\u7565\u53BB", "\u52A8", "omitt"], "relinq": ["\u7559\u4E0B", "\u52A8", "relinq"], "desere": ["\u5F03", "\u52A8", "desere"], "abici": ["\u4E22\u5F03", "\u52A8", "abici"], "proici": ["\u629B\u51FA", "\u52A8", "proici"], "mando": ["\u4EA4\u4ED8", "\u52A8", "mando"], "commend": ["\u6258\u4ED8", "\u52A8", "commend"], "tribu": ["\u6388\u4E88", "\u52A8", "tribu"], "asport": ["\u642C\u8D70", "\u52A8", "asport"], "adveh": ["\u8FD0\u6765", "\u52A8", "adveh"], "deveh": ["\u8FD0\u4E0B", "\u52A8", "deveh"], "reveh": ["\u8FD0\u56DE", "\u52A8", "reveh"], "subveh": ["\u4E0A\u8FD0", "\u52A8", "subveh"], "transve": ["\u8F6C\u8FD0", "\u52A8", "transve"], "inveh": ["\u8FD0\u5165", "\u52A8", "inveh"], "eveh": ["\u8FD0\u51FA", "\u52A8", "eveh"], "complec": ["\u62E5\u62B1", "\u52A8", "complec"], "retent": ["\u6263\u7559", "\u52A8", "retent"], "eo": ["\u53BB", "\u52A8", "eo"], "vado": ["\u884C\u8D70", "\u52A8", "vado"], "inced": ["\u8FC8\u6B65", "\u52A8", "inced"], "perg": ["\u524D\u884C", "\u52A8", "perg"], "profic": ["\u542F\u7A0B", "\u52A8", "profic"], "egred": ["\u8D70\u51FA", "\u52A8", "egred"], "ingred": ["\u8D70\u5165", "\u52A8", "ingred"], "regred": ["\u9000\u56DE", "\u52A8", "regred"], "transgr": ["\u8D8A\u8FC7", "\u52A8", "transgr"], "congred": ["\u76F8\u4F1A", "\u52A8", "congred"], "palor": ["\u6E38\u8361", "\u52A8", "palor"], "discur": ["\u5954\u8D70", "\u52A8", "discur"], "obrepo": ["\u6F5C\u884C", "\u52A8", "obrepo"], "irrep": ["\u6F5C\u5165", "\u52A8", "irrep"], "subrep": ["\u722C\u5165", "\u52A8", "subrep"], "commig": ["\u8FC1\u5165", "\u52A8", "commig"], "emig": ["\u8FC1\u51FA", "\u52A8", "emig"], "immig": ["\u79FB\u5165", "\u52A8", "immig"], "remigr": ["\u8FC1\u56DE", "\u52A8", "remigr"], "exeo": ["\u51FA\u53BB", "\u52A8", "exeo"], "ineo": ["\u8FDB\u5165", "\u52A8", "ineo"], "pereo": ["\u6D88\u901D", "\u52A8", "pereo"], "praeteri": ["\u7ECF\u8FC7", "\u52A8", "praeteri"], "do": ["\u7ED9", "\u52A8", "do"], "largi": ["\u65BD\u4E0E", "\u52A8", "largi"], "impert": ["\u5206\u4E0E", "\u52A8", "impert"], "elarg": ["\u6177\u6168\u8D60", "\u52A8", "elarg"], "munerar": ["\u9988\u8D60", "\u52A8", "munerar"], "condon": ["\u8D60\u4E88", "\u52A8", "condon"], "restit": ["\u5F52\u8FD8", "\u52A8", "restit"], "repend": ["\u507F\u8FD8", "\u52A8", "repend"], "pendo": ["\u507F\u4ED8", "\u52A8", "pendo"], "persol": ["\u4ED8\u6E05", "\u52A8", "persol"], "acqui": ["\u53D6\u5F97", "\u52A8", "acqui"], "compara": ["\u8D2D\u7F6E", "\u52A8", "compara"], "paro": ["\u5907\u529E", "\u52A8", "paro"], "nancis": ["\u83B7\u5F97", "\u52A8", "nancis"], "potio": ["\u636E\u6709", "\u52A8", "potio"], "occup": ["\u5360\u636E", "\u52A8", "occup"], "usurp": ["\u7BE1\u53D6", "\u52A8", "usurp"], "surrip": ["\u7A83\u53D6", "\u52A8", "surrip"], "subrip": ["\u5077\u53D6", "\u52A8", "subrip"], "abrip": ["\u593A\u53BB", "\u52A8", "abrip"], "erip": ["\u62A2\u51FA", "\u52A8", "erip"], "dirip": ["\u63A0\u593A", "\u52A8", "dirip"], "corrip": ["\u652B\u53D6", "\u52A8", "corrip"], "interci": ["\u622A\u53D6", "\u52A8", "interci"], "praerip": ["\u62A2\u8D70", "\u52A8", "praerip"], "pulso": ["\u6572\u51FB", "\u52A8", "pulso"], "verbero": ["\u97AD\u6253", "\u52A8", "verbero"], "caed": ["\u780D", "\u52A8", "caed"], "rump": ["\u6298\u65AD", "\u52A8", "rump"], "quass": ["\u9707\u8361", "\u52A8", "quass"], "concut": ["\u6447\u64BC", "\u52A8", "concut"], "discut": ["\u9707\u6563", "\u52A8", "discut"], "excut": ["\u6296\u51FA", "\u52A8", "excut"], "succut": ["\u4E0B\u64BC", "\u52A8", "succut"], "labefa": ["\u52A8\u6447", "\u52A8", "labefa"], "confrin": ["\u6253\u788E", "\u52A8", "confrin"], "diffrin": ["\u7838\u88C2", "\u52A8", "diffrin"], "perfrin": ["\u51FB\u7A7F", "\u52A8", "perfrin"], "refrin": ["\u6298\u8FD4\u7834", "\u52A8", "refrin"], "tundit": ["\u6376\u6253", "\u52A8", "tundit"], "battu": ["\u51FB\u6253", "\u52A8", "battu"], "flagella": ["\u97AD\u7B1E", "\u52A8", "flagella"], "contund": ["\u6363\u788E", "\u52A8", "contund"], "extund": ["\u9524\u51FA", "\u52A8", "extund"], "retund": ["\u632B\u949D", "\u52A8", "retund"], "obtund": ["\u4F7F\u949D", "\u52A8", "obtund"], "compun": ["\u523A\u7A7F", "\u52A8", "compun"], "expun": ["\u5254\u9664", "\u52A8", "expun"], "confod": ["\u6233\u7A7F", "\u52A8", "confod"], "perfod": ["\u51FF\u7A7F", "\u52A8", "perfod"], "puto": ["\u4EE5\u4E3A", "\u52A8", "puto"], "reor": ["\u6599\u60F3", "\u52A8", "reor"], "arbitra": ["\u5224\u5B9A", "\u52A8", "arbitra"], "existim": ["\u4F30\u91CF", "\u52A8", "existim"], "cense": ["\u8BC4\u8BAE", "\u52A8", "cense"], "iudico": ["\u5224\u65AD", "\u52A8", "iudico"], "conici": ["\u63A8\u6D4B", "\u52A8", "conici"], "auguro": ["\u5360\u6D4B", "\u52A8", "auguro"], "divina": ["\u5360\u6D4B", "\u52A8", "divina"], "provide": ["\u9884\u89C1", "\u52A8", "provide"], "comper": ["\u67E5\u660E", "\u52A8", "comper"], "inven": ["\u53D1\u73B0", "\u52A8", "inven"], "noscit": ["\u719F\u8BC6", "\u52A8", "noscit"], "sentio": ["\u611F\u89C9", "\u52A8", "sentio"], "consen": ["\u540C\u611F", "\u52A8", "consen"], "sapio": ["\u6709\u89C1\u8BC6", "\u52A8", "sapio"], "desip": ["\u80E1\u6D82", "\u52A8", "desip"], "scien": ["\u77E5\u60C5\u7684", "\u52A8", "scien"], "nesci": ["\u4E0D\u77E5", "\u52A8", "nesci"], "insci": ["\u65E0\u77E5", "\u52A8", "insci"], "doctus": ["\u535A\u5B66\u7684", "\u52A8", "doctus"], "indoct": ["\u672A\u5B66", "\u52A8", "indoct"], "memini": ["\u8BB0\u5F97", "\u52A8", "memini"], "cogita": ["\u6C89\u601D\u7684", "\u52A8", "cogita"], "medita": ["\u9ED8\u60F3\u7684", "\u52A8", "medita"], "amo": ["\u7231", "\u6027", "amo"], "diligo": ["\u73CD\u7231", "\u6027", "diligo"], "carus": ["\u4EB2\u7231", "\u6027", "carus"], "fave": ["\u504F\u7231", "\u6027", "fave"], "studeo": ["\u70ED\u8877", "\u6027", "studeo"], "opto": ["\u613F\u671B", "\u6027", "opto"], "vove": ["\u8BB8\u613F", "\u6027", "vove"], "appet": ["\u6E34\u6C42", "\u6027", "appet"], "concup": ["\u8D2A\u6C42", "\u6027", "concup"], "exsecro": ["\u5492\u6068", "\u6027", "exsecro"], "detest": ["\u618E\u6076", "\u6027", "detest"], "abomin": ["\u538C\u618E", "\u6027", "abomin"], "invisus": ["\u88AB\u618E\u7684", "\u6027", "invisus"], "peros": ["\u6781\u6068", "\u6027", "peros"], "osor": ["\u618E\u6068\u8005", "\u6027", "osor"], "aemulo": ["\u4E89\u7231", "\u6027", "aemulo"], "invide": ["\u5AC9\u5992", "\u6027", "invide"], "zeloty": ["\u5992\u5FCC", "\u6027", "zeloty"], "amato": ["\u7231\u8005", "\u6027", "amato"], "amatr": ["\u5973\u7231\u8005", "\u6027", "amatr"], "dilect": ["\u73CD\u7231\u8005", "\u6027", "dilect"], "malevo": ["\u6076\u610F", "\u6027", "malevo"], "invidio": ["\u5992\u5FCC\u7684", "\u6027", "invidio"], "odios": ["\u53EF\u618E\u7684", "\u6027", "odios"], "elabor": ["\u7CBE\u4F5C", "\u52A8", "elabor"], "molio": ["\u8425\u5EFA", "\u52A8", "molio"], "elucub": ["\u82E6\u7814", "\u52A8", "elucub"], "desud": ["\u8F9B\u52B3", "\u52A8", "desud"], "defati": ["\u4F7F\u75B2", "\u52A8", "defati"], "fatig": ["\u4F7F\u7D2F", "\u52A8", "fatig"], "exancl": ["\u7AED\u529B", "\u52A8", "exancl"], "requie": ["\u5B89\u6B47", "\u52A8", "requie"], "otio": ["\u95F2\u5C45", "\u52A8", "otio"], "vaco": ["\u7A7A\u95F2", "\u52A8", "vaco"], "desid": ["\u95F2\u5750", "\u52A8", "desid"], "ignavo": ["\u5077\u61D2", "\u52A8", "ignavo"], "pigro": ["\u6020\u60F0", "\u52A8", "pigro"], "socord": ["\u6020\u60F0", "\u52A8", "socord"], "sedul": ["\u52E4\u52C9", "\u52A8", "sedul"], "operos": ["\u8D39\u529B\u7684", "\u52A8", "operos"], "labori": ["\u52E4\u52B3\u7684", "\u52A8", "labori"], "molest": ["\u70E6\u7D2F\u7684", "\u52A8", "molest"], "quietus": ["\u5B89\u5B9A\u7684", "\u52A8", "quietus"], "sedo": ["\u4F7F\u9759", "\u52A8", "sedo"], "refoci": ["\u4F7F\u6062\u590D", "\u52A8", "refoci"], "recreo": ["\u4F7F\u590D\u539F", "\u52A8", "recreo"], "refici": ["\u4FEE\u590D", "\u52A8", "refici"], "rogo": ["\u95EE", "\u52A8", "rogo"], "interro": ["\u8FFD\u95EE", "\u52A8", "interro"], "percon": ["\u8BE6\u95EE", "\u52A8", "percon"], "sciscit": ["\u63A2\u95EE", "\u52A8", "sciscit"], "exquir": ["\u7EC6\u7A76", "\u52A8", "exquir"], "requir": ["\u7D22\u6C42", "\u52A8", "requir"], "rescrib": ["\u56DE\u4FE1", "\u52A8", "rescrib"], "renunt": ["\u56DE\u62A5", "\u52A8", "renunt"], "postula": ["\u8BC9\u6C42", "\u52A8", "postula"], "exact": ["\u50AC\u7F34", "\u52A8", "exact"], "instan": ["\u50AC\u903C", "\u52A8", "instan"], "postul": ["\u8981\u6C42", "\u52A8", "postul"], "flagit": ["\u50AC\u8BA8", "\u52A8", "flagit"], "interpe": ["\u63D2\u95EE", "\u52A8", "interpe"], "ambigu": ["\u6B67\u4E49", "\u52A8", "ambigu"], "consult": ["\u8BF7\u6559", "\u52A8", "consult"], "scitor": ["\u63A2\u8BE2", "\u52A8", "scitor"], "inquis": ["\u67E5\u95EE", "\u52A8", "inquis"], "confess": ["\u4F9B\u8BA4", "\u52A8", "confess"], "affirm": ["\u80AF\u5B9A", "\u52A8", "affirm"], "abiura": ["\u77E2\u53E3\u5426\u8BA4", "\u52A8", "abiura"], "iurat": ["\u5BA3\u8A93", "\u52A8", "iurat"], "protes": ["\u58F0\u660E", "\u52A8", "protes"], "iuvo": ["\u5E2E\u52A9", "\u52A8", "iuvo"], "adiuv": ["\u63F4\u52A9", "\u52A8", "adiuv"], "auxil": ["\u652F\u63F4", "\u52A8", "auxil"], "opitu": ["\u6551\u52A9", "\u52A8", "opitu"], "subven": ["\u63A5\u6D4E", "\u52A8", "subven"], "succur": ["\u9A70\u63F4", "\u52A8", "succur"], "prosum": ["\u6709\u76CA", "\u52A8", "prosum"], "commod": ["\u4FBF\u5229", "\u52A8", "commod"], "defend": ["\u62A4\u536B", "\u52A8", "defend"], "proteg": ["\u63A9\u62A4", "\u52A8", "proteg"], "munio": ["\u7B51\u9632", "\u52A8", "munio"], "obsto": ["\u963B\u788D", "\u52A8", "obsto"], "offici": ["\u59A8\u788D", "\u52A8", "offici"], "imped": ["\u963B\u6320", "\u52A8", "imped"], "impedi": ["\u59A8\u788D", "\u52A8", "impedi"], "moror": ["\u62D6\u5EF6\u963B", "\u52A8", "moror"], "retard": ["\u5EF6\u7F13", "\u52A8", "retard"], "obstac": ["\u8BBE\u969C", "\u52A8", "obstac"], "prohib": ["\u7981\u6B62", "\u52A8", "prohib"], "suppet": ["\u589E\u63F4", "\u52A8", "suppet"], "subsidi": ["\u540E\u5907\u63F4", "\u52A8", "subsidi"], "adiuto": ["\u52A9\u624B", "\u52A8", "adiuto"], "adstip": ["\u58F0\u63F4\u8005", "\u52A8", "adstip"], "fauto": ["\u8D5E\u52A9\u8005", "\u52A8", "fauto"], "iube": ["\u547D\u4EE4", "\u52A8", "iube"], "impero": ["\u4E0B\u4EE4", "\u52A8", "impero"], "decern": ["\u88C1\u5B9A", "\u52A8", "decern"], "sancis": ["\u94A6\u5B9A", "\u52A8", "sancis"], "praescr": ["\u89C4\u5B9A", "\u52A8", "praescr"], "moneo": ["\u544A\u8BEB", "\u52A8", "moneo"], "admon": ["\u63D0\u9192", "\u52A8", "admon"], "praemon": ["\u9884\u8B66", "\u52A8", "praemon"], "denunt": ["\u901A\u4EE4", "\u52A8", "denunt"], "indico": ["\u5BA3\u5E03", "\u52A8", "indico"], "nuntio": ["\u4F20\u4EE4", "\u52A8", "nuntio"], "pareo": ["\u670D\u4ECE", "\u52A8", "pareo"], "oboed": ["\u542C\u547D", "\u52A8", "oboed"], "obtemper": ["\u9075\u4ECE", "\u52A8", "obtemper"], "morige": ["\u8FCE\u5408", "\u52A8", "morige"], "ausculto": ["\u542C\u4ECE", "\u52A8", "ausculto"], "subici": ["\u4F7F\u81E3\u670D", "\u52A8", "subici"], "dominor": ["\u4E3B\u5BB0", "\u52A8", "dominor"], "servio": ["\u670D\u5F79", "\u52A8", "servio"], "ancill": ["\u5A62\u4F8D", "\u52A8", "ancill"], "iussio": ["\u547D\u4EE4", "\u52A8", "iussio"], "scitum": ["\u51B3\u8BAE", "\u52A8", "scitum"], "vendo": ["\u5356", "\u52A8", "vendo"], "mereo": ["\u8D5A\u5F97", "\u52A8", "mereo"], "liceor": ["\u7ADE\u4E70", "\u52A8", "liceor"], "addico": ["\u5224\u5356", "\u52A8", "addico"], "mutuo": ["\u501F\u8D37", "\u52A8", "mutuo"], "faener": ["\u653E\u8D37", "\u52A8", "faener"], "credo": ["\u8D37\u51FA", "\u52A8", "credo"], "debeo": ["\u6B20", "\u52A8", "debeo"], "repraes": ["\u4ED8\u73B0", "\u52A8", "repraes"], "locito": ["\u51FA\u79DF", "\u52A8", "locito"], "emo": ["\u4E70", "\u52A8", "emo"], "nundino": ["\u505A\u4E70\u5356", "\u52A8", "nundino"], "negoti": ["\u7ECF\u8425", "\u52A8", "negoti"], "merco": ["\u7ECF\u5546", "\u52A8", "merco"], "taberno": ["\u5F00\u5E97", "\u52A8", "taberno"], "circumf": ["\u884C\u5546", "\u52A8", "circumf"], "cambio": ["\u6C47\u5151", "\u52A8", "cambio"], "chirogr": ["\u624B\u636E", "\u52A8", "chirogr"], "vadio": ["\u62B5\u62BC\u7269", "\u52A8", "vadio"], "fideiu": ["\u4F5C\u4FDD", "\u52A8", "fideiu"], "sponde": ["\u627F\u8BFA", "\u52A8", "sponde"], "exprom": ["\u4EE3\u8BFA", "\u52A8", "exprom"], "aedifi": ["\u5174\u5EFA", "\u52A8", "aedifi"], "exstru": ["\u7B51\u8D77", "\u52A8", "exstru"], "constr": ["\u6784\u5EFA", "\u52A8", "constr"], "instr": ["\u5E03\u7F6E", "\u52A8", "instr"], "evert": ["\u63A8\u7FFB", "\u52A8", "evert"], "subver": ["\u98A0\u8986", "\u52A8", "subver"], "perver": ["\u8D25\u574F", "\u52A8", "perver"], "deici": ["\u62C6\u5012", "\u52A8", "deici"], "proste": ["\u5937\u5E73", "\u52A8", "proste"], "complana": ["\u94F2\u5E73", "\u52A8", "complana"], "exscin": ["\u5937\u706D", "\u52A8", "exscin"], "demol": ["\u62C6\u6BC1", "\u52A8", "demol"], "excid": ["\u524A\u53BB", "\u52A8", "excid"], "molar": ["\u5899\u77F3", "\u52A8", "molar"], "machinor": ["\u8BBE\u8BA1\u5EFA\u9020", "\u52A8", "machinor"], "archite": ["\u4E3B\u6301\u5EFA\u9020", "\u52A8", "archite"], "exaedi": ["\u5EFA\u6210", "\u52A8", "exaedi"], "peraed": ["\u7AE3\u5DE5", "\u52A8", "peraed"], "inaedi": ["\u7B51\u5165", "\u52A8", "inaedi"], "obstr": ["\u5835\u585E", "\u52A8", "obstr"], "interst": ["\u5939\u5EFA", "\u52A8", "interst"], "prodig": ["\u62C6\u6563", "\u52A8", "prodig"], "dissip": ["\u62C6\u6563", "\u52A8", "dissip"], "vasto": ["\u8E42\u8E8F", "\u52A8", "vasto"], "ruinos": ["\u503E\u9893\u7684", "\u52A8", "ruinos"], "erudio": ["\u6559\u5BFC", "\u52A8", "erudio"], "institu": ["\u8BBE\u6559", "\u52A8", "institu"], "inform": ["\u8BAD\u5BFC", "\u52A8", "inform"], "formo": ["\u57F9\u517B", "\u52A8", "formo"], "excol": ["\u683D\u57F9", "\u52A8", "excol"], "educo": ["\u517B\u80B2", "\u52A8", "educo"], "imbu": ["\u542F\u8499", "\u52A8", "imbu"], "instil": ["\u704C\u8F93", "\u52A8", "instil"], "monstro": ["\u6307\u6559", "\u52A8", "monstro"], "demonst": ["\u6F14\u793A", "\u52A8", "demonst"], "ostend": ["\u5C55\u793A", "\u52A8", "ostend"], "disco": ["\u5B66\u4E60", "\u52A8", "disco"], "addisc": ["\u5B66\u4F1A", "\u52A8", "addisc"], "perdis": ["\u5B66\u900F", "\u52A8", "perdis"], "edisc": ["\u719F\u8BB0", "\u52A8", "edisc"], "assues": ["\u4F7F\u4E60\u60EF", "\u52A8", "assues"], "consues": ["\u60EF\u4E8E", "\u52A8", "consues"], "meditor": ["\u7814\u4E60", "\u52A8", "meditor"], "scriptit": ["\u5E38\u5199", "\u52A8", "scriptit"], "probo": ["\u8003\u6838", "\u52A8", "probo"], "improbo": ["\u5426\u51B3", "\u52A8", "improbo"], "guberno": ["\u6CBB\u7406", "\u52A8", "guberno"], "rego": ["\u7EDF\u8F96", "\u52A8", "rego"], "moderor": ["\u8282\u5236", "\u52A8", "moderor"], "tempero": ["\u8C03\u548C", "\u52A8", "tempero"], "adminis": ["\u65BD\u653F", "\u52A8", "adminis"], "procuro": ["\u7763\u529E", "\u52A8", "procuro"], "ordino": ["\u6574\u996C", "\u52A8", "ordino"], "dispon": ["\u8C03\u5EA6", "\u52A8", "dispon"], "constit": ["\u8BBE\u7ACB", "\u52A8", "constit"], "lego": ["\u59D4\u4EFB", "\u52A8", "lego"], "creo": ["\u9009\u4EFB", "\u52A8", "creo"], "design": ["\u6307\u6D3E", "\u52A8", "design"], "praefic": ["\u4EFB\u4E3A\u957F\u5B98", "\u52A8", "praefic"], "promov": ["\u64E2\u5347", "\u52A8", "promov"], "amov": ["\u514D\u804C", "\u52A8", "amov"], "summov": ["\u65A5\u9000", "\u52A8", "summov"], "remov": ["\u64A4\u804C", "\u52A8", "remov"], "depon": ["\u7F62\u9EDC", "\u52A8", "depon"], "abdic": ["\u8BA9\u4F4D", "\u52A8", "abdic"], "seditios": ["\u597D\u4E71", "\u52A8", "seditios"], "factios": ["\u7ED3\u515A", "\u52A8", "factios"], "perdue": ["\u53DB\u56FD\u8005", "\u52A8", "perdue"], "moderam": ["\u6CBB\u672F", "\u52A8", "moderam"], "pacat": ["\u7EE5\u9756\u7684", "\u52A8", "pacat"], "dormi": ["\u7761", "\u52A8", "dormi"], "somni": ["\u505A\u68A6", "\u52A8", "somni"], "dormit": ["\u6253\u76F9", "\u52A8", "dormit"], "obdorm": ["\u5165\u7761", "\u52A8", "obdorm"], "soporo": ["\u4F7F\u7761", "\u52A8", "soporo"], "consop": ["\u50AC\u7720", "\u52A8", "consop"], "sterto": ["\u6253\u9F3E", "\u52A8", "sterto"], "vigilo": ["\u5B88\u591C", "\u52A8", "vigilo"], "evigil": ["\u9192\u6765", "\u52A8", "evigil"], "experg": ["\u82CF\u9192", "\u52A8", "experg"], "excito": ["\u5524\u9192", "\u52A8", "excito"], "resipi": ["\u6E05\u9192", "\u52A8", "resipi"], "insomn": ["\u5931\u7720", "\u52A8", "insomn"], "soporif": ["\u81F4\u7761\u7684", "\u52A8", "soporif"], "somnif": ["\u50AC\u7720\u7684", "\u52A8", "somnif"], "dormitor": ["\u5367\u8005", "\u52A8", "dormitor"], "cubati": ["\u5367\u7720", "\u52A8", "cubati"], "decubi": ["\u5367\u59FF", "\u52A8", "decubi"], "accubi": ["\u4FA7\u5367", "\u52A8", "accubi"], "vigilia": ["\u5B88\u591C\u793C", "\u52A8", "vigilia"], "pervigi": ["\u901A\u5BB5", "\u52A8", "pervigi"], "noctur": ["\u591C\u95F4\u7684", "\u52A8", "noctur"], "lucubr": ["\u591C\u8BFB", "\u52A8", "lucubr"], "somnicu": ["\u55DC\u7761\u7684", "\u52A8", "somnicu"], "hypno": ["\u7761\u610F", "\u52A8", "hypno"], "arrid": ["\u5FAE\u7B11\u8FCE", "\u52A8", "arrid"], "irrid": ["\u5632\u7B11", "\u52A8", "irrid"], "derid": ["\u8BBD\u7B11", "\u52A8", "derid"], "cachinno": ["\u72C2\u7B11", "\u52A8", "cachinno"], "fleo": ["\u54ED\u6CE3", "\u52A8", "fleo"], "lacrimo": ["\u6D41\u6CEA", "\u52A8", "lacrimo"], "complora": ["\u5171\u54ED", "\u52A8", "complora"], "deplor": ["\u75DB\u54ED", "\u52A8", "deplor"], "exclam": ["\u60CA\u547C", "\u52A8", "exclam"], "vagio": ["\u5A74\u557C", "\u52A8", "vagio"], "gemisc": ["\u547B\u541F\u8D77", "\u52A8", "gemisc"], "ingem": ["\u547B\u541F", "\u52A8", "ingem"], "risus": ["\u7B11\u58F0", "\u52A8", "risus"], "lamentu": ["\u54C0\u8BCD", "\u52A8", "lamentu"], "mugitu": ["\u4F4E\u9E23", "\u52A8", "mugitu"], "singult": ["\u62BD\u6CE3", "\u52A8", "singult"], "questu": ["\u54C0\u8BC9", "\u52A8", "questu"], "ridicu": ["\u53EF\u7B11\u7684", "\u52A8", "ridicu"], "deridic": ["\u6781\u53EF\u7B11", "\u52A8", "deridic"], "renid": ["\u542B\u7B11", "\u52A8", "renid"], "flens": ["\u54ED\u6CE3\u7684", "\u52A8", "flens"], "irasc": ["\u53D1\u6012", "\u6027", "irasc"], "succens": ["\u607C\u6012", "\u6027", "succens"], "stomacho": ["\u607C\u6012", "\u6027", "stomacho"], "furo": ["\u72C2\u6012", "\u6027", "furo"], "saevi": ["\u66B4\u6012", "\u6027", "saevi"], "bacchor": ["\u72C2\u4E71", "\u6027", "bacchor"], "timeo": ["\u5BB3\u6015", "\u6027", "timeo"], "metuo": ["\u754F\u60E7", "\u6027", "metuo"], "vereor": ["\u656C\u754F", "\u6027", "vereor"], "paveo": ["\u60CA\u6050", "\u6027", "paveo"], "trepido": ["\u60F6\u6025", "\u6027", "trepido"], "exhorres": ["\u609A\u7136", "\u6027", "exhorres"], "pertime": ["\u6DF1\u60E7", "\u6027", "pertime"], "terreo": ["\u4F7F\u60E7", "\u6027", "terreo"], "dirus": ["\u53EF\u6016\u7684", "\u6027", "dirus"], "atrox": ["\u51F6\u66B4", "\u6027", "atrox"], "ferox": ["\u51F6\u731B", "\u6027", "ferox"], "immit": ["\u4E25\u9177", "\u6027", "immit"], "rabid": ["\u72C2\u6012\u7684", "\u6027", "rabid"], "furibu": ["\u66B4\u6012\u7684", "\u6027", "furibu"], "formidol": ["\u53EF\u6015\u7684", "\u6027", "formidol"], "meticul": ["\u80C6\u602F\u7684", "\u6027", "meticul"], "furor": ["\u72C2\u66B4", "\u6027", "furor"], "opulens": ["\u5BCC\u88D5", "\u6027", "opulens"], "beato": ["\u6709\u798F", "\u6027", "beato"], "fortuna": ["\u5E78\u8FD0", "\u6027", "fortuna"], "felix": ["\u5E78\u8FD0", "\u6027", "felix"], "prosper": ["\u987A\u9042", "\u6027", "prosper"], "mendic": ["\u4E5E\u8BA8\u7684", "\u6027", "mendic"], "egenu": ["\u7A77\u56F0", "\u6027", "egenu"], "penuri": ["\u532E\u4E4F", "\u6027", "penuri"], "inopi": ["\u8D2B\u4E4F", "\u6027", "inopi"], "ops": ["\u8D22\u5BCC", "\u6027", "ops"], "gaza": ["\u5B9D\u5E93", "\u6027", "gaza"], "thesaur": ["\u5B9D\u5E93", "\u6027", "thesaur"], "dapsil": ["\u4E30\u76DB", "\u6027", "dapsil"], "afflu": ["\u5BCC\u8DB3", "\u6027", "afflu"], "profluen": ["\u4E30\u6C9B", "\u6027", "profluen"], "egest": ["\u8D2B\u56F0", "\u6027", "egest"], "mendici": ["\u884C\u4E5E", "\u6027", "mendici"], "nud": ["\u8D64\u8D2B", "\u6027", "nud"], "squalor": ["\u8D2B\u964B", "\u6027", "squalor"], "provent": ["\u6536\u76CA", "\u6027", "provent"], "reditus": ["\u8FDB\u9879", "\u6027", "reditus"], "quaestu": ["\u8425\u5229", "\u6027", "quaestu"], "peculat": ["\u4FB5\u541E", "\u6027", "peculat"], "repetun": ["\u52D2\u7D22", "\u6027", "repetun"], "profusi": ["\u6325\u970D", "\u6027", "profusi"], "vetul": ["\u5C0F\u8001\u5934", "\u7269", "vetul"], "anus": ["\u8001\u5987", "\u7269", "anus"], "anil": ["\u8001\u5987\u7684", "\u7269", "anil"], "grandae": ["\u9AD8\u9F84", "\u7269", "grandae"], "decrepi": ["\u8870\u673D", "\u7269", "decrepi"], "longaev": ["\u957F\u5BFF", "\u7269", "longaev"], "iuvenis": ["\u9752\u5E74", "\u7269", "iuvenis"], "adules": ["\u5C11\u5E74", "\u7269", "adules"], "adolesc": ["\u6210\u957F", "\u7269", "adolesc"], "puber": ["\u6210\u4E01", "\u7269", "puber"], "viripo": ["\u53CA\u7B04", "\u7269", "viripo"], "caniti": ["\u767D\u5934", "\u7269", "caniti"], "seniu": ["\u66AE\u5E74", "\u7269", "seniu"], "senil": ["\u8001\u6001\u7684", "\u7269", "senil"], "pubes": ["\u6210\u4E01\u671F", "\u7269", "pubes"], "virgini": ["\u7AE5\u8D1E", "\u7269", "virgini"], "adultus": ["\u6210\u5E74\u7684", "\u7269", "adultus"], "incunab": ["\u8941\u8913", "\u7269", "incunab"], "alumn": ["\u517B\u5B50", "\u7269", "alumn"], "orphan": ["\u5B64\u513F", "\u7269", "orphan"], "avia": ["\u7956\u6BCD", "\u7269", "avia"], "maior": ["\u957F\u8F88", "\u7269", "maior"], "natu": ["\u5E74\u9F7F", "\u7269", "natu"], "primaev": ["\u521D\u5E74", "\u7269", "primaev"], "castus": ["\u6D01\u51C0", "\u6027", "castus"], "impur": ["\u4E0D\u6D01", "\u6027", "impur"], "inmund": ["\u6C61\u79FD", "\u6027", "inmund"], "caenos": ["\u6CE5\u6C61", "\u6027", "caenos"], "lutulen": ["\u6CE5\u6CDE", "\u6027", "lutulen"], "maculat": ["\u6CBE\u6C61", "\u6027", "maculat"], "inquina": ["\u73B7\u6C61", "\u6027", "inquina"], "lotura": ["\u6D17\u6DB2", "\u6027", "lotura"], "lavacr": ["\u6D74\u6C60", "\u6027", "lavacr"], "deters": ["\u64E6\u51C0", "\u6027", "deters"], "purgam": ["\u6C61\u7269", "\u6027", "purgam"], "sordes": ["\u6C61\u57A2", "\u6027", "sordes"], "caenum": ["\u6C61\u6CE5", "\u6027", "caenum"], "amurca": ["\u6CB9\u6E23", "\u6027", "amurca"], "recrem": ["\u6E23\u6ED3", "\u6027", "recrem"], "quisqui": ["\u5783\u573E", "\u6027", "quisqui"], "tersus": ["\u6D01\u51C0\u7684", "\u6027", "tersus"], "piatus": ["\u6DA4\u7F6A", "\u6027", "piatus"], "expiat": ["\u8D4E\u51C0", "\u6027", "expiat"], "lustra": ["\u7953\u51C0", "\u6027", "lustra"], "defaec": ["\u6F84\u6E05", "\u6027", "defaec"], "elutri": ["\u6DD8\u51C0", "\u6027", "elutri"], "faece": ["\u6E23\u6ED3\u7684", "\u6027", "faece"], "purgati": ["\u6E05\u6D17", "\u6027", "purgati"], "castimo": ["\u8D1E\u6D01", "\u6027", "castimo"], "sapien": ["\u667A\u6167", "\u6027", "sapien"], "cordat": ["\u660E\u667A", "\u6027", "cordat"], "consili": ["\u8C0B\u7565", "\u6027", "consili"], "fatu": ["\u611A\u5984", "\u6027", "fatu"], "insipie": ["\u65E0\u77E5", "\u6027", "insipie"], "brut": ["\u7C97\u949D", "\u6027", "brut"], "idiot": ["\u611A\u4EBA", "\u6027", "idiot"], "moroso": ["\u611A\u54F2", "\u6027", "moroso"], "littera": ["\u535A\u6587", "\u6027", "littera"], "perit": ["\u719F\u7EC3", "\u6027", "perit"], "imperit": ["\u751F\u758F", "\u6027", "imperit"], "gnar": ["\u901A\u6653", "\u6027", "gnar"], "ignar": ["\u4E0D\u77E5", "\u6027", "ignar"], "catus": ["\u7CBE\u660E\u7684", "\u6027", "catus"], "vafer": ["\u72E1\u9EE0", "\u6027", "vafer"], "astut": ["\u673A\u654F", "\u6027", "astut"], "stolid": ["\u611A\u949D", "\u6027", "stolid"], "bard": ["\u8822\u7B28", "\u6027", "bard"], "inept": ["\u7B28\u62D9", "\u6027", "inept"], "socor": ["\u611A\u949D", "\u6027", "socor"], "demen": ["\u75AF\u72C2", "\u6027", "demen"], "amens": ["\u5931\u667A", "\u6027", "amens"], "vecor": ["\u660F\u8069", "\u6027", "vecor"], "excor": ["\u65E0\u667A", "\u6027", "excor"], "phrone": ["\u5B9E\u8DF5\u667A", "\u6027", "phrone"], "edo": ["\u5403", "\u52A8", "edo"], "comed": ["\u5171\u98DF", "\u52A8", "comed"], "vescor": ["\u8FDB\u98DF", "\u52A8", "vescor"], "pascor": ["\u5403\u8349", "\u52A8", "pascor"], "gusto": ["\u54C1\u5C1D", "\u52A8", "gusto"], "deglut": ["\u541E\u54BD", "\u52A8", "deglut"], "glutt": ["\u541E", "\u52A8", "glutt"], "mastic": ["\u7EC6\u56BC", "\u52A8", "mastic"], "vorax": ["\u8D2A\u98DF", "\u52A8", "vorax"], "bibo": ["\u996E", "\u52A8", "bibo"], "poto": ["\u559D", "\u52A8", "poto"], "sorbeo": ["\u555C\u996E", "\u52A8", "sorbeo"], "potito": ["\u5E38\u996E", "\u52A8", "potito"], "esurio": ["\u997F", "\u52A8", "esurio"], "ientac": ["\u65E9\u9910", "\u52A8", "ientac"], "merenda": ["\u5348\u540E\u70B9\u5FC3", "\u52A8", "merenda"], "obsoni": ["\u83DC\u80B4", "\u52A8", "obsoni"], "ganeo": ["\u9955\u5BA2", "\u52A8", "ganeo"], "heluo": ["\u8D2A\u98DF\u8005", "\u52A8", "heluo"], "crapul": ["\u66B4\u996E", "\u52A8", "crapul"], "ebrios": ["\u55DC\u9152", "\u52A8", "ebrios"], "temulen": ["\u9189\u7684", "\u52A8", "temulen"], "induo": ["\u7A7F\u4E0A", "\u52A8", "induo"], "exuo": ["\u8131\u4E0B", "\u52A8", "exuo"], "vestio": ["\u7ED9\u7A7F", "\u52A8", "vestio"], "amici": ["\u62AB\u4E0A", "\u52A8", "amici"], "circumd": ["\u88F9\u4E0A", "\u52A8", "circumd"], "denud": ["\u88F8\u9732", "\u52A8", "denud"], "nudo": ["\u4F7F\u88F8", "\u52A8", "nudo"], "velo": ["\u906E\u76D6", "\u52A8", "velo"], "advel": ["\u8499\u4E0A", "\u52A8", "advel"], "obvolv": ["\u88F9\u4F4F", "\u52A8", "obvolv"], "evolv": ["\u89E3\u5F00", "\u52A8", "evolv"], "cingo": ["\u7CFB\u5E26", "\u52A8", "cingo"], "discin": ["\u89E3\u5E26", "\u52A8", "discin"], "succin": ["\u675F\u8170", "\u52A8", "succin"], "calceo": ["\u7A7F\u978B", "\u52A8", "calceo"], "excalc": ["\u8131\u978B", "\u52A8", "excalc"], "discal": ["\u8D64\u8DB3", "\u52A8", "discal"], "exuv": ["\u8715\u76AE", "\u52A8", "exuv"], "succinc": ["\u675F\u8170\u7684", "\u52A8", "succinc"], "semiind": ["\u534A\u7A7F\u8863\u7684", "\u52A8", "semiind"], "induv": ["\u5185\u8863", "\u52A8", "induv"], "secto": ["\u5207\u5272", "\u52A8", "secto"], "desec": ["\u5272\u4E0B", "\u52A8", "desec"], "resec": ["\u5207\u9664", "\u52A8", "resec"], "amput": ["\u622A\u80A2", "\u52A8", "amput"], "praecid": ["\u5207\u65AD", "\u52A8", "praecid"], "recid": ["\u524A\u53BB", "\u52A8", "recid"], "succid": ["\u780D\u5012", "\u52A8", "succid"], "incid": ["\u5207\u5165", "\u52A8", "incid"], "concid": ["\u5241\u788E", "\u52A8", "concid"], "dissec": ["\u5256\u5F00", "\u52A8", "dissec"], "intersec": ["\u622A\u65AD", "\u52A8", "intersec"], "consuo": ["\u7F1D\u5408", "\u52A8", "consuo"], "insuo": ["\u7F1D\u5165", "\u52A8", "insuo"], "resuo": ["\u62C6\u7F1D", "\u52A8", "resuo"], "pannicu": ["\u7834\u5E03", "\u52A8", "pannicu"], "centro": ["\u767E\u8872", "\u52A8", "centro"], "sarcio": ["\u7F1D\u7F00", "\u52A8", "sarcio"], "obsuo": ["\u5C01\u7F1D", "\u52A8", "obsuo"], "praesuo": ["\u9884\u7F1D", "\u52A8", "praesuo"], "lacero": ["\u6495\u88C2", "\u52A8", "lacero"], "dilace": ["\u6495\u788E", "\u52A8", "dilace"], "lancin": ["\u6495\u626F", "\u52A8", "lancin"], "cano": ["\u5531", "\u52A8", "cano"], "decant": ["\u541F\u5531", "\u52A8", "decant"], "recino": ["\u91CD\u5531", "\u52A8", "recino"], "incino": ["\u8D77\u5531", "\u52A8", "incino"], "concinno": ["\u5408\u5531", "\u52A8", "concinno"], "occino": ["\u5BF9\u5531", "\u52A8", "occino"], "succino": ["\u4F34\u5531", "\u52A8", "succino"], "modulor": ["\u6309\u8C03\u5531", "\u52A8", "modulor"], "psallo": ["\u629A\u7434", "\u52A8", "psallo"], "cithari": ["\u5F39\u7434", "\u52A8", "cithari"], "tibicin": ["\u5439\u7B1B", "\u52A8", "tibicin"], "buccin": ["\u5439\u53F7", "\u52A8", "buccin"], "cornici": ["\u5439\u89D2", "\u52A8", "cornici"], "persono": ["\u9E23\u54CD", "\u52A8", "persono"], "resono": ["\u56DE\u54CD", "\u52A8", "resono"], "crepo": ["\u7206\u54CD", "\u52A8", "crepo"], "cantile": ["\u5C0F\u8C03", "\u52A8", "cantile"], "fremit": ["\u8F70\u9E23", "\u52A8", "fremit"], "crepitu": ["\u7206\u54CD", "\u52A8", "crepitu"], "strepi": ["\u55A7\u54CD", "\u52A8", "strepi"], "tinnio": ["\u4E01\u5F53", "\u52A8", "tinnio"], "cantio": ["\u66F2", "\u52A8", "cantio"], "io": ["\u6B22\u547C", "\u52A8", "io"], "pingo": ["\u7ED8\u753B", "\u52A8", "pingo"], "deping": ["\u63CF\u753B", "\u52A8", "deping"], "adumbr": ["\u52FE\u8F6E\u5ED3", "\u52A8", "adumbr"], "lineo": ["\u52FE\u7EBF", "\u52A8", "lineo"], "caelo": ["\u933E\u523B", "\u52A8", "caelo"], "inscul": ["\u523B\u5165", "\u52A8", "inscul"], "exscul": ["\u523B\u51FA", "\u52A8", "exscul"], "scalpo": ["\u522E\u523B", "\u52A8", "scalpo"], "rado": ["\u522E", "\u52A8", "rado"], "tero": ["\u78E8\u64E6", "\u52A8", "tero"], "levigo": ["\u78E8\u5149", "\u52A8", "levigo"], "dolo": ["\u524A\u5E73", "\u52A8", "dolo"], "ascio": ["\u65A7\u524A", "\u52A8", "ascio"], "runco": ["\u9509\u5E73", "\u52A8", "runco"], "limo": ["\u9509", "\u52A8", "limo"], "effigi": ["\u8096\u50CF", "\u52A8", "effigi"], "torno": ["\u65CB\u523B", "\u52A8", "torno"], "chalco": ["\u94DC\u7248\u672F", "\u52A8", "chalco"], "toreum": ["\u933E\u523B\u54C1", "\u52A8", "toreum"], "caelatu": ["\u933E\u5DE5", "\u52A8", "caelatu"], "celtis": ["\u51FF", "\u52A8", "celtis"], "limatu": ["\u9509\u5C51", "\u52A8", "limatu"], "perfor": ["\u7A7F\u5B54", "\u52A8", "perfor"], "excud": ["\u953B\u523B", "\u52A8", "excud"], "ardeo": ["\u71C3\u70E7", "\u52A8", "ardeo"], "flagro": ["\u71C3\u70BD", "\u52A8", "flagro"], "cremo": ["\u711A", "\u52A8", "cremo"], "uro": ["\u70E7", "\u52A8", "uro"], "aduro": ["\u707C", "\u52A8", "aduro"], "comburo": ["\u70E7\u5C3D", "\u52A8", "comburo"], "inuro": ["\u70D9", "\u52A8", "inuro"], "exuro": ["\u70E7\u6389", "\u52A8", "exuro"], "succend": ["\u70B9\u71C3", "\u52A8", "succend"], "restin": ["\u7184\u706D", "\u52A8", "restin"], "opprim": ["\u538B\u706D", "\u52A8", "opprim"], "fumo": ["\u5192\u70DF", "\u52A8", "fumo"], "torreo": ["\u7119", "\u52A8", "torreo"], "pruna": ["\u70AD\u706B", "\u52A8", "pruna"], "carbo": ["\u70AD", "\u52A8", "carbo"], "cremio": ["\u67F4\u706B", "\u52A8", "cremio"], "fomes": ["\u5F15\u706B\u7269", "\u52A8", "fomes"], "fulig": ["\u70DF\u70B1", "\u52A8", "fulig"], "favill": ["\u98DE\u7070", "\u52A8", "favill"], "exstinc": ["\u7184\u706D", "\u52A8", "exstinc"], "ustio": ["\u70D9", "\u52A8", "ustio"], "ambust": ["\u707C\u4F24", "\u52A8", "ambust"], "adust": ["\u70E4\u7126\u7684", "\u52A8", "adust"], "praeust": ["\u70E7\u786C\u7684", "\u52A8", "praeust"], "neo": ["\u7EBA", "\u52A8", "neo"], "texo": ["\u7EC7", "\u52A8", "texo"], "torque": ["\u637B", "\u52A8", "torque"], "necto": ["\u7ED3", "\u52A8", "necto"], "vincio": ["\u7F1A", "\u52A8", "vincio"], "relig": ["\u89E3\u5F00\u7CFB", "\u52A8", "relig"], "constrin": ["\u675F\u7F1A", "\u52A8", "constrin"], "obstrin": ["\u675F\u4F4F", "\u52A8", "obstrin"], "devinc": ["\u7D27\u7F1A", "\u52A8", "devinc"], "revinc": ["\u53CD\u7F1A", "\u52A8", "revinc"], "sublig": ["\u4E0B\u7CFB", "\u52A8", "sublig"], "reticul": ["\u7ED3\u7F51", "\u52A8", "reticul"], "funicu": ["\u7EC6\u7EF3", "\u52A8", "funicu"], "retiac": ["\u5C0F\u7F51", "\u52A8", "retiac"], "stuppa": ["\u9EBB\u7D6E", "\u52A8", "stuppa"], "toment": ["\u586B\u7D6E", "\u52A8", "toment"], "pensum": ["\u4E00\u65E5\u4E4B\u7EB1", "\u52A8", "pensum"], "glome": ["\u7ED5\u7EBF", "\u52A8", "glome"], "volvo": ["\u7F20\u7ED5", "\u52A8", "volvo"], "circumv": ["\u76D8\u7ED5", "\u52A8", "circumv"], "plexus": ["\u4EA4\u7EC7", "\u52A8", "plexus"], "funal": ["\u7EF3\u7D22\u7684", "\u52A8", "funal"], "iaculor": ["\u629B\u5C04", "\u52A8", "iaculor"], "conicio": ["\u6295\u5408", "\u52A8", "conicio"], "reici": ["\u63B7\u56DE", "\u52A8", "reici"], "subicio": ["\u6295\u4E0B", "\u52A8", "subicio"], "obici": ["\u6295\u5411\u524D", "\u52A8", "obici"], "traici": ["\u63B7\u8FC7", "\u52A8", "traici"], "inicio": ["\u6295\u5165", "\u52A8", "inicio"], "praemitt": ["\u9884\u9063", "\u52A8", "praemitt"], "promitt": ["\u8BB8\u8BFA", "\u52A8", "promitt"], "admitt": ["\u63A5\u7EB3", "\u52A8", "admitt"], "committ": ["\u4EA4\u6258", "\u52A8", "committ"], "remitt": ["\u9001\u56DE", "\u52A8", "remitt"], "summitt": ["\u5448\u9001", "\u52A8", "summitt"], "transmitt": ["\u8F6C\u9001", "\u52A8", "transmitt"], "fundo": ["\u503E\u6CFB", "\u52A8", "fundo"], "effund": ["\u503E\u5012", "\u52A8", "effund"], "spargo": ["\u6492\u64AD", "\u52A8", "spargo"], "aspergo": ["\u6D12\u4E0A", "\u52A8", "aspergo"], "disperg": ["\u6563\u5F00", "\u52A8", "disperg"], "sagitto": ["\u5C04\u7BAD", "\u52A8", "sagitto"], "roto": ["\u629B\u8F6C", "\u52A8", "roto"], "adigo": ["\u6295\u63B7", "\u52A8", "adigo"], "emissi": ["\u653E\u51FA\u4E4B\u7269", "\u52A8", "emissi"], "duco": ["\u5F15", "\u52A8", "duco"], "adduc": ["\u5F15\u5411", "\u52A8", "adduc"], "abduco": ["\u5F15\u5F00", "\u52A8", "abduco"], "induco": ["\u5F15\u5165", "\u52A8", "induco"], "produc": ["\u5F15\u51FA", "\u52A8", "produc"], "reduc": ["\u5F15\u56DE", "\u52A8", "reduc"], "subduc": ["\u5F15\u9000", "\u52A8", "subduc"], "seduco": ["\u5F15\u79BB", "\u52A8", "seduco"], "circumdu": ["\u7ED5\u5F15", "\u52A8", "circumdu"], "pello": ["\u63A8\u52A8", "\u52A8", "pello"], "propel": ["\u63A8\u524D", "\u52A8", "propel"], "expel": ["\u9010\u51FA", "\u52A8", "expel"], "repel": ["\u63A8\u56DE", "\u52A8", "repel"], "compel": ["\u5F3A\u63A8", "\u52A8", "compel"], "depel": ["\u63A8\u4E0B", "\u52A8", "depel"], "dispel": ["\u9A71\u6563", "\u52A8", "dispel"], "vello": ["\u62D4", "\u52A8", "vello"], "avell": ["\u62D4\u53BB", "\u52A8", "avell"], "evell": ["\u62D4\u51FA", "\u52A8", "evell"], "revell": ["\u626F\u4E0B", "\u52A8", "revell"], "retrah": ["\u62C9\u56DE", "\u52A8", "retrah"], "detrah": ["\u62C9\u4E0B", "\u52A8", "detrah"], "convel": ["\u62D4\u8D77", "\u52A8", "convel"], "divel": ["\u626F\u5F00", "\u52A8", "divel"], "comprim": ["\u538B\u7D27", "\u52A8", "comprim"], "exprim": ["\u6324\u51FA", "\u52A8", "exprim"], "supprim": ["\u538B\u4E0B", "\u52A8", "supprim"], "reprim": ["\u6291\u5236", "\u52A8", "reprim"], "deprim": ["\u538B\u4E0B", "\u52A8", "deprim"], "arcio": ["\u7D27\u903C", "\u52A8", "arcio"], "coarto": ["\u538B\u7F29", "\u52A8", "coarto"], "frequen": ["\u6324\u6EE1", "\u52A8", "frequen"], "stipo": ["\u585E\u6EE1", "\u52A8", "stipo"], "farcio": ["\u586B\u585E", "\u52A8", "farcio"], "referc": ["\u585E\u6EE1", "\u52A8", "referc"], "conferc": ["\u538B\u5B9E", "\u52A8", "conferc"], "obtero": ["\u538B\u788E", "\u52A8", "obtero"], "contero": ["\u78E8\u788E", "\u52A8", "contero"], "attero": ["\u78E8\u635F", "\u52A8", "attero"], "detero": ["\u64E6\u635F", "\u52A8", "detero"], "arto": ["\u903C\u7D27", "\u52A8", "arto"], "adarto": ["\u7D27\u903C", "\u52A8", "adarto"], "angusto": ["\u4F7F\u7A84", "\u52A8", "angusto"], "urgeo": ["\u50AC\u903C", "\u52A8", "urgeo"], "perurge": ["\u7D27\u8FEB", "\u52A8", "perurge"], "insto": ["\u903C\u8FD1", "\u52A8", "insto"], "calco": ["\u8DF5\u8E0F", "\u52A8", "calco"], "concul": ["\u8E29\u788E", "\u52A8", "concul"], "odoro": ["\u95FB", "\u52A8", "odoro"], "oleo": ["\u53D1\u5473", "\u52A8", "oleo"], "fragro": ["\u53D1\u9999", "\u52A8", "fragro"], "puteo": ["\u53D1\u81ED", "\u52A8", "puteo"], "foete": ["\u6076\u81ED", "\u52A8", "foete"], "lambo": ["\u8214", "\u52A8", "lambo"], "liguri": ["\u8D2A\u5403", "\u52A8", "liguri"], "sallo": ["\u76D0\u6E0D", "\u52A8", "sallo"], "halitu": ["\u547C\u6C14", "\u52A8", "halitu"], "fastid": ["\u5ACC\u5473", "\u52A8", "fastid"], "amarit": ["\u82E6\u5473", "\u52A8", "amarit"], "acidit": ["\u9178\u5473", "\u52A8", "acidit"], "salugo": ["\u54B8\u5473", "\u52A8", "salugo"], "exhala": ["\u6563\u53D1", "\u52A8", "exhala"], "narco": ["\u9EBB\u9189\u6C14", "\u52A8", "narco"], "olent": ["\u9999\u6C14", "\u52A8", "olent"], "graveo": ["\u6D53\u5473", "\u52A8", "graveo"], "tinctur": ["\u6D78\u6DB2", "\u52A8", "tinctur"], "sapora": ["\u8C03\u5473\u54C1", "\u52A8", "sapora"], "gustam": ["\u54C1\u5473\u4E4B\u7269", "\u52A8", "gustam"], "suffit": ["\u718F\u70DF", "\u52A8", "suffit"], "thymia": ["\u9999\u85B0", "\u52A8", "thymia"], "tango": ["\u89E6", "\u6027", "tango"], "atting": ["\u89E6\u53CA", "\u6027", "atting"], "conting": ["\u63A5\u89E6", "\u6027", "conting"], "palpo": ["\u629A", "\u6027", "palpo"], "contrec": ["\u6469\u6332", "\u6027", "contrec"], "attrec": ["\u6469\u89E6", "\u6027", "attrec"], "perstrin": ["\u8F7B\u63A0", "\u6027", "perstrin"], "tracto": ["\u6446\u5F04", "\u6027", "tracto"], "hispid": ["\u7C97\u7CD9\u591A\u6BDB", "\u6027", "hispid"], "villosus": ["\u7ED2\u6BDB\u7684", "\u6027", "villosus"], "veluti": ["\u5929\u9E45\u7ED2\u7684", "\u6027", "veluti"], "glutino": ["\u80F6\u9ECF", "\u6027", "glutino"], "lubric": ["\u6ED1\u7684", "\u6027", "lubric"], "teres": ["\u5706\u6ED1\u7684", "\u6027", "teres"], "callos": ["\u786C\u76AE", "\u6027", "callos"], "tenax": ["\u9ECF\u97E7", "\u6027", "tenax"], "tractab": ["\u53EF\u89E6\u7684", "\u6027", "tractab"], "ictus": ["\u89E6\u51FB", "\u6027", "ictus"], "attact": ["\u63A5\u89E6", "\u6027", "attact"], "horripi": ["\u6BDB\u9AA8\u609A\u7136", "\u6027", "horripi"], "scabrit": ["\u7C97\u7CD9", "\u6027", "scabrit"], "viscam": ["\u9ECF\u7A20", "\u6027", "viscam"], "formica": ["\u9165\u75D2", "\u6027", "formica"], "saluto": ["\u81F4\u610F", "\u52A8", "saluto"], "consalu": ["\u95EE\u5019", "\u52A8", "consalu"], "appello": ["\u79F0\u547C", "\u52A8", "appello"], "compella": ["\u62DB\u547C", "\u52A8", "compella"], "convenio": ["\u4F1A\u89C1", "\u52A8", "convenio"], "visito": ["\u62DC\u8BBF", "\u52A8", "visito"], "inviso": ["\u63A2\u8BBF", "\u52A8", "inviso"], "convivo": ["\u5171\u5BB4", "\u52A8", "convivo"], "epulor": ["\u8D74\u5BB4", "\u52A8", "epulor"], "comito": ["\u966A\u540C", "\u52A8", "comito"], "prosequo": ["\u968F\u884C", "\u52A8", "prosequo"], "consect": ["\u8FFD\u968F", "\u52A8", "consect"], "occurro": ["\u8FCE\u4E0A", "\u52A8", "occurro"], "offendo": ["\u649E\u89C1", "\u52A8", "offendo"], "arcess": ["\u53EC\u6765", "\u52A8", "arcess"], "accers": ["\u4F20\u53EC", "\u52A8", "accers"], "except": ["\u63A5\u5BA2", "\u52A8", "except"], "gratulor": ["\u81F4\u8D3A", "\u52A8", "gratulor"], "condol": ["\u6170\u95EE", "\u52A8", "condol"], "consolor": ["\u5B89\u6170", "\u52A8", "consolor"], "advent": ["\u6765\u8BBF", "\u52A8", "advent"], "hospitor": ["\u505A\u5BA2", "\u52A8", "hospitor"], "deducti": ["\u62A4\u9001", "\u52A8", "deducti"], "ministro": ["\u4F8D\u5019", "\u52A8", "ministro"], "magis": ["\u66F4", "\u6570", "magis"], "parum": ["\u592A\u5C11", "\u6570", "parum"], "nimis": ["\u8FC7\u5EA6", "\u6570", "nimis"], "nimiu": ["\u592A\u591A", "\u6570", "nimiu"], "satis": ["\u8DB3\u591F", "\u6570", "satis"], "affati": ["\u5145\u5206", "\u6570", "affati"], "abunde": ["\u4E30\u8DB3", "\u6570", "abunde"], "multum": ["\u591A", "\u6570", "multum"], "paulum": ["\u5C11\u8BB8", "\u6570", "paulum"], "quantum": ["\u591A\u5C11", "\u6570", "quantum"], "tantul": ["\u5FAE\u5C0F\u91CF", "\u6570", "tantul"], "plerum": ["\u591A\u534A", "\u6570", "plerum"], "pleriqu": ["\u591A\u6570", "\u6570", "pleriqu"], "nonnih": ["\u4E0D\u5C11", "\u6570", "nonnih"], "exiguum": ["\u5C11\u8BB8", "\u6570", "exiguum"], "minimu": ["\u6700\u5C11", "\u6570", "minimu"], "maximu": ["\u6700\u591A", "\u6570", "maximu"], "plurimu": ["\u6781\u591A", "\u6570", "plurimu"], "parce": ["\u8282\u7701\u5730", "\u6570", "parce"], "summati": ["\u6982\u62EC\u5730", "\u6570", "summati"], "particu": ["\u9010\u6761", "\u6570", "particu"], "summa": ["\u603B\u91CF", "\u6570", "summa"], "multitu": ["\u4F17\u591A", "\u6570", "multitu"], "paucit": ["\u5BE1\u5C11", "\u6570", "paucit"], "neur": ["\u795E\u7ECF", "\u7269", "neur"], "myo": ["\u808C", "\u7269", "myo"], "oste": ["\u9AA8", "\u7269", "oste"], "haem": ["\u8840", "\u7269", "haem"], "cyto": ["\u7EC6\u80DE", "\u7269", "cyto"], "textus": ["\u7EC4\u7EC7", "\u7269", "textus"], "arthro": ["\u5173\u8282", "\u7269", "arthro"], "cardi": ["\u5FC3", "\u7269", "cardi"], "pneumo": ["\u80BA", "\u7269", "pneumo"], "nephro": ["\u80BE", "\u7269", "nephro"], "gastro": ["\u80C3", "\u7269", "gastro"], "entero": ["\u80A0", "\u7269", "entero"], "dermato": ["\u76AE", "\u7269", "dermato"], "ophthal": ["\u773C", "\u7269", "ophthal"], "auric": ["\u8033", "\u7269", "auric"], "rhino": ["\u9F3B", "\u7269", "rhino"], "stomato": ["\u53E3", "\u7269", "stomato"], "glosso": ["\u820C", "\u7269", "glosso"], "odonto": ["\u7259", "\u7269", "odonto"], "tricho": ["\u6BDB", "\u7269", "tricho"], "onycho": ["\u7532", "\u7269", "onycho"], "splanchno": ["\u5185\u810F", "\u7269", "splanchno"], "chondro": ["\u8F6F\u9AA8", "\u7269", "chondro"], "organo": ["\u5668\u5B98", "\u7269", "organo"], "patho": ["\u75C5", "\u7269", "patho"], "algo": ["\u75DB", "\u7269", "algo"], "pyo": ["\u8113", "\u7269", "pyo"], "septi": ["\u8150", "\u7269", "septi"], "toxo": ["\u6BD2", "\u7269", "toxo"], "therap": ["\u7597", "\u7269", "therap"], "progno": ["\u9884\u540E", "\u7269", "progno"], "sympto": ["\u75C7", "\u7269", "sympto"], "crisis": ["\u5371\u8C61", "\u7269", "crisis"], "remiss": ["\u7F13\u89E3", "\u7269", "remiss"], "recidiv": ["\u590D\u53D1", "\u7269", "recidiv"], "chrono": ["\u6162\u6027", "\u7269", "chrono"], "acuto": ["\u6025\u6027", "\u7269", "acuto"], "benigno": ["\u826F\u6027", "\u7269", "benigno"], "maligno": ["\u6076\u6027", "\u7269", "maligno"], "heredo": ["\u9057\u4F20", "\u7269", "heredo"], "allergo": ["\u8FC7\u654F", "\u7269", "allergo"], "necro": ["\u574F\u6B7B", "\u7269", "necro"], "sclero": ["\u786C\u5316", "\u7269", "sclero"], "steno": ["\u72ED\u7A84", "\u7269", "steno"], "psycho": ["\u5FC3\u7075", "\u6027", "psycho"], "noo": ["\u5FC3\u667A", "\u6027", "noo"], "mnemo": ["\u8BB0\u5FC6", "\u6027", "mnemo"], "phreno": ["\u7CBE\u795E", "\u6027", "phreno"], "thymo": ["\u60C5\u7EEA", "\u6027", "thymo"], "hormo": ["\u51B2\u52A8", "\u6027", "hormo"], "hedono": ["\u5FEB\u4E50", "\u6027", "hedono"], "phobo": ["\u6050\u60E7", "\u6027", "phobo"], "letho": ["\u9057\u5FD8\u6C89\u7761", "\u6027", "letho"], "oneiro": ["\u68A6", "\u6027", "oneiro"], "estheto": ["\u611F\u89C9", "\u6027", "estheto"], "logo": ["\u7406\u6027", "\u6027", "logo"], "doxo": ["\u610F\u89C1", "\u6027", "doxo"], "fide": ["\u4FE1\u5FF5", "\u6027", "fide"], "etho": ["\u4E60\u60EF", "\u6027", "etho"], "catharo": ["\u5BA3\u6CC4", "\u6027", "catharo"], "libido": ["\u6B32\u529B", "\u6027", "libido"], "complexo": ["\u60C5\u7ED3", "\u6027", "complexo"], "affecto": ["\u60C5\u611F", "\u6027", "affecto"], "cognito": ["\u8BA4\u77E5", "\u6027", "cognito"], "volitio": ["\u610F\u5FD7", "\u6027", "volitio"], "demo": ["\u6C11\u4F17", "\u7269", "demo"], "polito": ["\u57CE\u90A6", "\u7269", "polito"], "crati": ["\u7EDF\u6CBB", "\u7269", "crati"], "archo": ["\u4E3A\u9996", "\u7269", "archo"], "hiero": ["\u5723\u804C", "\u7269", "hiero"], "theo": ["\u795E", "\u7269", "theo"], "ethno": ["\u6C11\u65CF", "\u7269", "ethno"], "phylo": ["\u90E8\u65CF", "\u7269", "phylo"], "nomo": ["\u4E60\u4FD7\u6CD5", "\u7269", "nomo"], "grapho": ["\u4E66\u8BB0", "\u7269", "grapho"], "tyranno": ["\u50ED\u4E3B", "\u7269", "tyranno"], "oligo": ["\u5BE1\u5934", "\u7269", "oligo"], "aristo": ["\u8D35\u65CF", "\u7269", "aristo"], "pluto": ["\u5BCC\u8C6A", "\u7269", "pluto"], "anarcho": ["\u65E0\u653F\u5E9C", "\u7269", "anarcho"], "bureau": ["\u5B98\u50DA", "\u7269", "bureau"], "federo": ["\u8054\u90A6", "\u7269", "federo"], "socio": ["\u793E\u4F1A", "\u7269", "socio"], "patricio": ["\u4E16\u5BB6", "\u7269", "patricio"], "senato": ["\u5143\u8001", "\u7269", "senato"], "consulo": ["\u6267\u653F", "\u7269", "consulo"], "hydro": ["\u6C34", "\u7269", "hydro"], "pyro": ["\u706B", "\u7269", "pyro"], "aero": ["\u6C14", "\u7269", "aero"], "geo": ["\u5730", "\u7269", "geo"], "helio": ["\u65E5", "\u7269", "helio"], "seleno": ["\u6708", "\u7269", "seleno"], "astro": ["\u661F", "\u7269", "astro"], "cosmo": ["\u5B87\u5B99", "\u7269", "cosmo"], "atmo": ["\u84B8\u6C7D", "\u7269", "atmo"], "litho": ["\u77F3\u8D28", "\u7269", "litho"], "metallo": ["\u91D1\u5C5E", "\u7269", "metallo"], "crystallo": ["\u6676", "\u7269", "crystallo"], "cryo": ["\u51B7", "\u7269", "cryo"], "photo": ["\u5149", "\u7269", "photo"], "chromo": ["\u8272", "\u7269", "chromo"], "baro": ["\u91CD", "\u7269", "baro"], "cyclo": ["\u73AF", "\u7269", "cyclo"], "schema": ["\u5F62", "\u7269", "schema"], "plasto": ["\u5851", "\u7269", "plasto"], "tomo": ["\u5207", "\u7269", "tomo"], "kineto": ["\u52A8", "\u7269", "kineto"], "stato": ["\u9759", "\u7269", "stato"], "bio": ["\u751F\u547D", "\u7269", "bio"], "zoo": ["\u52A8\u7269", "\u7269", "zoo"], "phyto": ["\u690D\u7269", "\u7269", "phyto"], "viro": ["\u75C5\u6BD2", "\u7269", "viro"], "gene": ["\u57FA\u56E0", "\u7269", "gene"], "evolo": ["\u6F14\u5316", "\u7269", "evolo"], "ecos": ["\u751F\u6001", "\u7269", "ecos"], "sedes": ["\u6816\u606F\u5730", "\u7269", "sedes"], "locus": ["\u4F4D\u7F6E", "\u7269", "locus"], "convit": ["\u5171\u6816", "\u7269", "convit"], "estivo": ["\u590F\u7720", "\u7269", "estivo"], "metamorpho": ["\u53D8\u6001", "\u7269", "metamorpho"], "larvo": ["\u5E7C\u866B", "\u7269", "larvo"], "pupo": ["\u86F9", "\u7269", "pupo"], "imago": ["\u6210\u866B", "\u7269", "imago"], "ovio": ["\u5375", "\u7269", "ovio"], "mechano": ["\u673A\u68B0", "\u7269", "mechano"], "automato": ["\u81EA\u52A8", "\u7269", "automato"], "electr": ["\u7535", "\u7269", "electr"], "magneto": ["\u78C1", "\u7269", "magneto"], "pneumato": ["\u6C14\u52A8", "\u7269", "pneumato"], "teleo": ["\u8FDC", "\u7269", "teleo"], "phono": ["\u58F0", "\u7269", "phono"], "scopo": ["\u89C2\u5BDF", "\u7269", "scopo"], "crypto": ["\u9690\u79D8", "\u7269", "crypto"], "glypto": ["\u523B", "\u7269", "glypto"], "typo": ["\u5370", "\u7269", "typo"], "syntheto": ["\u5408\u6210", "\u7269", "syntheto"], "ergo": ["\u529F", "\u7269", "ergo"], "trocho": ["\u8F6E", "\u7269", "trocho"], "cochlio": ["\u87BA\u65CB", "\u7269", "cochlio"], "clino": ["\u659C", "\u7269", "clino"], "goni": ["\u89D2\u5EA6", "\u7269", "goni"], "topo": ["\u4F4D\u7F6E", "\u7269", "topo"], "taxis": ["\u6392\u5217", "\u7269", "taxis"], "harmo": ["\u5951\u5408", "\u7269", "harmo"], "itis": ["\u708E", "\u6027", "itis"], "osis": ["\u75C5\u53D8", "\u6027", "osis"], "oma": ["\u7624", "\u6027", "oma"], "emia": ["\u8840\u75C7", "\u6027", "emia"], "uria": ["\u5C3F\u75C7", "\u6027", "uria"], "rrhag": ["\u51FA\u8840", "\u6027", "rrhag"], "rrhoe": ["\u6EA2\u51FA", "\u6027", "rrhoe"], "ptos": ["\u4E0B\u5782", "\u6027", "ptos"], "plasia": ["\u589E\u751F", "\u6027", "plasia"], "troph": ["\u8425\u517B", "\u6027", "troph"], "lys": ["\u6EB6\u89E3", "\u6027", "lys"], "pex": ["\u56FA\u5B9A", "\u6027", "pex"], "ectom": ["\u5207\u9664", "\u6027", "ectom"], "otom": ["\u5207\u5F00", "\u6027", "otom"], "tonia": ["\u808C\u5F20\u529B", "\u6027", "tonia"], "praxia": ["\u884C\u4E3A", "\u6027", "praxia"], "gnosia": ["\u8BA4\u77E5", "\u6027", "gnosia"], "mnesia": ["\u8BB0\u5FC6", "\u6027", "mnesia"], "phasia": ["\u8A00\u8BED", "\u6027", "phasia"], "lalia": ["\u8C08\u8BDD", "\u6027", "lalia"], "opia": ["\u89C6\u89C9", "\u6027", "opia"], "acusis": ["\u542C\u89C9", "\u6027", "acusis"], "osmia": ["\u55C5\u89C9", "\u6027", "osmia"], "algebr": ["\u4EE3\u6570", "\u7269", "algebr"], "logarith": ["\u5BF9\u6570", "\u7269", "logarith"], "functio": ["\u51FD\u6570", "\u7269", "functio"], "consta": ["\u5E38\u6570", "\u7269", "consta"], "limes": ["\u6781\u9650", "\u7269", "limes"], "integral": ["\u79EF\u5206", "\u7269", "integral"], "vecto": ["\u5411\u91CF", "\u7269", "vecto"], "scalar": ["\u6807\u91CF", "\u7269", "scalar"], "tensor": ["\u5F20\u91CF", "\u7269", "tensor"], "grex": ["\u7FA4", "\u7269", "grex"], "campus": ["\u57DF", "\u7269", "campus"], "anulus": ["\u73AF", "\u7269", "anulus"], "tangens": ["\u5207\u7EBF", "\u7269", "tangens"], "secans": ["\u5272\u7EBF", "\u7269", "secans"], "sinus": ["\u6B63\u5F26", "\u7269", "sinus"], "cosinus": ["\u4F59\u5F26", "\u7269", "cosinus"], "lemn": ["\u5F15\u7406", "\u7269", "lemn"], "coroll": ["\u63A8\u8BBA", "\u7269", "coroll"], "demonstr": ["\u8BBA\u8BC1", "\u7269", "demonstr"], "praemiss": ["\u524D\u63D0", "\u7269", "praemiss"], "analog": ["\u7C7B\u6BD4", "\u7269", "analog"], "antinom": ["\u4E8C\u5F8B\u80CC\u53CD", "\u7269", "antinom"], "metonym": ["\u8F6C\u55BB", "\u7269", "metonym"], "synecdoch": ["\u63D0\u55BB", "\u7269", "synecdoch"], "hyperbol": ["\u5938\u5F20", "\u7269", "hyperbol"], "ironia": ["\u53CD\u8BBD", "\u7269", "ironia"], "allegor": ["\u5BD3\u8A00", "\u7269", "allegor"], "enthymem": ["\u7701\u7565\u63A8\u7406", "\u7269", "enthymem"], "aporia": ["\u7591\u96BE", "\u7269", "aporia"], "elench": ["\u53CD\u9A73\u6CD5", "\u7269", "elench"], "rhythmus": ["\u8282\u5F8B", "\u7269", "rhythmus"], "scala": ["\u97F3\u9636", "\u7269", "scala"], "octava": ["\u516B\u5EA6", "\u7269", "octava"], "monod": ["\u72EC\u594F", "\u7269", "monod"], "orchestra": ["\u4E50\u961F", "\u7269", "orchestra"], "lyricus": ["\u6292\u60C5", "\u7269", "lyricus"], "arioso": ["\u548F\u53F9", "\u7269", "arioso"], "sonat": ["\u594F\u9E23", "\u7269", "sonat"], "fuga": ["\u8D4B\u683C", "\u7269", "fuga"], "canon": ["\u5361\u519C", "\u7269", "canon"], "praelud": ["\u5E8F\u66F2", "\u7269", "praelud"], "overtura": ["\u5F00\u573A\u66F2", "\u7269", "overtura"], "cadentia": ["\u7EC8\u6B62\u5F0F", "\u7269", "cadentia"], "timbr": ["\u97F3\u8272", "\u7269", "timbr"], "virtuose": ["\u540D\u624B", "\u7269", "virtuose"], "concentus": ["\u548C\u58F0", "\u7269", "concentus"], "harmonia": ["\u548C\u58F0\u5B66", "\u7269", "harmonia"], "melisma": ["\u82B1\u8154", "\u7269", "melisma"], "tonalis": ["\u8C03\u6027\u7684", "\u7269", "tonalis"], "modalis": ["\u8C03\u5F0F\u7684", "\u7269", "modalis"], "dissonan": ["\u4E0D\u534F\u548C", "\u7269", "dissonan"], "consenan": ["\u534F\u548C", "\u7269", "consenan"], "thema": ["\u4E3B\u9898", "\u7269", "thema"], "paideia": ["\u6559\u80B2", "\u7269", "paideia"], "didactic": ["\u6559\u6388\u6CD5", "\u7269", "didactic"], "pedagog": ["\u6559\u5B66\u6CD5", "\u7269", "pedagog"], "syllabus": ["\u6559\u5B66\u5927\u7EB2", "\u7269", "syllabus"], "academia": ["\u5B66\u9662", "\u7269", "academia"], "lyceum": ["\u5B66\u56ED", "\u7269", "lyceum"], "scholarch": ["\u6821\u957F", "\u7269", "scholarch"], "professor": ["\u6559\u6388", "\u7269", "professor"], "lectura": ["\u8BB2\u5E2D", "\u7269", "lectura"], "seminarium": ["\u7814\u8BA8\u8BFE", "\u7269", "seminarium"], "tutela": ["\u5BFC\u5E08", "\u7269", "tutela"], "matricul": ["\u6CE8\u518C", "\u7269", "matricul"], "graduat": ["\u6BD5\u4E1A", "\u7269", "graduat"], "thesis": ["\u8BBA\u6587", "\u7269", "thesis"], "dissertat": ["\u5B66\u4F4D\u8BBA\u6587", "\u7269", "dissertat"], "symposium": ["\u5B66\u672F\u4F1A\u8BAE", "\u7269", "symposium"], "pedant": ["\u70AB\u5B66\u8005", "\u7269", "pedant"], "didascal": ["\u6559\u6761", "\u7269", "didascal"], "collegium": ["\u5B66\u793E", "\u7269", "collegium"], "rector": ["\u9662\u957F", "\u7269", "rector"], "auditor": ["\u65C1\u542C\u8005", "\u7269", "auditor"], "probato": ["\u8003\u8BD5", "\u7269", "probato"], "laurea": ["\u5B66\u4F4D", "\u7269", "laurea"], "oeconomia": ["\u7ECF\u6D4E", "\u7269", "oeconomia"], "chrematist": ["\u7406\u8D22\u672F", "\u7269", "chrematist"], "trapez": ["\u94F6\u884C\u5BB6", "\u7269", "trapez"], "drachma": ["\u5FB7\u62C9\u514B\u9A6C", "\u7269", "drachma"], "obolus": ["\u5C0F\u5E01", "\u7269", "obolus"], "stater": ["\u91D1\u5E01", "\u7269", "stater"], "talentum": ["\u5854\u5170\u7279", "\u7269", "talentum"], "nomism": ["\u901A\u8D27", "\u7269", "nomism"], "monopol": ["\u5784\u65AD", "\u7269", "monopol"], "oligopol": ["\u5BE1\u5934\u5784\u65AD", "\u7269", "oligopol"], "kartel": ["\u5361\u7279\u5C14", "\u7269", "kartel"], "syndicat": ["\u8F9B\u8FEA\u52A0", "\u7269", "syndicat"], "kredit": ["\u4FE1\u8D37", "\u7269", "kredit"], "debet": ["\u501F\u65B9", "\u7269", "debet"], "saldo": ["\u4F59\u989D", "\u7269", "saldo"], "ratio": ["\u9884\u7B97", "\u7269", "ratio"], "census": ["\u666E\u67E5", "\u7269", "census"], "portorium": ["\u5173\u7A0E", "\u7269", "portorium"], "nummulari": ["\u94B1\u5546", "\u7269", "nummulari"], "fenus": ["\u5229\u606F", "\u7269", "fenus"], "usura": ["\u9AD8\u5229\u8D37", "\u7269", "usura"], "syngraf": ["\u5951\u7EA6", "\u7269", "syngraf"], "banca": ["\u94B1\u5E84", "\u7269", "banca"], "strategus": ["\u6218\u7565\u5BB6", "\u7269", "strategus"], "tactica": ["\u6218\u672F", "\u7269", "tactica"], "hoplit": ["\u91CD\u88C5\u5175", "\u7269", "hoplit"], "phalanx": ["\u65B9\u9635", "\u7269", "phalanx"], "legio": ["\u519B\u56E2", "\u7269", "legio"], "maniple": ["\u5C0F\u961F", "\u7269", "maniple"], "alar": ["\u7FFC\u961F", "\u7269", "alar"], "turna": ["\u9A91\u5175\u961F", "\u7269", "turna"], "cataphract": ["\u94C1\u7532\u9A91", "\u7269", "cataphract"], "poliorket": ["\u653B\u57CE\u672F", "\u7269", "poliorket"], "navarch": ["\u8230\u961F\u53F8\u4EE4", "\u7269", "navarch"], "taxiarch": ["\u652F\u961F\u957F", "\u7269", "taxiarch"], "strategema": ["\u8BA1\u8C0B", "\u7269", "strategema"], "agmen": ["\u884C\u519B\u7EB5\u961F", "\u7269", "agmen"], "optio": ["\u526F\u5B98", "\u7269", "optio"], "decurio": ["\u5341\u592B\u957F", "\u7269", "decurio"], "centurio": ["\u767E\u592B\u957F", "\u7269", "centurio"], "tribunus": ["\u62A4\u6C11\u5B98", "\u7269", "tribunus"], "praesidium": ["\u620D\u536B", "\u7269", "praesidium"], "explorator": ["\u65A5\u5019", "\u7269", "explorator"], "speculator": ["\u63A2\u5B50", "\u7269", "speculator"], "mor": ["\u6851", "\u7269", "mor"], "autumn": ["\u79CB", "\u7269", "autumn"], "vados": ["\u6D45", "\u6027", "vados"], "latifol": ["\u9614\u53F6", "\u7269", "latifol"], "mediterran": ["\u5730\u4E2D\u6D77", "\u7269", "mediterran"], "semi": ["\u534A", "\u6027", "semi"], "infern": ["\u5730\u72F1", "\u7269", "infern"], "lumen": ["\u5FAE\u5149", "\u7269", "lumen"] } };
+    module2.exports = EpXsCSyntaxPlugin;
   }
-}
+});
 
-/* 逐层给括号打上 epx-d1 / d2 / d3（三层一循环，再深轮回第一层）。
-   Prism 是逐位置的词法分析，数不了层数，所以在这一步扫一遍它产出的 HTML。 */
-/* 字典的键：只在真正的字典字面量里改判。
-   判据一：一层不跨行的 { } 段；判据二：{ 前面紧挨的那个 span 不是「词」（若前面是 clavis 这类词，
-   那是容器型形参，里面的 言辞: Name 是「类型: 变量名」，不能当键）。
-   段内凡「词 + 冒号」的那个词，一律改标为字典键（键原本可能被当成缩放轴／类型形参／变量）。 */
-const DICT_BEFORE = 'word|type|declaration|className|clause|predicate|function|modifier|variable|declTarget|axis|element|dictKey|filterKey|filterValue|unit';
-function markDictKeys(html) {
-  const seg = new RegExp('(?:<span class="token (' + DICT_BEFORE + ')">[^<]*<\\/span>[ \\t]*)?<span class="token brace">\\{<\\/span>[^{}\\n]*<span class="token brace">\\}<\\/span>', 'g');
-  return html.replace(seg, function (all, kind) {
-    if (kind) return all;                          /* 前面是词 → 容器型形参，不动 */
-    return all.replace(/<span class="token [a-zA-Z ]+">([A-Za-z_][A-Za-z0-9_]*)<\/span>(?=[ \t]*<span class="token punctuation">:<\/span>)/g,
-      function (span, name) { return '<span class="token dictKey">' + name + '</span>'; });
-  });
-}
-
-function markBracketDepth(html, kinds) {
-  let depth = 0;
-  let idx = 0;
-  return html.replace(/<span class="token ([a-z]+)">([\[\](){}])<\/span>/g, function (all, cls, ch) {
-    if (cls !== 'bracket' && cls !== 'paren' && cls !== 'brace') return all;
-    const isOpen = ch === '[' || ch === '(' || ch === '{';
-    if (isOpen) depth += 1;
-    else if (depth > 0) depth -= 1;
-    const level = isOpen ? depth : depth + 1;
-    const kind = kinds && kinds[idx] ? String(kinds[idx]).replace(/"/g, '') : '';
-    idx += 1;
-    const attr = kind ? ' data-epx-kind="' + kind + '"' : '';
-    return '<span class="token ' + cls + ' epx-d' + (((level - 1) % 3) + 1) + '"' + attr + '>' + ch + '</span>';
-  });
-}
-
-/* 内置词库快照：由 述无空语词典 / 术式语法 / 维度模型 / 词根表 生成。
-   库内有对应文件时以文件为准，这份只在缺失时兜底。 */
-const BUILTIN_LEXICON = {"entries":{"aqua":["aqua","名词","水元素","Aqu"],"delucke":["Delucke","名词","暗元素","Duk"],"draco":["draco","名词","龙、东方龙","DRA"],"earthe":["Earthe","名词","地元素","Ert"],"eletribon":["Eletribon","名词","雷电","Elc"],"fliam":["fliam","名词","炎元素","Flm"],"fragor":["fragor","名词","破碎声、故障","FRAg"],"fragus":["fragus","名词","碎片、残骸","FRGs"],"gramakipo":["gramakipo","名词","重力加速度","GRK"],"hopas":["hopas","名词","营地、休息处、广场","HOP"],"locor":["locor","名词","定位器、放置者","LOCr"],"locus":["locus","名词","地点、位置","LOCs"],"loqor":["loqor","名词","说话者、讲述者","LOQr"],"loqus":["loqus","名词","语言、话语","LOQs"],"lumena":["lumena","名词","光元素","Lum"],"memor":["memor","名词","记忆、心智","MEMr"],"memus":["memus","名词","思想、念头","MEMs"],"miteas":["Miteas","名词","米、计量单位","MIT"],"mortor":["mortor","名词","死者、亡灵","MORr"],"mortus":["mortus","名词","死亡","MORs"],"movor":["movor","名词","推动者、动机","MOVr"],"movus":["movus","名词","运动、移动","MOVs"],"nuetrue":["Nuetrue","名词","自然元素","Nut"],"qudend":["qudend","名词","结束、终点","QUD"],"sanor":["sanor","名词","治疗者、修复者","SANr"],"sanus":["sanus","名词","健康、治愈","SANs"],"sartose":["sartose","名词","开始、起点","SAR"],"siro":["siro","名词","虚空","SIR"],"strua":["strua","名词","建筑、结构","STRa"],"struor":["struor","名词","建造者","STRu"],"vidor":["vidor","名词","观察者、见证者","VIDr"],"vidus":["vidus","名词","视觉、景象","VIDs"],"vivor":["vivor","名词","活力、生命力","VIVr"],"vivus":["vivus","名词","生命、活体","VIVs"],"wuinde":["wuinde","名词","风元素","Wnd"],"zone":["zone","名词","区域、范围","ZON"],"venis":["venis","名词","来（动）","—"],"agrus":["agrus","名词","田地","—"],"granarus":["granarus","名词","谷仓","—"],"sicus":["sicus","名词","干燥","—"],"vespus":["vespus","名词","傍晚","—"],"pluvus":["pluvus","名词","雨","—"],"petasus":["petasus","名词","帽","—"],"flagro":["flagro","名词","燃炽之事","—"],"sta":["sta","名词","立之事","—"],"acutus":["acutus","名词","尖锐","—"],"mana":["mana","名词","保持的结果","—"],"arus":["arus","名词","耕之事","—"],"sterus":["sterus","名词","粪肥","—"],"vernus":["vernus","名词","春","—"],"latus":["latus","名词","侧","—"],"altus":["altus","名词","高","—"],"densus":["densus","名词","密","—"],"manu":["manu","名词","手","—"],"amphor":["amphor","名词","瓮匠","—"],"cada":["cada","名词","坠落的结果","—"],"lalupid":["lalupid","名词","略石料","—"],"sanarium":["sanarium","名词","治愈之所","—"],"gnosarium":["gnosarium","名词","知识之所","—"],"vidorium":["vidorium","名词","看之器","—"],"viditrin":["viditrin","名词","看之所","—"],"lapidarius":["lapidarius","名词","石料者","—"],"vidista":["vidista","名词","看家","—"],"vidamen":["vidamen","名词","看之物","—"],"vidura":["vidura","名词","看之术","—"],"vidimentum":["vidimentum","名词","看之手段","—"],"vidibul":["vidibul","名词","看之具","—"],"lapidulus":["lapidulus","名词","小石料","—"],"vidaster":["vidaster","名词","劣等看","—"],"viditrix":["viditrix","名词","看的女性","—"],"vidologia":["vidologia","名词","看学","—"],"magism":["magism","名词","魔法主义","—"],"semi":["semi","名词","半","—"],"extra":["extra","名词","外侧","—"],"cisterna":["cisterna","名词","蓄水池","—"],"auctio":["auctio","名词","拍卖","—"],"aluctio":["aluctio","名词","略拍卖","—"],"tribelus":["tribelus","名词","脱粒器","—"],"ferrfabr":["ferrfabr","名词","铁匠","—"],"lignfabr":["lignfabr","名词","木匠","—"],"ferrgnos":["ferrgnos","名词","铁学","—"],"silvzone":["silvzone","名词","森林区","—"],"marvia":["marvia","名词","海路","—"],"censura":["censura","名词","监察之术","—"],"alfus":["alfus","族名","精灵族","ALF"],"angelus":["angelus","族名","萨科塔族","ANG"],"anura":["anura","族名","安努拉族","ANU"],"aquor":["aquor","族名","阿戈尔族","AQR"],"avis":["avis","族名","黎博利族","AVI"],"bovus":["bovus","族名","普米霍族","BOV"],"canis":["canis","族名","坎那斯族","CAN"],"centaurus":["centaurus","族名","半人马族","CEN"],"ceratus":["ceratus","族名","赛拉托族","CER"],"chimera":["chimera","族名","奇美拉","CHI"],"cobalus":["cobalus","族名","地精族","COB"],"cuniculus":["cuniculus","族名","卡特斯族","CUN"],"daemon":["daemon","族名","萨卡兹族","DAE"],"dracon":["dracon","族名","德拉克族","DRAk"],"eidolon":["eidolon","族名","幽灵族","EID"],"eksul":["eksul","族名","阿纳萨族","EKS"],"elafus":["elafus","族名","埃拉菲亚族","ELA"],"elementa":["elementa","族名","纯粹元素族","ELEm"],"equus":["equus","族名","埃奎他族","EQU"],"felus":["felus","族名","菲林族","FEL"],"gigas":["gigas","族名","巨人族","GIG"],"humanus":["humanus","族名","自然人","HUM"],"hyaena":["hyaena","族名","瑞柏巴族","HYA"],"kapra":["kapra","族名","卡普里尼族","KAP"],"krokodilus":["krokodilus","族名","阿达克利斯族","KRO"],"kylin":["kylin","族名","麒麟族","KYL"],"kyklops":["kyklops","族名","独眼巨人族","KYK"],"leon":["leon","族名","阿斯兰族","LEOn"],"lupus":["lupus","族名","鲁珀族","LUP"],"machina":["machina","族名","机械族","MAC"],"mantika":["mantika","族名","曼提柯族","MTK"],"moskus":["moskus","族名","依特拉族","MSK"],"mustela":["mustela","族名","阿纳缇族","MST"],"nanus":["nanus","族名","杜林族","NAN"],"nympha":["nympha","族名","宁芙族","NYM"],"oni":["oni","族名","鬼族","ONI"],"pilosa":["pilosa","族名","皮洛萨族","PIL"],"pumilio":["pumilio","族名","侏儒族","PUM"],"rattus":["rattus","族名","扎拉克族","RAT"],"saura":["saura","族名","萨弗拉族","SAU"],"serpens":["serpens","族名","斐迪亚族","SER"],"sirena":["sirena","族名","人鱼族","SRN"],"skeletus":["skeletus","族名","骸骨族","SKEl"],"telekinus":["telekinus","族名","念动力族","TEL"],"testudo":["testudo","族名","特斯图托族","TES"],"tikaz":["tikaz","族名","提卡兹族","TIK"],"umbra":["umbra","族名","法涅兰族","UMB"],"ursus":["ursus","族名","乌萨斯族","URS"],"versipellis":["versipellis","族名","狼人族","VER"],"vipera":["vipera","族名","瓦伊凡族","VIP"],"vulpes":["vulpes","族名","沃尔珀族","VUL"],"alopex":["alopex","动物名","狐","ALO"],"arktos":["arktos","动物名","熊","ARK"],"bradypus":["bradypus","动物名","树懒","BRA"],"catus":["catus","动物名","猫","CAT"],"cervus":["cervus","动物名","鹿","CRV"],"chelys":["chelys","动物名","龟","CHE"],"crocuta":["crocuta","动物名","鬣狗","CRO"],"gale":["gale","动物名","鼬","GAL"],"hippos":["hippos","动物名","马","HIP"],"kyon":["kyon","动物名","犬","KYO"],"lacerta":["lacerta","动物名","蜥蜴","LAC"],"leo":["leo","动物名","狮","LEO"],"lepus":["lepus","动物名","兔","LEP"],"lykos":["lykos","动物名","狼","LYK"],"mantis":["mantis","动物名","螳螂","MAN"],"moschiferus":["moschiferus","动物名","麝","MOS"],"mus":["mus","动物名","鼠","MUS"],"ophis":["ophis","动物名","蛇","OPH"],"pardalis":["pardalis","动物名","豹","PAR"],"rana":["rana","动物名","蛙","RAN"],"rinoceros":["rinoceros","动物名","犀牛","RIN"],"salamandra":["salamandra","动物名","蝾螈","SAL"],"souchos":["souchos","动物名","鳄","SOU"],"tauros":["tauros","动物名","牛","TAU"],"tragos":["tragos","动物名","山羊","TRA"],"ens":["ens","族、血统与分类","存在者","ENS"],"ferus":["ferus","族、血统与分类","兽人（提案）","FER"],"gens":["gens","族、血统与分类","族、血统群体","GEN"],"humaniforma":["humaniforma","族、血统与分类","人形、类人","HMF"],"phyton":["phyton","族、血统与分类","植物、菌","PHY"],"purus":["purus","族、血统与分类","纯血的","PUR"],"sanguis":["sanguis","族、血统与分类","血统、血缘","SNG"],"semihumanus":["semihumanus","族、血统与分类","半人（提案）","SEMh"],"subumanus":["subumanus","族、血统与分类","亚人（提案）","SUB"],"supervita":["supervita","族、血统与分类","高级生命","SUP"],"zoon":["zoon","族、血统与分类","动物","ZOO"],"aepaus":["aepaus","动词","增加、提升、加剧","AEP"],"apolus":["apolus","动词","射击、爆炸","APOl"],"expaste":["expaste","动词","交换、克隆、复制","EXPa"],"expual":["expual","动词","保存、储存","EXPu"],"fragis":["fragis","动词","破碎、打断","FRAi"],"locis":["locis","动词","放置、定位","LOCi"],"loqis":["loqis","动词","说、讲述","LOQi"],"memis":["memis","动词","记忆、回忆","MEMi"],"mortis":["mortis","动词","死、消亡","MORi"],"movis":["movis","动词","移动、推动","MOVi"],"navis":["navis","动词","引导、释放、解锁","NAV"],"plur":["plur","动词","净化","PLU"],"retase":["retase","动词","休息、 停止、重置","RET"],"sanis":["sanis","动词","治愈、修复","SANi"],"struis":["struis","动词","建造、构造","STRi"],"vidis":["vidis","动词","看、观察","VIDi"],"vivis":["vivis","动词","活、生存","VIVi"],"hab":["hab","动词","有、拥有","HAB"],"causa":["causa","动词","缘故、理由","CAU"],"trituris":["trituris","动词","脱粒","—"],"ventilis":["ventilis","动词","扬谷","—"],"manis":["manis","动词","保持","—"],"lapsis":["lapsis","动词","滑落","—"],"oppes":["oppes","动词","等待","—"],"stas":["stas","动词","立","—"],"restas":["restas","动词","重立","—"],"visid":["visid","动词","极看","—"],"vilud":["vilud","动词","略看","—"],"transividis":["transividis","动词","透看","—"],"vados":["vados","动词","行走","—"],"flagros":["flagros","动词","燃炽","—"],"secis":["secis","动词","切","—"],"vitad":["vitad","动词","反复看","—"],"vimid":["vimid","动词","瞬看","—"],"bilis":["bilis","动词","胆","—"],"formis":["formis","动词","塑造","—"],"videsco":["videsco","动词","开始看","—"],"nevidis":["nevidis","动词","不看","—"],"revidis":["revidis","动词","重看","—"],"praevidis":["praevidis","动词","预看","—"],"covidis":["covidis","动词","共看","—"],"providis":["providis","动词","前看","—"],"extravidis":["extravidis","动词","外看","—"],"retrovidis":["retrovidis","动词","回看","—"],"tri":["tri","数词","三","—"],"quinq":["quinq","数词","五","—"],"paulum":["paulum","数词","少许","—"],"nimis":["nimis","数词","过度","—"],"sept":["sept","数词","七","—"],"parum":["parum","数词","太少","—"],"dec":["dec","数词","十","—"],"quadr":["quadr","数词","四","—"],"false":["false","形容词","错误的、假的","—"],"true":["true","形容词","真实的、真的","—"],"magnal":["magnal","形容词","大的","—"],"granar":["granar","形容词","属于谷粒的","—"],"humal":["humal","形容词","属于湿的","—"],"ventil":["ventil","形容词","易风的","—"],"vidifer":["vidifer","形容词","带看的","—"],"vadosal":["vadosal","形容词","浅的","—"],"bathal":["bathal","形容词","深的","—"],"lumenal":["lumenal","形容词","属于微光的","—"],"vidal":["vidal","形容词","属于看的","—"],"vidivus":["vidivus","形容词","好看的","—"],"vidibilis":["vidibilis","形容词","可看的","—"],"lapidiformis":["lapidiformis","形容词","石料形","—"],"vidax":["vidax","形容词","嗜看的","—"],"vidibundus":["vidibundus","形容词","正看的","—"],"vidulent":["vidulent","形容词","富于看的","—"],"lapidat":["lapidat","形容词","具有石料的","—"],"vidil":["vidil","形容词","易看的","—"],"inter":["inter","形容词","属于毁灭的","—"],"cisternal":["cisternal","形容词","属于蓄水池的","—"],"ardu":["ardu","副词","难","—"],"clar":["clar","副词","明","—"],"facil":["facil","副词","易","—"],"fort":["fort","副词","强","—"],"lent":["lent","副词","慢","—"],"sombra":["sombra","副词","暗","—"],"tac":["tac","副词","静","—"],"vel":["vel","副词","快","—"],"viden":["viden","副词","以看的方式","—"],"viditim":["viditim","副词","逐看地","—"],"de":["de","介词","在……之内","dex"],"enn":["enn","介词","在……里面","enn"],"ord":["ord","介词","从、源自","ord"],"pro":["pro","介词","朝向、向、为了","pro"],"ynen":["Ynen","介词","通过、由","yne"],"intra":["intra","介词","进入、在……之内","—"],"di":["di","介词","……的、之（领属）","di"],"supra":["supra","介词","在……之上","sup"],"sub":["sub","介词","在……之下","sub"],"velut":["velut","介词","如、似（明喻）","vel"],"deb":["deb","助动词","应、该","deb"],"dur":["dur","助动词","持续体","dur"],"es":["es","助动词","是、存在","ess"],"fac":["fac","助动词","使、让","fac"],"inc":["inc","助动词","开始体","inc"],"iter":["iter","助动词","重复体","iter"],"lic":["lic","助动词","可、允许","lic"],"ne":["ne","助动词","不、相反","neg"],"nec":["nec","助动词","必须","nec"],"per":["per","助动词","完成体","per"],"pot":["pot","助动词","能、可以","pot"],"se":["se","助动词","被、反身","se"],"vet":["vet","助动词","禁止","vet"],"vol":["vol","助动词","愿、要","vol"],"aude":["aude","判断词","前后同一则同一","aud"],"aut":["aut","判断词","包含或","aut"],"dis":["dis","判断词","互斥或","dis"],"dum":["dum","判断词","只要","dum"],"ergo":["ergo","判断词","所以","erg"],"exo":["exo","判断词","如果……那么应当……","exo"],"fas":["fas","判断词","许可、合法","fas"],"kaus":["kaus","判断词","因为","kau"],"keal":["keal","判断词","如果……","kea"],"keol":["keol","判断词","否则如果……","keo"],"kon":["kon","判断词","并且、合取","kon"],"nefas":["nefas","判断词","禁忌、不合法","nef"],"nisi":["nisi","判断词","除非","nis"],"quan":["quan","判断词","无论","qua"],"rase":["rase","判断词","有一真则为真","ras"],"re":["re","判断词","是否真或假","req"],"ske":["ske","判断词","反事实如果","ske"],"tam":["tam","判断词","当……时","tam"],"vero":["vero","判断词","确实、强调真","vro"],"priv":["priv","限定词","私有：只在**当前语块**内可见，出块即不可见","prv"],"tut":["tut","限定词","受护：**本语块及其子块**可见，外层不可见","tut"],"publ":["publ","限定词","公开：**整个术式**内可见，可跨块使用","pbl"],"consta":["consta","限定词","常数：**写入后不可再赋值**（沿用词根表「常数」的原形）","cns"],"has":["has","时间限定","在未来","has"],"iam":["iam","时间限定","已经","iam"],"mis":["mis","时间限定","现在","mis"],"mox":["mox","时间限定","即将","mox"],"nun":["nun","时间限定","从不","nun"],"post":["post","时间限定","之后","pos"],"pre":["pre","时间限定","之前","pre"],"ros":["ros","时间限定","在古代、过去","ros"],"sem":["sem","时间限定","总是","sem"],"simul":["simul","时间限定","同时","sim"],"ali":["ali","数量与范围限定","某个","ali"],"mult":["mult","数量与范围限定","多","mul"],"nul":["nul","数量与范围限定","无","nul"],"om":["om","数量与范围限定","全部、整体","omn"],"part":["part","数量与范围限定","部分","prt"],"pauc":["pauc","数量与范围限定","少","pau"],"selinge":["Selinge","数量与范围限定","唯一一个","sel"],"sol":["sol","数量与范围限定","仅、只","sol"],"tallse":["tallse","数量与范围限定","每一个、所有","tal"],"tot":["tot","数量与范围限定","整个","tot"],"alius":["alius","指称限定","另一个","als"],"hic":["hic","指称限定","这","hic"],"idem":["idem","指称限定","同一","ide"],"ille":["ille","指称限定","那","ill"],"ipse":["ipse","指称限定","自身","ips"],"quis":["quis","指称限定","哪个","qui"],"quot":["quot","指称限定","多少","quo"],"prim":["prim","顺序限定","第一、首先","pri"],"prior":["prior","顺序限定","前一个","pir"],"prox":["prox","顺序限定","下一个","prx"],"ultim":["ultim","顺序限定","最后","ult"],"magis":["magis","程度限定","更","mag"],"max":["max","程度限定","最","max"],"min":["min","程度限定","最不","min"],"minus":["minus","程度限定","更少、较不","mns"],"valde":["valde","程度限定","很、非常","val"],"mi":["mi","代词（人称）","我","mi"],"tu":["tu","代词（人称）","你","tu"],"il":["il","代词（人称）","他／她","il"],"id":["id","代词（人称）","它","id"],"nos":["nos","代词（人称）","我们","nos"],"vos":["vos","代词（人称）","你们（兼敬称）","vos"],"les":["les","代词（人称）","他们","les"],"tis":["tis","疑问词","谁","名词位"],"ti":["ti","疑问词","什么","名词位"],"poi":["poi","疑问词","哪个","修饰位"],"pu":["pu","疑问词","哪里","补语位"],"pote":["pote","疑问词","何时","限定层"],"dia":["dia","疑问词","为何","判断层"],"pos":["pos","疑问词","如何","方式层"],"poso":["poso","疑问词","多少","数量位"],"word":["word","量词","用于","abbr"],"kor":["kor","量词","有灵者（人／神／族）","KOR"],"kap":["kap","量词","走兽、龙","KAPA"],"pte":["pte","量词","飞禽","PTE"],"ikh":["ikh","量词","鱼、蛇、长条物","IKH"],"pho":["pho","量词","草木","PHO"],"rok":["rok","量词","块状硬物（石／金）","ROK"],"ker":["ker","量词","器物、工具","KER"],"graf":["graf","量词","扁平物（纸／布／板）","GRAF"],"vat":["vat","量词","容器与液体","VAT"],"mo":["mo","量词","食物一份","MO"],"top":["top","量词","地点","TOP"],"kair":["kair","量词","次数、事件","KAIR"],"verb":["verb","量词","言语、文字","VERb"],"aps":["aps","量词","抽象事物","APS"],"inse":["inse","量词","虫豸","INSE"],"ka":["ka","连接词与从句标记","陈述从句标记（that）——开","ka"],"ku":["ku","连接词与从句标记","关系从句标记（……的）——开","ku"],"ki":["ki","连接词与从句标记","从句闭合词——闭（后开先闭）","ki"],"eti":["eti","连接词与从句标记","和、与（并列名词）","ETI"],"limit":["limit","术式关键词","限制（准入条件）；作筛选键时是「取前几个」","limit"],"pretium":["pretium","术式关键词","代价（术式的付出）","pretium"],"solum":["solum","术式关键词","独立（不依赖施术者）","solum"],"hauri":["hauri","术式关键词","汲取（自行吸取周遭元素）","hauri"],"luss":["luss","术式关键词","锁入（能量）","luss"],"vita":["vita","术式关键词","寿命","VIT"],"memoria":["memoria","术式关键词","记忆","MEMo"],"sensus":["sensus","术式关键词","感官","SEN"],"voluntas":["voluntas","术式关键词","意志","VOL"],"anima":["anima","术式关键词","灵魂","ANI"],"vis":["vis","术式关键词","威力","VIS"],"diu":["diu","术式关键词","持续","diu"],"celer":["celer","术式关键词","迅捷","celer"],"metos":["metos","术式关键词","对象、目标（术式的目标项）","metos"],"ren":["ren","术式关键词","返回数字（术式输出）","—"],"rea":["rea","术式关键词","返回地址（术式输出）","—"],"kigrama":["kigrama","单位","千克（质量）","kig"],"pondus":["pondus","单位","重量（与质量相对）","pon"],"sands":["sands","单位","秒","san"],"minas":["minas","单位","分（钟）","min"],"hora":["hora","单位","小时","hor"],"dies":["dies","单位","日","die"],"annus":["annus","单位","年","ann"],"animarbo":["Animarbo","地名与势力名","全息魂灵之树","anim ＋ arbor"],"parasevictom":["Parasevictom","地理 · 神宫 · 货币专名","帕拉斯维登","区域"],"root":["root","根词","抽象义","abbr"],"ae":["ae","根词","上升、增强","AER"],"apo":["apo","根词","离、爆发、释放","APX"],"end":["end","根词","终点","END"],"ex":["ex","根词","外、转移、复制","EXS"],"frag":["frag","根词","破碎、断裂","FRG"],"grama":["grama","根词","量、重","GRA"],"ho":["ho","根词","家、聚、庇护","HOM"],"kipo":["kipo","根词","动、加速","KIP"],"loc":["loc","根词","地点、放置","LOC"],"loq":["loq","根词","说、语言","LOQ"],"lus":["lus","根词","击、阻、锁","LUS"],"mem":["mem","根词","记忆、心智","MEM"],"mort":["mort","根词","死、消亡","MOR"],"mov":["mov","根词","移动、推动","MOV"],"navi":["navi","根词","路径、引导","NVI"],"ose":["ose","根词","开始","OSE"],"pas":["pas","根词","场、立、停留","PAS"],"redi":["redi","根词","回、再、停","RED"],"san":["san","根词","治愈、修复","SAN"],"stru":["stru","根词","建造、结构","STR"],"vid":["vid","根词","看、见、观察","VID"],"viv":["viv","根词","生、活、生命","VIV"],"fraglus":["fraglus","复合词","破锁、破坏障碍","FGL"],"loqnavi":["loqnavi","复合词","命令、咒语引导","LQN"],"loczone":["loczone","复合词","定位区域","LCZ"],"memexpual":["memexpual","复合词","保存记忆","MEX"],"mortsiro":["mortsiro","复合词","死亡虚空","MRS"],"movpas":["movpas","复合词","移动场、传送站","MVP"],"sanaqua":["sanaqua","复合词","治愈之水、圣水","SNQ"],"struhopas":["struhopas","复合词","建造营地","STH"],"vidnavi":["vidnavi","复合词","观察路径","VDN"],"vivfliam":["vivfliam","复合词","生命之火","VVF"],"ven":["ven","高频补充词","来","VEN"],"iri":["iri","高频补充词","去、走","IRI"],"cap":["cap","高频补充词","拿、取","CAP"],"don":["don","高频补充词","给","DON"],"sci":["sci","高频补充词","知道","SCI"],"ege":["ege","高频补充词","需要","EGE"],"aux":["aux","高频补充词","帮助","AUX"],"prc":["prc","高频补充词","危险","PRC"],"pop":["pop","高频补充词","人民、人群","POP"],"pna":["pna","高频补充词","人、个体","PNA"],"res":["res","高频补充词","事物","RES"],"tem":["tem","高频补充词","时间","TEM"],"die":["die","高频补充词","日、白天","DIE"],"nox":["nox","高频补充词","夜","NOX"],"cib":["cib","高频补充词","食物","CIB"],"dom":["dom","高频补充词","家、住所","DOM"],"via":["via","高频补充词","路、道路","VIA"],"pue":["pue","高频补充词","孩子","PUE"],"prn":["prn","高频补充词","父母、亲代","PRN"],"ami":["ami","高频补充词","朋友","AMI"],"hos":["hos","高频补充词","敌人","HOS"],"rex":["rex","高频补充词","王","REX"],"deu":["deu","高频补充词","神","DEU"],"mgi":["mgi","高频补充词","魔法","MGI"],"tmp":["tmp","高频补充词","风暴","TMP"],"aqe":["aqe","高频补充词","洪水","AQE"],"plv":["plv","高频补充词","雨","PLV"],"flv":["flv","高频补充词","河","FLV"],"mar":["mar","高频补充词","海","MAR"],"mon":["mon","高频补充词","山","MON"],"sil":["sil","高频补充词","森林","SIL"],"urb":["urb","高频补充词","城市","URB"],"pag":["pag","高频补充词","村庄","PAG"],"edi":["edi","高频补充词","吃","EDI"],"bib":["bib","高频补充词","喝","BIB"],"dor":["dor","高频补充词","睡","DOR"],"cur":["cur","高频补充词","跑","CUR"],"amb":["amb","高频补充词","走、行走","AMB"],"vla":["vla","高频补充词","飞","VLA"],"nat":["nat","高频补充词","游泳","NAT"],"pug":["pug","高频补充词","战斗","PUG"],"nca":["nca","高频补充词","杀","NCA"],"ape":["ape","高频补充词","打开","APE"],"cld":["cld","高频补充词","关闭","CLD"],"adi":["adi","高频补充词","听","ADI"],"clv":["clv","高频补充词","钥匙","CLV"],"por":["por","高频补充词","门","POR"],"yes":["yes","高频补充词","是","Iy"],"no":["no","高频补充词","否","Ey"]},"keys":{"init":["init","筛选键","原点（另定基准，不改编发动位置）"],"intervall":["intervall","筛选键","距离范围，.. 表区间"],"mensura":["mensura","筛选键","长方体尺寸（三轴）"],"genus":["genus","筛选键","类别：族名、元素码、生物类；前加 ne 取反"],"nomen":["nomen","筛选键","具名者"],"sigil":["sigil","筛选键","带某标记／阵营者"],"ratio":["ratio","筛选键","按**量值范围**筛（威力、精度等的量值）"],"versus":["versus","筛选键","按朝向筛（俯仰／水平）"],"ordin":["ordin","筛选键","排序：proxim 近／procul 远／temer 随机"],"limit":["limit","筛选键","取前几个"]},"units":{"mu":["MU","能量单位","魔力（能量）；写它即为锁存（触发式术式）"],"eu":["EU","能量单位","元素吞吐（能量）；写它即为锁存（触发式术式）"],"muw":["MUW","能量单位","魔力功率；功率口径，不得配 luss（持续发动）"],"euw":["EUW","能量单位","元素吞吐功率；功率口径，不得配 luss（持续发动）"],"miteas":["miteas","长度","米"],"passus":["passus","长度（旧制）","步"],"digitus":["digitus","长度（旧制）","指宽"],"cubitus":["cubitus","长度（旧制）","肘"],"kigrama":["kigrama","质量","千克"],"sands":["sands","时间","秒"],"minas":["minas","时间","分"],"hora":["hora","时间","时"],"dies":["dies","时间","日"],"annus":["annus","时间","年"]},"ranks":{"4":"θ · 客观时间（第四维度）","5":"b · 客观平行时间（第五维度）","6":"p_b · 存在性概率（第六维度）","7":"t_abs · 绝对客观时间（第七维度）","8":"λ · 时间流速率（第八维度）","9":"s · 所在宇宙空间（第九维度）","1–3":"x, y, z · 三维空间元组（第三维度，占 3 秩）"},"roots":{"est":["存在、是","动","est"],"ent":["存在者、实体","动","ent"],"hom":["人、个体","动","hom"],"ver":["真实、确实","动","ver"],"fal":["虚假、错误","动","fal"],"un":["单一、一","动","un"],"div":["分开、区分","动","div"],"iun":["连接、结合","动","iun"],"mut":["改变、转化","动","mut"],"man":["保持、持续","动","man"],"fin":["界限、边界","动","fin"],"nov":["新、崭新","动","nov"],"pris":["旧、古老","动","pris"],"hyl":["物质、材料","物","hyl"],"cosm":["秩序、宇宙","物","cosm"],"cha":["混沌、无序","物","cha"],"arc":["起源、本原","物","arc"],"tel":["目的、趋向","物","tel"],"dyn":["力、能量","物","dyn"],"oper":["操作","物","oper"],"sper":["种子、根本","物","sper"],"lab":["辛劳","物","lab"],"fund":["基础、底","物","fund"],"ter":["大地、陆地","物","ter"],"val":["谷地","物","val"],"camp":["平原、原野","物","camp"],"insul":["岛","物","insul"],"lit":["岸、边","物","lit"],"nem":["林、树丛","物","nem"],"vast":["荒芜、空旷","物","vast"],"glac":["冰","物","glac"],"niv":["雪","物","niv"],"nebul":["雾、云","物","nebul"],"heli":["太阳","物","heli"],"lun":["月亮","物","lun"],"stel":["星","物","stel"],"cael":["天空","物","cael"],"abys":["深渊","物","abys"],"fluv":["河流","物","fluv"],"und":["波浪","物","und"],"lim":["泥、沼泽","物","lim"],"font":["泉","物","font"],"lac":["湖、池","物","lac"],"gur":["漩涡","物","gur"],"sal":["盐","物","sal"],"riv":["溪流","物","riv"],"ror":["露水、滴","物","ror"],"ign":["火、燃烧","物","ign"],"ard":["炽热、灼烧","物","ard"],"lux":["光亮、照明","物","lux"],"umb":["影、阴影","物","umb"],"fum":["烟","物","fum"],"cin":["灰烬","物","cin"],"lamp":["灯、明火","物","lamp"],"cal":["热、暖","物","cal"],"frig":["冷","物","frig"],"gel":["霜、冻结","物","gel"],"aur":["空气、气息","物","aur"],"ton":["雷","物","ton"],"fulg":["闪电","物","fulg"],"nim":["雨云","物","nim"],"tempes":["风暴","物","tempes"],"pluv":["雨","物","pluv"],"hum":["湿、潮","物","hum"],"sic":["干燥","物","sic"],"turb":["搅动、涡旋","物","turb"],"ser":["晴朗","物","ser"],"brum":["冬","物","brum"],"vern":["春","物","vern"],"aest":["夏","物","aest"],"mes":["收获、秋","物","mes"],"anth":["花","物","anth"],"rad":["根","物","rad"],"fol":["叶","物","fol"],"lign":["木、木材","物","lign"],"herb":["草","物","herb"],"spin":["荆棘刺","物","spin"],"fung":["菌","物","fung"],"cres":["生长","动","cres"],"al":["养育","动","al"],"suc":["汁液","物","suc"],"arbor":["树","物","arbor"],"frut":["灌木","物","frut"],"ram":["枝","物","ram"],"trunc":["树干","物","trunc"],"cort":["树皮","物","cort"],"germ":["胚芽","物","germ"],"silv":["森林","物","silv"],"prat":["草地","物","prat"],"rhod":["玫瑰","物","rhod"],"lili":["百合","物","lili"],"viol":["紫罗兰","物","viol"],"narc":["水仙","物","narc"],"hyac":["风信子","物","hyac"],"myrt":["桃金娘","物","myrt"],"laur":["月桂","物","laur"],"querc":["橡","物","querc"],"pin":["松","物","pin"],"abi":["杉","物","abi"],"betul":["桦","物","betul"],"salic":["柳","物","salic"],"tili":["椴","物","tili"],"ulm":["榆","物","ulm"],"frax":["梣","物","frax"],"acer":["枫","物","acer"],"fag":["山毛榉","物","fag"],"ilic":["冬青","物","ilic"],"heder":["常春藤","物","heder"],"viti":["葡萄藤","物","viti"],"musc":["苔","物","musc"],"filic":["蕨","物","filic"],"alg":["藻","物","alg"],"bolet":["菇","物","bolet"],"ther":["野兽","物","ther"],"fer":["野兽","物","fer"],"belu":["巨兽","物","belu"],"besti":["牲畜","物","besti"],"orni":["鸟、禽","物","orni"],"pisc":["鱼","物","pisc"],"verm":["虫","物","verm"],"inse":["昆虫","物","inse"],"serp":["蛇","物","serp"],"bufo":["蟾蜍","物","bufo"],"verr":["公猪","物","verr"],"hirc":["公羊","物","hirc"],"lynx":["猞猁","物","lynx"],"myrm":["蚁","物","myrm"],"ap":["蜂","物","ap"],"papi":["蝶","物","papi"],"cicad":["蝉","物","cicad"],"locu":["蝗","物","locu"],"aran":["蛛","物","aran"],"cochl":["螺","物","cochl"],"polyp":["章鱼","物","polyp"],"cet":["鲸","物","cet"],"mustel":["鼬","物","mustel"],"lup":["狼","物","lup"],"vulp":["狐","物","vulp"],"urs":["熊","物","urs"],"cerv":["鹿","物","cerv"],"lep":["兔","物","lep"],"mys":["鼠","物","mys"],"feli":["猫","物","feli"],"can":["犬","物","can"],"equi":["马","物","equi"],"tau":["牛","物","tau"],"corp":["身体","物","corp"],"ceph":["头","物","ceph"],"vult":["面容","物","vult"],"ocu":["眼","物","ocu"],"oto":["耳","物","oto"],"manu":["手","物","manu"],"ped":["足","物","ped"],"dent":["齿","物","dent"],"ling":["舌","物","ling"],"sanguin":["血","物","sanguin"],"carn":["肉","物","carn"],"oss":["骨","物","oss"],"pell":["皮","物","pell"],"nerv":["神经、筋","物","nerv"],"visc":["内脏","物","visc"],"spir":["呼吸、气息","物","spir"],"cord":["心","物","cord"],"sta":["立、站","动","sta"],"desc":["下降","动","desc"],"flect":["屈曲","动","flect"],"torqu":["扭转","动","torqu"],"pand":["展开","动","pand"],"string":["勒紧","动","string"],"puls":["推撞","动","puls"],"trud":["推挤","动","trud"],"trah":["拉、拖","动","trah"],"scand":["攀爬","动","scand"],"laps":["滑落","动","laps"],"still":["滴落","动","still"],"anhel":["喘息","动","anhel"],"oscit":["呵欠","动","oscit"],"sug":["吮吸","动","sug"],"glut":["吞咽","动","glut"],"vom":["呕吐","动","vom"],"ming":["排尿","动","ming"],"sternu":["喷嚏","动","sternu"],"plaud":["拍手","动","plaud"],"quat":["摇动","动","quat"],"palp":["轻抚","动","palp"],"pung":["刺扎","动","pung"],"ungu":["爪","动","ungu"],"nict":["眨眼","动","nict"],"sput":["吐唾","动","sput"],"frend":["切齿","动","frend"],"hiat":["张口","动","hiat"],"trem":["颤抖","动","trem"],"nix":["倚靠","动","nix"],"sid":["沉降","动","sid"],"vag":["游荡","动","vag"],"nas":["出生","动","nas"],"sen":["衰老","动","sen"],"rob":["强壮","动","rob"],"nutr":["滋养","动","nutr"],"somn":["睡眠、梦","动","somn"],"dol":["疼痛","动","dol"],"vuln":["伤、创","动","vuln"],"vig":["警醒、活力","动","vig"],"quiet":["安宁、静止","动","quiet"],"matur":["成熟","动","matur"],"med":["医","动","med"],"pharm":["药","动","pharm"],"remed":["疗法","动","remed"],"cura":["照护","动","cura"],"aegr":["病","动","aegr"],"morb":["疾病","动","morb"],"febr":["发热","动","febr"],"tuss":["咳","动","tuss"],"pest":["瘟疫","动","pest"],"venen":["毒","动","venen"],"anti":["解药","动","anti"],"chir":["外科","动","chir"],"phleg":["痰、体液","动","phleg"],"bil":["胆","动","bil"],"ulc":["溃疡","动","ulc"],"tum":["肿","动","tum"],"frac":["折、碎","动","frac"],"cica":["疤","动","cica"],"purg":["清泻","动","purg"],"lav":["洗","动","lav"],"cont":["传染","动","cont"],"vale":["健康","动","vale"],"obst":["助产","动","obst"],"emplast":["膏药","动","emplast"],"theriac":["万灵药","动","theriac"],"sanit":["卫生","动","sanit"],"coqu":["烹、煮","物","coqu"],"ass":["烤、炙","物","ass"],"frix":["煎、炸","物","frix"],"ferv":["煮沸","物","ferv"],"ferm":["发酵","物","ferm"],"cond":["调味","物","cond"],"dulc":["甜","物","dulc"],"acid":["酸","物","acid"],"amar":["苦","物","amar"],"sals":["咸","物","sals"],"acr":["辛辣","物","acr"],"arom":["香气","物","arom"],"putr":["腐坏","物","putr"],"gran":["谷粒","物","gran"],"tritic":["麦","物","tritic"],"oryz":["稻、米","物","oryz"],"pan":["面包","物","pan"],"ov":["蛋","物","ov"],"lact":["奶","物","lact"],"ole":["油","物","ole"],"sucr":["糖","物","sucr"],"mel":["蜜","物","mel"],"fruct":["果","物","fruct"],"oler":["蔬菜","物","oler"],"jus":["汤汁","物","jus"],"oen":["酒","物","oen"],"thea":["茶","物","thea"],"far":["面粉、糊","物","far"],"coen":["餐、宴","物","coen"],"culin":["厨艺","物","culin"],"fam":["饥饿","物","fam"],"sat":["饱足","物","sat"],"siti":["渴","物","siti"],"vor":["吞食","物","vor"],"mand":["咀嚼","物","mand"],"mord":["咬","物","mord"],"lict":["舔","物","lict"],"vest":["衣、着装","物","vest"],"tunic":["束腰衣","物","tunic"],"toga":["长袍","物","toga"],"pall":["披风","物","pall"],"calce":["鞋","物","calce"],"petas":["帽","物","petas"],"cinct":["腰带","物","cinct"],"fib":["扣、别针","物","fib"],"acu":["针","物","acu"],"stam":["线","物","stam"],"pann":["布","物","pann"],"seric":["丝","物","seric"],"lan":["羊毛","物","lan"],"sut":["缝","物","sut"],"nect":["编织","物","nect"],"solea":["鞋底","物","solea"],"monil":["项链","物","monil"],"anul":["戒指","物","anul"],"coron":["冠冕","物","coron"],"ung":["涂油、膏","物","ung"],"fuc":["妆饰","物","fuc"],"specul":["镜","物","specul"],"redim":["头巾","物","redim"],"armill":["臂环","物","armill"],"inaur":["耳饰","物","inaur"],"cas":["屋舍","物","cas"],"tect":["屋顶","物","tect"],"pariet":["墙","物","pariet"],"mur":["墙垣","物","mur"],"fen":["窗","物","fen"],"limen":["门槛","物","limen"],"pav":["铺地","物","pav"],"later":["砖","物","later"],"caem":["石料","物","caem"],"sax":["岩石","物","sax"],"petr":["岩块","物","petr"],"marm":["大理石","物","marm"],"teg":["瓦","物","teg"],"aed":["建筑","物","aed"],"turr":["塔","物","turr"],"arx":["堡垒","物","arx"],"castr":["营垒","物","castr"],"moen":["城墙","物","moen"],"atr":["中庭","物","atr"],"cell":["房间、室","物","cell"],"cub":["卧、躺","物","cub"],"sell":["座椅","物","sell"],"tabl":["桌、板","物","tabl"],"sed":["坐","物","sed"],"foc":["炉灶、中心","物","foc"],"baln":["浴","物","baln"],"sera":["门闩","物","sera"],"cand":["烛、白炽","物","cand"],"scal":["梯","物","scal"],"portic":["柱廊","物","portic"],"fornic":["拱","物","fornic"],"ferr":["铁","物","ferr"],"cupr":["铜","物","cupr"],"argent":["银","物","argent"],"chrys":["金","物","chrys"],"plumb":["铅","物","plumb"],"stann":["锡","物","stann"],"vitr":["玻璃","物","vitr"],"malle":["锤","物","malle"],"secur":["斧","物","secur"],"cultr":["刀","物","cultr"],"glad":["剑","物","glad"],"scut":["盾","物","scut"],"tox":["弓","物","tox"],"sag":["箭","物","sag"],"iac":["投矛器","物","iac"],"ret":["网","物","ret"],"laqu":["套索","物","laqu"],"ham":["钩","物","ham"],"serr":["锯","物","serr"],"tereb":["钻","物","tereb"],"vect":["杠杆","物","vect"],"troch":["滑轮","物","troch"],"ax":["轴","物","ax"],"cune":["楔","物","cune"],"vincl":["束缚","物","vincl"],"caten":["链","物","caten"],"fun":["绳","物","fun"],"cribr":["筛","物","cribr"],"pistill":["杵","物","pistill"],"forn":["炉","物","forn"],"vas":["容器","物","vas"],"amph":["瓮、罐","物","amph"],"cophin":["提篮","物","cophin"],"sacc":["袋","物","sacc"],"lapid":["石料","物","lapid"],"aren":["沙","物","aren"],"cret":["白垩","物","cret"],"gyps":["石膏","物","gyps"],"calc":["石灰","物","calc"],"bitu":["沥青","物","bitu"],"resi":["树脂","物","resi"],"seb":["脂","物","seb"],"adip":["脂肪","物","adip"],"cori":["皮革","物","cori"],"byss":["棉","物","byss"],"cann":["麻","物","cann"],"papyr":["纸草","物","papyr"],"membr":["膜","物","membr"],"plum":["羽毛","物","plum"],"testa":["壳","物","testa"],"corn":["兽角","物","corn"],"ebur":["象牙","物","ebur"],"margar":["珍珠","物","margar"],"gemm":["宝石","物","gemm"],"cryst":["水晶","物","cryst"],"adam":["金刚","物","adam"],"silic":["硅石","物","silic"],"argill":["陶土","物","argill"],"lut":["泥浆","物","lut"],"glutin":["胶","物","glutin"],"agr":["田地","物","agr"],"arv":["耕地","物","arv"],"sulc":["犁沟","物","sulc"],"arat":["犁","物","arat"],"seget":["作物","物","seget"],"frum":["谷物","物","frum"],"vine":["葡萄园","物","vine"],"oliv":["橄榄","物","oliv"],"pom":["果树","物","pom"],"pasc":["放牧","动","pasc"],"greg":["畜群","物","greg"],"armen":["牛群","物","armen"],"ovil":["羊圈","物","ovil"],"capr":["山羊","物","capr"],"porc":["猪","物","porc"],"gall":["鸡","物","gall"],"anat":["鸭","物","anat"],"anser":["鹅","物","anser"],"colum":["鸽","物","colum"],"ar":["耕","动","ar"],"ster":["粪肥","物","ster"],"riga":["灌溉","动","riga"],"foss":["沟渠","物","foss"],"sep":["篱、围","物","sep"],"saept":["围栏","物","saept"],"horre":["谷仓","物","horre"],"vill":["庄园","物","vill"],"colon":["农人、垦殖","物","colon"],"rust":["乡野","物","rust"],"carin":["龙骨、船","物","carin"],"rem":["桨","物","rem"],"sip":["帆","物","sip"],"guber":["舵","物","guber"],"ancor":["锚","物","ancor"],"itin":["旅程","物","itin"],"curr":["车、奔驰","物","curr"],"raed":["马车","物","raed"],"carr":["货车","物","carr"],"big":["双驾","物","big"],"hipp":["马","物","hipp"],"asin":["驴","物","asin"],"pass":["步、通行","物","pass"],"ambul":["行走","物","ambul"],"celer":["迅捷","物","celer"],"tran":["穿过","物","tran"],"fret":["海峡","物","fret"],"pont":["桥","物","pont"],"nav":["舟、航行","物","nav"],"ratis":["筏","物","ratis"],"phasel":["小舟","物","phasel"],"lintr":["小艇","物","lintr"],"statio":["驿站","物","statio"],"viat":["旅人","物","viat"],"aud":["听","动","aud"],"tact":["触、摸","动","tact"],"olf":["嗅","动","olf"],"gust":["尝、味觉","动","gust"],"cog":["思、思考","动","cog"],"rat":["推理","动","rat"],"noe":["心智、理性","动","noe"],"cred":["相信","动","cred"],"dub":["怀疑","动","dub"],"opin":["看法、意见","动","opin"],"not":["标记、注意","动","not"],"sig":["符号、记号","动","sig"],"int":["理解","动","int"],"imag":["想象","动","imag"],"mir":["惊奇","动","mir"],"err":["错误、迷误","动","err"],"verb":["词、言辞","动","verb"],"nom":["名、名称","动","nom"],"scrib":["书写","动","scrib"],"leg":["读、收集","动","leg"],"dix":["说、命令","动","dix"],"clam":["呼喊","动","clam"],"silen":["沉默","动","silen"],"rog":["询问","动","rog"],"nunt":["消息、通报","动","nunt"],"test":["证明、见证","动","test"],"fid":["信任、信义","动","fid"],"text":["文本、织体","动","text"],"scho":["学校","物","scho"],"disc":["学生","物","disc"],"doc":["教","物","doc"],"doct":["学问、教义","物","doct"],"stud":["勤学","物","stud"],"lect":["诵读","物","lect"],"bibl":["书","物","bibl"],"chart":["纸、契","物","chart"],"pagin":["页","物","pagin"],"dial":["方言","物","dial"],"rhet":["修辞","物","rhet"],"log":["逻辑、理","物","log"],"math":["学、数学","物","math"],"geom":["几何","物","geom"],"arith":["算术","物","arith"],"harm":["和谐、乐","物","harm"],"chem":["炼化","物","chem"],"astr":["星辰、天学","物","astr"],"soph":["智慧","物","soph"],"eru":["博学","物","eru"],"exam":["考查","物","exam"],"stil":["笔","物","stil"],"atram":["墨","物","atram"],"cera":["蜡","物","cera"],"pupill":["学童","物","pupill"],"didas":["讲授","物","didas"],"thes":["论题","物","thes"],"quaes":["问题","物","quaes"],"solut":["解答","物","solut"],"probl":["难题","物","probl"],"du":["二","数","du"],"tri":["三","数","tri"],"quadr":["四","数","quadr"],"quinq":["五","数","quinq"],"sex":["六","数","sex"],"sept":["七","数","sept"],"oct":["八","数","oct"],"enne":["九","数","enne"],"dec":["十","数","dec"],"hecat":["百","数","hecat"],"mill":["千","数","mill"],"myri":["万","数","myri"],"summ":["和、总","数","summ"],"integ":["完整、整","数","integ"],"angul":["角形","数","angul"],"spha":["球体","数","spha"],"punct":["点","数","punct"],"solid":["立体","数","solid"],"nih":["无、零","数","nih"],"poten":["幂、能","数","poten"],"ordin":["次序","数","ordin"],"class":["类别","数","class"],"seri":["序列","数","seri"],"crit":["标准","数","crit"],"meta":["界标","数","meta"],"indic":["指标","数","indic"],"neg":["否、负","数","neg"],"posit":["正、置","数","posit"],"figur":["形状","数","figur"],"litr":["升","物","litr"],"pond":["重量","物","pond"],"stadi":["距离单位","物","stadi"],"milli":["千步","物","milli"],"iuge":["土地单位","物","iuge"],"modi":["容量单位","物","modi"],"libr":["重单位","物","libr"],"unci":["小单位","物","unci"],"digit":["指宽","物","digit"],"palm":["掌宽","物","palm"],"cubit":["肘尺","物","cubit"],"veloc":["速度","物","veloc"],"therm":["热温","物","therm"],"bar":["压强","物","bar"],"portio":["份额","物","portio"],"spiss":["浓稠","物","spiss"],"tenu":["稀薄","物","tenu"],"purit":["纯度","物","purit"],"modul":["模数","物","modul"],"dim":["维度","物","dim"],"spat":["空间量","物","spat"],"capac":["容量","物","capac"],"volum":["体积","物","volum"],"area":["面积","物","area"],"num":["数","性","num"],"met":["测量","性","met"],"par":["成对、同等","性","par"],"plus":["加、多","性","plus"],"minu":["减、少","性","minu"],"magn":["大","性","magn"],"parv":["小","性","parv"],"tant":["如此多","性","tant"],"plat":["宽、平","性","plat"],"bath":["深","性","bath"],"alt":["高","性","alt"],"brev":["短","性","brev"],"grav":["重","性","grav"],"lev":["轻","性","lev"],"dens":["密","性","dens"],"rar":["稀","性","rar"],"equ":["相等、均衡","性","equ"],"rela":["关系","性","rela"],"iden":["同一","性","iden"],"oppo":["对立","性","oppo"],"contr":["相反","性","contr"],"maio":["较大","性","maio"],"analo":["比例、类比","性","analo"],"symb":["象征","性","symb"],"typ":["类型","性","typ"],"exem":["例子","性","exem"],"parti":["划分","性","parti"],"multi":["多倍","性","multi"],"recip":["相互","性","recip"],"mutu":["交互","性","mutu"],"conseq":["推论","性","conseq"],"antece":["前件","性","antece"],"conclu":["结论","性","conclu"],"hypoth":["假设","性","hypoth"],"theor":["理论","性","theor"],"meth":["方法","性","meth"],"princ":["原理","性","princ"],"eleme":["要素","性","eleme"],"categ":["范畴","性","categ"],"essen":["本质","性","essen"],"propr":["固有","性","propr"],"accid":["偶性","性","accid"],"grada":["渐变","性","grada"],"syst":["体系","性","syst"],"ait":["原因","性","ait"],"dif":["差异","性","dif"],"sim":["相似","性","sim"],"qual":["性质、质","性","qual"],"quant":["量、多少","性","quant"],"sens":["意义、感觉","性","sens"],"spec":["种、类","性","spec"],"eff":["结果","性","eff"],"medi":["中间","性","medi"],"extr":["极端","性","extr"],"stat":["状态","动","stat"],"conve":["转变","动","conve"],"stab":["稳定","动","stab"],"fluc":["波动","动","fluc"],"vac":["摇摆","动","vac"],"ruin":["崩毁","动","ruin"],"salus":["安全","动","salus"],"discr":["危境","动","discr"],"primo":["起初","动","primo"],"inte":["毁灭","动","inte"],"solit":["孤独","动","solit"],"plen":["充满","动","plen"],"inan":["空虚","动","inan"],"perma":["持久","动","perma"],"tempo":["暂时","动","tempo"],"perpet":["永续","动","perpet"],"decad":["衰败","动","decad"],"renov":["更新","动","renov"],"restaur":["恢复","动","restaur"],"conserv":["保存","动","conserv"],"destru":["破坏","动","destru"],"corru":["腐化","动","corru"],"flux":["流变","动","flux"],"equil":["平衡","动","equil"],"tens":["拉紧","动","tens"],"press":["压力","动","press"],"motiv":["动因","动","motiv"],"impul":["冲动","动","impul"],"tende":["趋向","动","tende"],"liqu":["液化","动","liqu"],"fus":["熔","动","fus"],"coag":["凝固","动","coag"],"disso":["分解","动","disso"],"combi":["化合","动","combi"],"reac":["反应","动","reac"],"catal":["催化","动","catal"],"alka":["碱","动","alka"],"oxyd":["氧化","动","oxyd"],"disti":["蒸馏","动","disti"],"subl":["升华","动","subl"],"ust":["煅烧","动","ust"],"mixt":["混合","动","mixt"],"filt":["过滤","动","filt"],"precip":["沉淀","动","precip"],"satu":["饱和","动","satu"],"dilu":["稀释","动","dilu"],"effe":["起泡","动","effe"],"evap":["蒸发","动","evap"],"corrod":["腐蚀","动","corrod"],"art":["艺术","物","art"],"pict":["绘画","物","pict"],"melo":["旋律","物","melo"],"cant":["歌唱","物","cant"],"chor":["歌舞","物","chor"],"lyr":["琴","物","lyr"],"tib":["笛","物","tib"],"tub":["号角","物","tub"],"tymp":["鼓","物","tymp"],"theat":["剧场","物","theat"],"scae":["舞台","物","scae"],"lud":["游戏、戏","物","lud"],"alea":["赌博","物","alea"],"ioc":["玩笑","物","ioc"],"rid":["笑","物","rid"],"plor":["哭","物","plor"],"fest":["节庆","物","fest"],"pulch":["美","物","pulch"],"venus":["优雅","物","venus"],"musiv":["镶嵌","物","musiv"],"pocul":["杯","物","pocul"],"convi":["宴饮","物","convi"],"spect":["观看、演出","物","spect"],"tripud":["踏舞","物","tripud"],"histri":["演员","物","histri"],"od":["恨","动","od"],"tim":["恐惧","动","tim"],"ira":["怒","动","ira"],"gau":["喜悦","动","gau"],"tris":["悲伤","动","tris"],"cup":["欲望","动","cup"],"spes":["希望","动","spes"],"pud":["羞耻","动","pud"],"pax":["和平","动","pax"],"grat":["感激","动","grat"],"aem":["嫉妒","动","aem"],"mulc":["抚慰","动","mulc"],"volun":["意志","性","volun"],"inge":["天性","性","inge"],"indo":["性情","性","indo"],"mos":["习俗","性","mos"],"auda":["大胆","性","auda"],"timid":["怯懦","性","timid"],"clem":["仁慈","性","clem"],"seve":["严厉","性","seve"],"beni":["和善","性","beni"],"mali":["恶毒","性","mali"],"sinc":["真诚","性","sinc"],"fall":["欺诈","性","fall"],"perf":["背信","性","perf"],"const":["坚定","性","const"],"pert":["固执","性","pert"],"prud":["谨慎","性","prud"],"teme":["鲁莽","性","teme"],"mode":["谦逊","性","mode"],"humil":["谦卑","性","humil"],"arro":["傲慢","性","arro"],"invi":["妒忌","性","invi"],"avar":["贪婪","性","avar"],"simp":["单纯","性","simp"],"call":["狡黠","性","call"],"stul":["愚笨","性","stul"],"insa":["疯狂","性","insa"],"melan":["忧郁","性","melan"],"soler":["机敏","性","soler"],"saga":["睿智","性","saga"],"irac":["易怒","性","irac"],"plac":["温和","性","plac"],"gen":["族群、生育","物","gen"],"patr":["父","物","patr"],"mater":["母","物","mater"],"fil":["子、儿女","物","fil"],"sor":["姐妹","物","sor"],"frat":["兄弟","物","frat"],"soc":["同伴、社群","物","soc"],"civ":["公民、民","物","civ"],"serv":["服侍、仆","物","serv"],"lib":["自由","物","lib"],"lex":["成文法","物","lex"],"iur":["权利、法权","物","iur"],"vic":["邻、交替","物","vic"],"host":["敌人、外人","物","host"],"nob":["显贵","物","nob"],"pleb":["平民","物","pleb"],"amic":["友爱","动","amic"],"hospit":["宾客","动","hospit"],"nupt":["婚","动","nupt"],"coni":["配偶","动","coni"],"avu":["祖父","动","avu"],"nepot":["孙辈","动","nepot"],"cogn":["亲族","动","cogn"],"gent":["氏族","动","gent"],"inim":["仇怨","动","inim"],"offe":["冒犯","动","offe"],"venia":["宽恕","动","venia"],"bland":["谄媚","动","bland"],"adul":["奉承","动","adul"],"vitu":["斥骂","动","vitu"],"bened":["祝福","动","bened"],"salut":["问候","动","salut"],"valed":["告别","动","valed"],"oscul":["吻","动","oscul"],"ampl":["拥抱","动","ampl"],"patro":["庇护","动","patro"],"soda":["同伴","动","soda"],"socie":["社团","动","socie"],"hila":["欢欣","动","hila"],"iurg":["争吵","动","iurg"],"rix":["争斗","动","rix"],"gratu":["祝贺","动","gratu"],"condo":["致哀","动","condo"],"pub":["公众","物","pub"],"polis":["城邦","物","polis"],"reg":["王、统治","物","reg"],"sena":["元老院","物","sena"],"cons":["执政官","物","cons"],"dict":["独裁","物","dict"],"jud":["审判","物","jud"],"caus":["诉讼","物","caus"],"poen":["惩罚","物","poen"],"crim":["罪","物","crim"],"reus":["被告","物","reus"],"vind":["复仇","物","vind"],"pact":["契约","物","pact"],"foed":["盟约","物","foed"],"lega":["使节","物","lega"],"comit":["集会","物","comit"],"suffr":["投票","物","suffr"],"cens":["监察","物","cens"],"prov":["行省","物","prov"],"muni":["自治市","物","muni"],"client":["门客","物","client"],"popul":["民众","物","popul"],"decr":["法令","物","decr"],"edict":["告示","物","edict"],"civit":["公民权","物","civit"],"aedil":["营造官","物","aedil"],"praet":["裁判官","物","praet"],"bel":["战争","动","bel"],"arm":["武器、装备","动","arm"],"cid":["杀、斩","动","cid"],"noc":["伤害","动","noc"],"peric":["危险","动","peric"],"def":["防御","动","def"],"vin":["胜利、征服","动","vin"],"obs":["围困、封锁","动","obs"],"imp":["统治、命令","动","imp"],"mina":["威胁","动","mina"],"fug":["逃遁","动","fug"],"luct":["搏斗","动","luct"],"mach":["谋略、机巧","动","mach"],"truc":["凶猛、残暴","动","truc"],"mil":["兵、军","动","mil"],"coh":["大队","动","coh"],"dux":["统帅","动","dux"],"vexill":["军旗","动","vexill"],"hast":["长矛","动","hast"],"pil":["投枪","动","pil"],"ball":["弩炮","动","ball"],"catap":["投石机","动","catap"],"loric":["甲胄","动","loric"],"cass":["头盔","动","cass"],"vall":["壁垒","动","vall"],"opp":["攻城","动","opp"],"incu":["突袭","动","incu"],"praed":["劫掠","动","praed"],"clad":["惨败","动","clad"],"trium":["凯旋","动","trium"],"stip":["军饷","动","stip"],"deser":["叛逃","动","deser"],"prod":["背叛","动","prod"],"insid":["埋伏","动","insid"],"expl":["侦察","动","expl"],"praesid":["驻军","动","praesid"],"turma":["骑兵队","动","turma"],"centuri":["百人队","动","centuri"],"pecu":["钱财","动","pecu"],"mer":["商品、贸易","动","mer"],"pret":["价格","动","pret"],"vend":["出售","动","vend"],"empt":["购买","动","empt"],"lucr":["获利","动","lucr"],"dam":["损失","动","dam"],"debt":["债务","动","debt"],"fisc":["财库、公库","动","fisc"],"trib":["税、贡","动","trib"],"divin":["神性、占卜","物","divin"],"templ":["神庙","物","templ"],"ara":["祭坛","物","ara"],"vict":["祭品","物","vict"],"hosti":["祭牲","物","hosti"],"piet":["虔敬","物","piet"],"cult":["崇拜","物","cult"],"prec":["祈祷","物","prec"],"vot":["誓愿","物","vot"],"hymn":["颂歌","物","hymn"],"aug":["占兆","物","aug"],"omen":["征兆","物","omen"],"fat":["命运","物","fat"],"sort":["命运、机运","物","sort"],"anim":["灵魂、心","物","anim"],"sanc":["神圣","物","sanc"],"numi":["神意","物","numi"],"manes":["亡灵","物","manes"],"lemur":["幽魂","物","lemur"],"necr":["亡者术","物","necr"],"orac":["神谕","物","orac"],"vat":["先知","物","vat"],"proph":["先知预言","物","proph"],"superst":["迷信","物","superst"],"pagan":["异教","物","pagan"],"super":["上、超越","物","super"],"inf":["下、下方","物","inf"],"ant":["前、先前","物","ant"],"retr":["后、向后","物","retr"],"dext":["右","物","dext"],"sin":["左","物","sin"],"circ":["周围、环","物","circ"],"cent":["中心","物","cent"],"lat":["侧、旁","物","lat"],"lon":["远、长","物","lon"],"prop":["近、邻近","物","prop"],"ult":["越、彼端","物","ult"],"vers":["转、朝向","物","vers"],"grad":["步、级","物","grad"],"cron":["时间、时序","物","cron"],"ann":["年","物","ann"],"mens":["月","物","mens"],"hor":["时、时辰","物","hor"],"tard":["迟、缓","物","tard"],"cit":["速、急","物","cit"],"aev":["永世、时代","物","aev"],"init":["开始、起初","物","init"],"mom":["片刻","物","mom"],"diu":["久、长久","物","diu"],"rec":["近来、新鲜","物","rec"],"era":["纪元、时期","物","era"],"pet":["趋向、追求","动","pet"],"salt":["跳跃","动","salt"],"cad":["坠落","动","cad"],"asc":["上升","动","asc"],"sequ":["跟随","动","sequ"],"mit":["送、派遣","动","mit"],"duc":["引导、带领","动","duc"],"veh":["运送","动","veh"],"port":["携带","动","port"],"volat":["飞行","动","volat"],"meat":["穿行、经过","动","meat"],"red":["返回","动","red"],"ten":["持、握","动","ten"],"rap":["夺取、抓","动","rap"],"toll":["举起","动","toll"],"prem":["压、按","动","prem"],"sec":["切、割","动","sec"],"trit":["磨、碾","动","trit"],"lig":["绑、系","动","lig"],"solv":["解、松开","动","solv"],"claud":["关闭","动","claud"],"aper":["打开","动","aper"],"fric":["摩擦","动","fric"],"plic":["折叠","动","plic"],"tend":["伸展","动","tend"],"fabr":["制作","动","fabr"],"form":["塑造、形","动","form"],"orn":["装饰","动","orn"],"ping":["绘、画","动","ping"],"sculp":["雕刻","动","sculp"],"mod":["度量、样式","动","mod"],"norm":["规范、矩","动","norm"],"lin":["线、绳","动","lin"],"rot":["轮、转","动","rot"],"clav":["钉、键","动","clav"],"ianu":["门、出入口","动","ianu"],"col":["颜色","性","col"],"alb":["白","性","alb"],"nigr":["黑","性","nigr"],"rub":["红","性","rub"],"vir":["绿","性","vir"],"caer":["蓝","性","caer"],"flav":["黄","性","flav"],"purp":["紫","性","purp"],"son":["声音","性","son"],"odor":["气味","性","odor"],"sap":["味道","性","sap"],"glab":["光滑","性","glab"],"asp":["粗糙","性","asp"],"rig":["僵硬","性","rig"],"moll":["柔软","性","moll"],"mag":["魔法、术","动","mag"],"carm":["咒词","动","carm"],"sigil":["印记、符","动","sigil"],"ener":["能量","动","ener"],"myst":["奥秘","动","myst"],"rit":["仪式","动","rit"],"sacr":["神圣","动","sacr"],"prof":["凡俗","动","prof"],"virt":["效力、德能","动","virt"],"nex":["联结、结","动","nex"],"obli":["忘却","动","obli"],"quaer":["寻找","动","quaer"],"perd":["失去、丢失","动","perd"],"repar":["修补","动","repar"],"resp":["回答","动","resp"],"ora":["请求","动","ora"],"perm":["许可","动","perm"],"recus":["拒绝","动","recus"],"oppe":["等待","动","oppe"],"tempt":["尝试","动","tempt"],"succ":["成功","动","succ"],"defi":["失败","动","defi"],"ut":["使用","动","ut"],"tute":["保护","动","tute"],"elig":["选择","动","elig"],"cern":["决断","动","cern"],"fast":["厌恶","动","fast"],"assu":["习惯","动","assu"],"coep":["开始","动","coep"],"conti":["继续","动","conti"],"cess":["停止","动","cess"],"accip":["接受","动","accip"],"redd":["归还","动","redd"],"caren":["缺少","动","caren"],"plet":["填满","动","plet"],"fier":["成为","动","fier"],"perte":["属于","动","perte"],"possi":["拥有","动","possi"],"bon":["好","性","bon"],"mal":["坏、恶","性","mal"],"turp":["丑、可耻","性","turp"],"firm":["坚固","性","firm"],"imbe":["孱弱","性","imbe"],"dit":["富有","性","dit"],"paup":["贫穷","性","paup"],"preci":["贵重","性","preci"],"vil":["低贱","性","vil"],"vacu":["空","性","vacu"],"crud":["生、未熟","性","crud"],"coct":["熟、成熟","性","coct"],"rect":["正确","性","rect"],"prav":["错误、歪斜","性","prav"],"facil":["容易","性","facil"],"diffic":["困难","性","diffic"],"obsc":["昏暗","性","obsc"],"sord":["污浊","性","sord"],"mund":["洁净","性","mund"],"miti":["温顺","性","miti"],"leni":["柔和","性","leni"],"tener":["柔嫩","性","tener"],"dure":["坚硬","性","dure"],"pur":["纯净","性","pur"],"crass":["厚","性","crass"],"poss":["可能","性","poss"],"neces":["必然","性","neces"],"actu":["现实","性","actu"],"condit":["条件","性","condit"],"proce":["过程","性","proce"],"gnos":["知识","性","gnos"],"idea":["理念","性","idea"],"valo":["价值","性","valo"],"iust":["正义","性","iust"],"vitio":["恶习","性","vitio"],"offic":["义务","性","offic"],"merit":["功绩","性","merit"],"culp":["过失","性","culp"],"laus":["称赞","性","laus"],"honor":["荣誉","性","honor"],"infa":["耻辱","性","infa"],"glor":["荣耀","性","glor"],"fama":["名声","性","fama"],"nihil":["虚无","性","nihil"],"dialect":["辩证","性","dialect"],"analys":["分析","性","analys"],"synthes":["综合","性","synthes"],"kris":["危机","性","kris"],"harmon":["调和","性","harmon"],"nomos":["法则","性","nomos"],"physis":["本性","性","physis"],"techne":["技艺","性","techne"],"praxis":["实践","性","praxis"],"laet":["快乐","性","laet"],"desp":["绝望","性","desp"],"ango":["焦虑","性","ango"],"anxi":["忧虑","性","anxi"],"solli":["忧心","性","solli"],"pavid":["惊恐","性","pavid"],"terr":["恐怖","性","terr"],"horr":["战栗","性","horr"],"carit":["慈爱","性","carit"],"benevo":["善意","性","benevo"],"miser":["怜悯","性","miser"],"pati":["忍耐","性","pati"],"diffi":["不信","性","diffi"],"susp":["猜疑","性","susp"],"admi":["钦佩","性","admi"],"contem":["轻蔑","性","contem"],"volup":["享乐","性","volup"],"taed":["厌倦","性","taed"],"curio":["好奇","性","curio"],"studi":["热忱","性","studi"],"pigr":["懒惰","性","pigr"],"indus":["勤勉","性","indus"],"iucund":["愉快","性","iucund"],"maer":["哀伤","性","maer"],"lug":["悲悼","性","lug"],"blandi":["温柔","性","blandi"],"estu":["激奋","性","estu"],"stupe":["惊愕","性","stupe"],"iatro":["医师","物","iatro"],"advoc":["律师","物","advoc"],"magist":["长官","物","magist"],"minist":["臣仆","物","minist"],"praec":["传令","物","praec"],"merc":["商人","物","merc"],"naut":["水手","物","naut"],"aurig":["御者","物","aurig"],"past":["牧人","物","past"],"agric":["农夫","物","agric"],"opif":["工匠","物","opif"],"pisto":["面包师","物","pisto"],"suto":["鞋匠","物","suto"],"tons":["理发师","物","tons"],"paed":["塾师","物","paed"],"philo":["哲人","物","philo"],"poet":["诗人","物","poet"],"scurr":["丑角","物","scurr"],"mim":["伶人","物","mim"],"flam":["祭司","物","flam"],"pereg":["外邦人","物","pereg"],"testi":["证人","物","testi"],"auctor":["作者","物","auctor"],"artif":["巧匠","物","artif"],"venat":["猎人","物","venat"],"piscat":["渔人","物","piscat"],"colle":["同僚团","物","colle"],"sodal":["协会","物","sodal"],"curia":["议事堂","物","curia"],"concil":["会议","物","concil"],"univ":["团体","物","univ"],"grem":["行会","物","grem"],"conf":["同盟","物","conf"],"aerar":["国库","物","aerar"],"telo":["税项","物","telo"],"annon":["粮政","物","annon"],"censu":["人口登记","物","censu"],"bema":["法庭","物","bema"],"carc":["监狱","物","carc"],"cust":["看守","物","cust"],"equit":["骑士","物","equit"],"sacram":["誓约","物","sacram"],"testam":["遗嘱","物","testam"],"matrim":["婚姻","物","matrim"],"patri":["祖国","物","patri"],"famil":["家庭","物","famil"],"vicin":["邻里","物","vicin"],"tribul":["部族","物","tribul"],"decuri":["十人长","物","decuri"],"praefect":["长官","物","praefect"],"quaestor":["财务官","物","quaestor"],"addi":["加","性","addi"],"subtra":["减","性","subtra"],"produ":["积","性","produ"],"impa":["奇数","性","impa"],"absol":["绝对","性","absol"],"comp":["计算","性","comp"],"dual":["二元","性","dual"],"plura":["多元","性","plura"],"prog":["数列","性","prog"],"quoti":["商数","性","quoti"],"aequat":["方程","性","aequat"],"radic":["开方","性","radic"],"potent":["乘方","性","potent"],"logis":["对数","性","logis"],"calcul":["演算","性","calcul"],"numer":["计数","性","numer"],"multiplica":["连乘","性","multiplica"],"divid":["整除","性","divid"],"reman":["余数","性","reman"],"aequipar":["配平","性","aequipar"],"infin":["无穷","性","infin"],"finit":["有限","性","finit"],"planet":["行星","物","planet"],"comet":["彗星","物","comet"],"galax":["银河","物","galax"],"eclip":["蚀","物","eclip"],"auror":["晨光","物","auror"],"crepus":["黄昏","物","crepus"],"merid":["正午","物","merid"],"vesp":["傍晚","物","vesp"],"mane":["清晨","物","mane"],"saec":["世代","物","saec"],"lustr":["五年","物","lustr"],"kalen":["月初","物","kalen"],"idus":["月中","物","idus"],"hebdo":["周","物","hebdo"],"feria":["平日","物","feria"],"solsti":["至日","物","solsti"],"equin":["分日","物","equin"],"zodi":["黄道","物","zodi"],"orbita":["轨道","物","orbita"],"zenith":["天顶","物","zenith"],"horizon":["地平","物","horizon"],"tropic":["回归线","物","tropic"],"umbracul":["日晷","物","umbracul"],"clepsydra":["漏刻","物","clepsydra"],"nocturn":["夜时","物","nocturn"],"diurn":["日时","物","diurn"],"matutin":["晨时","物","matutin"],"annivers":["周年","物","annivers"],"intern":["内部","物","intern"],"exter":["外部","物","exter"],"vertic":["垂直","物","vertic"],"paral":["平行","物","paral"],"diag":["对角","物","diag"],"peri":["周边","物","peri"],"dist":["距离","物","dist"],"infim":["最低","物","infim"],"cis":["此侧","物","cis"],"intr":["内侧","物","intr"],"extra":["外侧","物","extra"],"superf":["上表面","物","superf"],"advers":["对面","物","advers"],"avers":["背面","物","avers"],"sinistr":["左侧","物","sinistr"],"dexter":["右侧","物","dexter"],"obliqu":["斜向","物","obliqu"],"transvers":["横向","物","transvers"],"longitud":["纵向","物","longitud"],"altitud":["高度","物","altitud"],"latitud":["宽度","物","latitud"],"profund":["深度","物","profund"],"magnitud":["大小","物","magnitud"],"intervall":["间隔","物","intervall"],"contigu":["邻接","物","contigu"],"remot":["遥远","物","remot"],"perce":["知觉","动","perce"],"intu":["直觉","动","intu"],"reco":["回想","动","reco"],"remin":["追忆","动","remin"],"atte":["注意","动","atte"],"obse":["观察","动","obse"],"adver":["注意","动","adver"],"disce":["辨别","动","disce"],"consci":["良知","动","consci"],"rumo":["传言","动","rumo"],"argum":["论据","动","argum"],"proba":["论证","动","proba"],"cert":["确信","动","cert"],"perspic":["明察","动","perspic"],"acum":["敏锐","动","acum"],"hebet":["迟钝","动","hebet"],"somnol":["困倦","动","somnol"],"vertig":["眩晕","动","vertig"],"nause":["恶心","动","nause"],"prurit":["瘙痒","动","prurit"],"titill":["酥痒","动","titill"],"gustat":["品味","动","gustat"],"odorat":["嗅闻","动","odorat"],"tactil":["触感","动","tactil"],"aure":["金色","性","aure"],"fusc":["褐色","性","fusc"],"ciner":["灰色","性","ciner"],"rose":["粉色","性","rose"],"venet":["青色","性","venet"],"ruf":["赤褐","性","ruf"],"fulv":["黄褐","性","fulv"],"candor":["洁白","性","candor"],"pull":["深色","性","pull"],"pallor":["苍白","性","pallor"],"splend":["辉煌","性","splend"],"nitid":["光洁","性","nitid"],"opac":["荫暗","性","opac"],"pellu":["透明","性","pellu"],"macul":["斑点","性","macul"],"varieg":["杂色","性","varieg"],"marmor":["纹彩","性","marmor"],"vitre":["玻璃光泽","性","vitre"],"metall":["金属光泽","性","metall"],"lanug":["绒面","性","lanug"],"levig":["光滑","性","levig"],"voc":["嗓音","物","voc"],"serm":["谈话","物","serm"],"syll":["音节","物","syll"],"acce":["重音","物","acce"],"gramm":["文法","物","gramm"],"synt":["句法","物","synt"],"sema":["语义","物","sema"],"phon":["音声","物","phon"],"rhyth":["节奏","物","rhyth"],"orat":["演说","物","orat"],"narr":["叙述","物","narr"],"descr":["描写","物","descr"],"defin":["定义","物","defin"],"sente":["句子","物","sente"],"para":["段落","物","para"],"poem":["诗","物","poem"],"fabul":["寓言","物","fabul"],"myth":["神话","物","myth"],"lexic":["词汇","物","lexic"],"phonem":["音位","物","phonem"],"morphem":["词素","物","morphem"],"etym":["词源","物","etym"],"idiom":["习语","物","idiom"],"proverb":["谚语","物","proverb"],"argot":["隐语","物","argot"],"poli":["打磨","动","poli"],"laevi":["磨光","动","laevi"],"caela":["雕镂","动","caela"],"fict":["塑造","动","fict"],"compa":["接合","动","compa"],"armam":["装备","动","armam"],"supell":["家具","动","supell"],"recep":["容器","动","recep"],"cist":["箱箧","动","cist"],"materi":["材料","动","materi"],"structu":["营造","动","structu"],"fabrica":["工坊","动","fabrica"],"instrument":["器具","动","instrument"],"organ":["工具","动","organ"],"utens":["用具","动","utens"],"machin":["机械","动","machin"],"temper":["回火","动","temper"],"confl":["熔炼","动","confl"],"forgi":["锻造","动","forgi"],"incud":["铁砧","动","incud"],"foll":["风箱","动","foll"],"lima":["锉","动","lima"],"runcin":["刨","动","runcin"],"ascia":["锛","动","ascia"],"scalpr":["刻刀","动","scalpr"],"faen":["利息","动","faen"],"usur":["高利","动","usur"],"pign":["抵押","动","pign"],"arrh":["定金","动","arrh"],"salar":["薪俸","动","salar"],"monet":["铸币","动","monet"],"numm":["钱币","动","numm"],"denar":["银钱","动","denar"],"talen":["大额货币","动","talen"],"drach":["货币单位","动","drach"],"merca":["市场","动","merca"],"nundi":["集日","动","nundi"],"tabern":["店铺","动","tabern"],"instit":["零售商","动","instit"],"credit":["债权","动","credit"],"camb":["兑换","动","camb"],"stips":["施舍","动","stips"],"locar":["出租","动","locar"],"conduc":["承租","动","conduc"],"emptor":["买主","动","emptor"],"vendit":["卖主","动","vendit"],"preti":["估价","动","preti"],"aequip":["等价","动","aequip"],"compens":["补偿","动","compens"],"lucrif":["牟利","动","lucrif"],"damn":["亏损","动","damn"],"fener":["放贷","动","fener"],"nummul":["钱庄","动","nummul"],"epist":["书信","物","epist"],"cod":["册","物","cod"],"signac":["封印","物","signac"],"curs":["信使","物","curs"],"procl":["公告","物","procl"],"mandat":["命令书","物","mandat"],"tom":["卷","物","tom"],"titul":["标题","物","titul"],"capit":["章节","物","capit"],"interp":["解释","物","interp"],"exege":["疏解","物","exege"],"transfer":["转达","物","transfer"],"nuntia":["通报","物","nuntia"],"ephemer":["传单","物","ephemer"],"libell":["小册","物","libell"],"pagella":["书页","物","pagella"],"versio":["译本","物","versio"],"notar":["速记","物","notar"],"sigill":["封缄","物","sigill"],"chiro":["手书","物","chiro"],"tabul":["案卷","物","tabul"],"semit":["小径","物","semit"],"tram":["岔路","物","tram"],"diver":["岔口","物","diver"],"caup":["客栈","物","caup"],"stabu":["厩舍","物","stabu"],"stratum":["床铺","物","stratum"],"pulv":["枕","物","pulv"],"strag":["被褥","物","strag"],"mensa":["餐桌","物","mensa"],"camin":["壁炉","物","camin"],"lych":["灯","物","lych"],"sarcin":["行囊","物","sarcin"],"migr":["迁徙","物","migr"],"comme":["通行","物","comme"],"viatic":["旅费","物","viatic"],"devers":["驿舍","物","devers"],"mans":["宿站","物","mans"],"exped":["远征","物","exped"],"peregr":["远游","物","peregr"],"profect":["出发","物","profect"],"redit":["归来","物","redit"],"vad":["涉渡","物","vad"],"transit":["过境","物","transit"],"column":["柱","物","column"],"episty":["柱顶","物","episty"],"arcus":["拱","物","arcus"],"pod":["台基","物","pod"],"exedr":["厅","物","exedr"],"latri":["厕","物","latri"],"piscin":["水池","物","piscin"],"hort":["园","物","hort"],"domus":["宅","物","domus"],"fan":["圣所","物","fan"],"delubr":["神龛","物","delubr"],"imbri":["筒瓦","物","imbri"],"antae":["壁柱","物","antae"],"posti":["门柱","物","posti"],"cardo":["门枢","物","cardo"],"claustr":["闩锁","物","claustr"],"fores":["双扉","物","fores"],"fenest":["窗牖","物","fenest"],"scalis":["阶梯","物","scalis"],"subsell":["长凳","物","subsell"],"armar":["橱柜","物","armar"],"cubil":["卧榻","物","cubil"],"impluvi":["天井","物","impluvi"],"compluvi":["庭院顶","物","compluvi"],"vestibu":["门厅","物","vestibu"],"antl":["水泵","物","antl"],"siph":["虹吸","物","siph"],"spira":["螺旋","物","spira"],"catar":["闸门","物","catar"],"rotat":["旋转","物","rotat"],"pression":["压动","物","pression"],"impuls":["推动","物","impuls"],"motri":["原动","物","motri"],"vecti":["传动","物","vecti"],"dentat":["齿轮","物","dentat"],"cochle":["螺旋杆","物","cochle"],"sucul":["绞盘","物","sucul"],"fornac":["炉膛","物","fornac"],"valv":["阀门","物","valv"],"tubul":["管道","物","tubul"],"haust":["汲水","物","haust"],"elevat":["提升","物","elevat"],"communic":["连通","物","communic"],"fim":["厩肥","物","fim"],"glum":["谷壳","物","glum"],"spic":["穗","物","spic"],"mol":["磨","物","mol"],"pistr":["磨坊","物","pistr"],"furn":["烤炉","物","furn"],"hord":["大麦","物","hord"],"aven":["燕麦","物","aven"],"case":["奶酪","物","case"],"buty":["黄油","物","buty"],"pipe":["胡椒","物","pipe"],"pult":["粥","物","pult"],"malum":["苹果","物","malum"],"fic":["无花果","物","fic"],"uv":["葡萄","物","uv"],"nuc":["坚果","物","nuc"],"rapa":["芜菁","物","rapa"],"all":["蒜","物","all"],"cep":["洋葱","物","cep"],"beta":["甜菜","物","beta"],"cucurbi":["瓜","物","cucurbi"],"legum":["豆","物","legum"],"lactuc":["莴苣","物","lactuc"],"prun":["李","物","prun"],"ceras":["樱桃","物","ceras"],"persic":["桃","物","persic"],"pir":["梨","物","pir"],"sympt":["症状","动","sympt"],"diagn":["诊断","动","diagn"],"thera":["治疗","动","thera"],"anato":["解剖","动","anato"],"muscul":["肌肉","动","muscul"],"pulm":["肺","动","pulm"],"hepat":["肝","动","hepat"],"ren":["肾","动","ren"],"ventr":["腹","动","ventr"],"cut":["肤","动","cut"],"capill":["发","动","capill"],"luxa":["脱臼","动","luxa"],"valetu":["疗养院","动","valetu"],"febri":["热病","动","febri"],"pesti":["疫病","动","pesti"],"veneni":["毒物","动","veneni"],"cicatr":["疤痕","动","cicatr"],"medic":["医术","动","medic"],"pharmac":["药草","动","pharmac"],"obstetric":["产科","动","obstetric"],"anesthes":["麻醉","动","anesthes"],"intestin":["肠","动","intestin"],"stomach":["胃","动","stomach"],"accus":["控告","动","accus"],"delic":["违法","动","delic"],"fraud":["欺诈","动","fraud"],"furt":["盗窃","动","furt"],"iniu":["侵害","动","iniu"],"homic":["杀人","动","homic"],"adult":["通奸","动","adult"],"periur":["伪誓","动","periur"],"calum":["诬告","动","calum"],"iurisc":["法学家","动","iurisc"],"provo":["上诉","动","provo"],"appell":["申诉","动","appell"],"damnat":["判罪","动","damnat"],"absolut":["开释","动","absolut"],"caut":["担保","动","caut"],"fideiuss":["保证","动","fideiuss"],"transact":["和解","动","transact"],"arbitr":["仲裁","动","arbitr"],"pacti":["约定","动","pacti"],"stipulat":["要式","动","stipulat"],"deposit":["寄存","动","deposit"],"commodat":["借用","动","commodat"],"usucap":["时效取得","动","usucap"],"possess":["占有","动","possess"],"domin":["所有权","动","domin"],"servitut":["地役","动","servitut"],"proel":["会战","动","proel"],"acie":["阵列","动","acie"],"pedit":["步兵","动","pedit"],"arie":["攻城槌","动","arie"],"agger":["土垒","动","agger"],"spicu":["矛尖","动","spicu"],"strat":["战略","动","strat"],"takt":["战术","动","takt"],"victo":["胜利","动","victo"],"dedit":["投降","动","dedit"],"indut":["休战","动","indut"],"equita":["骑兵","动","equita"],"sagitt":["箭手","动","sagitt"],"fundit":["投石手","动","fundit"],"ballist":["弩炮手","动","ballist"],"signif":["旗手","动","signif"],"tubic":["号手","动","tubic"],"cornic":["号角手","动","cornic"],"obsid":["围城","动","obsid"],"expugn":["强攻","动","expugn"],"propugn":["守御","动","propugn"],"praesidi":["守备","动","praesidi"],"excubi":["岗哨","动","excubi"],"bibli":["藏书","物","bibli"],"acad":["学园","物","acad"],"gym":["体育场","物","gym"],"histo":["历史","物","histo"],"geogr":["地理","物","geogr"],"theol":["神学","物","theol"],"disput":["辩论","物","disput"],"exper":["实验","物","exper"],"theore":["定理","物","theore"],"didact":["教学法","物","didact"],"paidei":["教化","物","paidei"],"scholar":["学人","物","scholar"],"discipul":["门生","物","discipul"],"praecept":["教诫","物","praecept"],"exercit":["练习","物","exercit"],"commen":["注疏","物","commen"],"gloss":["笺注","物","gloss"],"annotat":["批注","物","annotat"],"compend":["纲要","物","compend"],"epitom":["摘要","物","epitom"],"cursus":["课程","物","cursus"],"studios":["勤学者","物","studios"],"statu":["雕像","物","statu"],"trago":["悲剧","物","trago"],"comoe":["喜剧","物","comoe"],"person":["角色","物","person"],"cithar":["竖琴","物","cithar"],"cymb":["铙钹","物","cymb"],"poes":["诗艺","物","poes"],"metr":["格律","物","metr"],"pictor":["画师","物","pictor"],"sculptor":["雕刻师","物","sculptor"],"archit":["建筑师","物","archit"],"aulos":["双管笛","物","aulos"],"syrinx":["排箫","物","syrinx"],"orchestr":["乐池","物","orchestr"],"pantomim":["哑剧","物","pantomim"],"fabulat":["编剧","物","fabulat"],"versific":["作诗","物","versific"],"recitat":["朗诵","物","recitat"],"improvis":["即兴","物","improvis"],"virtuos":["名家","物","virtuos"],"divus":["神明","物","divus"],"lar":["家神","物","lar"],"penat":["家神","物","penat"],"geni":["守护灵","物","geni"],"infe":["冥界","物","infe"],"elys":["乐土","物","elys"],"tartar":["冥渊","物","tartar"],"char":["渡灵者","物","char"],"styx":["冥河","物","styx"],"orc":["冥府","物","orc"],"provi":["天命","物","provi"],"nemes":["报应","物","nemes"],"hybr":["僭越","物","hybr"],"piacul":["赎罪","物","piacul"],"exorc":["驱邪","物","exorc"],"devot":["奉献","物","devot"],"oblat":["供物","物","oblat"],"libat":["奠酒","物","libat"],"incens":["焚香","物","incens"],"harus":["肠卜","物","harus"],"sibyll":["神谕集","物","sibyll"],"vaticin":["神谕宣示","物","vaticin"],"plant":["植物","物","plant"],"vent":["风","物","vent"],"humu":["土壤","物","humu"],"mundu":["世界","物","mundu"],"flor":["花","物","flor"],"faun":["兽群","物","faun"],"flum":["河流","物","flum"],"litor":["海滨","物","litor"],"glare":["砾石","物","glare"],"limos":["淤泥","物","limos"],"palud":["沼泽","物","palud"],"saltu":["林地","物","saltu"],"coll":["丘陵","物","coll"],"planit":["平原","物","planit"],"desert":["荒漠","物","desert"],"oasi":["绿洲","物","oasi"],"paenin":["半岛","物","paenin"],"isthm":["地峡","物","isthm"],"promon":["海角","物","promon"],"portu":["港湾","物","portu"],"aestu":["河口","物","aestu"],"iuven":["青春","物","iuven"],"infan":["幼年","物","infan"],"puer":["童年","物","puer"],"adole":["少年","物","adole"],"femin":["女子","物","femin"],"mas":["男子","物","mas"],"prol":["后代","物","prol"],"hered":["继承","物","hered"],"here":["继承人","物","here"],"funer":["葬礼","物","funer"],"sepul":["埋葬","物","sepul"],"tumul":["坟冢","物","tumul"],"vit":["生命","物","vit"],"natal":["诞辰","物","natal"],"obit":["辞世","物","obit"],"mortu":["死者","物","mortu"],"superstes":["遗存","物","superstes"],"vidu":["寡居","物","vidu"],"nubil":["婚龄","物","nubil"],"caelib":["独身","物","caelib"],"genet":["生育","物","genet"],"thanat":["死亡","物","thanat"],"physic":["物理学","物","physic"],"atom":["原子","物","atom"],"molec":["分子","物","molec"],"kines":["运动","物","kines"],"statik":["静力学","物","statik"],"mech":["力学","物","mech"],"mass":["质量","物","mass"],"acceler":["加速度","物","acceler"],"gravit":["引力","物","gravit"],"inert":["惯性","物","inert"],"elast":["弹性","物","elast"],"vibr":["振动","物","vibr"],"frequent":["频率","物","frequent"],"amplitud":["振幅","物","amplitud"],"reson":["共振","物","reson"],"fluid":["流体","物","fluid"],"viscos":["黏性","物","viscos"],"entropi":["熵","物","entropi"],"radiat":["辐射","物","radiat"],"conduct":["传导","物","conduct"],"convect":["对流","物","convect"],"induct":["感应","物","induct"],"optic":["光学","物","optic"],"acust":["声学","物","acust"],"chemis":["化学","物","chemis"],"solvent":["溶剂","物","solvent"],"solute":["溶质","物","solute"],"reduct":["还原","物","reduct"],"compos":["化合物","物","compos"],"neutr":["中性","物","neutr"],"ion":["离子","物","ion"],"cation":["阳离子","物","cation"],"anion":["阴离子","物","anion"],"electro":["电极","物","electro"],"valent":["化合价","物","valent"],"mole":["摩尔","物","mole"],"concent":["浓度","物","concent"],"volatil":["挥发性","物","volatil"],"combust":["燃烧","物","combust"],"inciner":["焚化","物","inciner"],"alloy":["合金","物","alloy"],"amalgam":["汞齐","物","amalgam"],"reagen":["试剂","物","reagen"],"crucib":["坩埚","物","crucib"],"retort":["蒸馏器","物","retort"],"alembic":["蒸馏釜","物","alembic"],"hygro":["吸湿","物","hygro"],"titrat":["滴定","物","titrat"],"kat":["催化","物","kat"],"cellul":["细胞","物","cellul"],"viscer":["脏腑","物","viscer"],"chromos":["染色体","物","chromos"],"evolut":["进化","物","evolut"],"ecol":["生态","物","ecol"],"ambie":["环境","物","ambie"],"biom":["生物群系","物","biom"],"biosph":["生物圈","物","biosph"],"habitat":["栖息地","物","habitat"],"niche":["生态位","物","niche"],"symbio":["共生","物","symbio"],"parasit":["寄生","物","parasit"],"nutrien":["养分","物","nutrien"],"metabol":["代谢","物","metabol"],"photos":["光合","物","photos"],"germin":["发芽","物","germin"],"pollinat":["授粉","物","pollinat"],"fecund":["繁殖力","物","fecund"],"steril":["不育","物","steril"],"adapt":["适应","物","adapt"],"ecosys":["生态系统","物","ecosys"],"biolo":["生物学","物","biolo"],"zoolo":["动物学","物","zoolo"],"botan":["植物学","物","botan"],"miner":["矿物","物","miner"],"sediment":["沉积","物","sediment"],"erosion":["侵蚀","物","erosion"],"vulcan":["火山","物","vulcan"],"seism":["地震","物","seism"],"magma":["岩浆","物","magma"],"fossil":["化石","物","fossil"],"tecton":["板块","物","tecton"],"fault":["断层","物","fault"],"orogen":["造山","物","orogen"],"geolo":["地质学","物","geolo"],"quarr":["采石场","物","quarr"],"vein":["矿脉","物","vein"],"chalk":["矿石","物","chalk"],"stalac":["钟乳石","物","stalac"],"karst":["喀斯特","物","karst"],"loess":["黄土","物","loess"],"clay":["黏土","物","clay"],"silt":["粉砂","物","silt"],"sandst":["砂岩","物","sandst"],"calcar":["石灰岩","物","calcar"],"granit":["花岗岩","物","granit"],"basalt":["玄武岩","物","basalt"],"slate":["板岩","物","slate"],"quartz":["石英","物","quartz"],"supern":["超新星","物","supern"],"quasar":["类星体","物","quasar"],"pulsar":["脉冲星","物","pulsar"],"astero":["小行星","物","astero"],"meteor":["流星","物","meteor"],"meteorit":["陨石","物","meteorit"],"satellit":["卫星","物","satellit"],"aphel":["远日点","物","aphel"],"perihe":["近日点","物","perihe"],"equator":["赤道","物","equator"],"constel":["星座","物","constel"],"vacuum":["真空","物","vacuum"],"sidere":["恒星时","物","sidere"],"occult":["掩星","物","occult"],"nadir":["天底","物","nadir"],"azimuth":["方位角","物","azimuth"],"declin":["赤纬","物","declin"],"ascen":["赤经","物","ascen"],"cosmog":["宇宙起源","物","cosmog"],"parall":["视差","物","parall"],"luminos":["光度","物","luminos"],"spectr":["光谱","物","spectr"],"radio":["射电","物","radio"],"infrar":["红外","物","infrar"],"ultrav":["紫外","物","ultrav"],"climat":["气候","物","climat"],"atmos":["大气层","物","atmos"],"barom":["气压计","物","barom"],"anemo":["风速计","物","anemo"],"irid":["虹","物","irid"],"halo":["晕","物","halo"],"monsun":["季风","物","monsun"],"cyclon":["气旋","物","cyclon"],"anticy":["反气旋","物","anticy"],"typh":["台风","物","typh"],"tornad":["龙卷","物","tornad"],"sleet":["雨夹雪","物","sleet"],"droug":["干旱","物","droug"],"diluv":["大洪水","物","diluv"],"blizz":["暴雪","物","blizz"],"drizz":["细雨","物","drizz"],"downp":["倾盆","物","downp"],"subtro":["亚热带","物","subtro"],"altocu":["高积云","物","altocu"],"cumulo":["积雨云","物","cumulo"],"strati":["层云","物","strati"],"cirr":["卷云","物","cirr"],"nimbo":["雨层云","物","nimbo"],"condens":["凝结","物","condens"],"isoth":["等温线","物","isoth"],"emot":["情绪","性","emot"],"charact":["性格","性","charact"],"intell":["智力","性","intell"],"aptitud":["才能","性","aptitud"],"instinct":["本能","性","instinct"],"frustr":["挫折","性","frustr"],"conflict":["冲突","性","conflict"],"depress":["抑郁","性","depress"],"mania":["躁狂","性","mania"],"phobia":["恐惧症","性","phobia"],"obsess":["执念","性","obsess"],"compuls":["强迫","性","compuls"],"trauma":["创伤","性","trauma"],"accommod":["顺应","性","accommod"],"ego":["自我","性","ego"],"attitude":["态度","性","attitude"],"creden":["信念","性","creden"],"preju":["偏见","性","preju"],"stereo":["刻板","性","stereo"],"empath":["共情","性","empath"],"sympath":["同情","性","sympath"],"antipath":["反感","性","antipath"],"sentiment":["情感","性","sentiment"],"passion":["激情","性","passion"],"ambition":["雄心","性","ambition"],"hierar":["等级制","物","hierar"],"libertus":["自由民","物","libertus"],"margin":["边缘人","物","margin"],"elite":["精英","物","elite"],"prolet":["无产者","物","prolet"],"burgens":["市民","物","burgens"],"arist":["贵族制","物","arist"],"oliga":["寡头","物","oliga"],"democr":["民主","物","democr"],"monar":["君主制","物","monar"],"tyrann":["暴君","物","tyrann"],"republic":["共和","物","republic"],"feud":["封建","物","feud"],"caste":["种姓","物","caste"],"union":["联盟","物","union"],"faction":["派系","物","faction"],"assem":["议会","物","assem"],"parlia":["国会","物","parlia"],"elector":["选民","物","elector"],"candida":["候选人","物","candida"],"presti":["声望","物","presti"],"mobil":["流动","物","mobil"],"inequ":["不平等","物","inequ"],"privileg":["特权","物","privileg"],"rebell":["反抗","物","rebell"],"suppl":["供给","动","suppl"],"deman":["需求","动","deman"],"bank":["银行","动","bank"],"capital":["资本","动","capital"],"consum":["消费","动","consum"],"distribut":["分配","动","distribut"],"invest":["投资","动","invest"],"inflation":["通胀","动","inflation"],"deflation":["通缩","动","deflation"],"budget":["预算","动","budget"],"reven":["收入","动","reven"],"expend":["支出","动","expend"],"deficit":["赤字","动","deficit"],"surplus":["盈余","动","surplus"],"tarif":["关税","动","tarif"],"quota":["配额","动","quota"],"competit":["竞争","动","competit"],"barter":["以物易物","动","barter"],"currency":["通货","动","currency"],"stock":["股份","动","stock"],"dividend":["股息","动","dividend"],"oblig":["债券","动","oblig"],"premium":["保费","动","premium"],"pension":["年金","动","pension"],"constitu":["宪法","物","constitu"],"statute":["成文法","物","statute"],"aequit":["衡平","物","aequit"],"respons":["责任","物","respons"],"innoc":["无罪","物","innoc"],"verdict":["裁决","物","verdict"],"petition":["请愿","物","petition"],"actor":["原告","物","actor"],"attorn":["代理人","物","attorn"],"litig":["争讼","物","litig"],"iurisd":["管辖","物","iurisd"],"preced":["先例","物","preced"],"mediation":["调解","物","mediation"],"pardon":["赦免","物","pardon"],"amnesty":["大赦","物","amnesty"],"extrad":["引渡","物","extrad"],"torture":["酷刑","物","torture"],"citat":["传唤","物","citat"],"warrant":["令状","物","warrant"],"subpoe":["传票","物","subpoe"],"affidav":["宣誓书","物","affidav"],"lien":["留置权","物","lien"],"trespass":["侵入","物","trespass"],"neglig":["过失","物","neglig"],"guardi":["监护人","物","guardi"],"vaccine":["疫苗","物","vaccine"],"immun":["免疫","物","immun"],"antibi":["抗生素","物","antibi"],"virus":["病毒","物","virus"],"bacteri":["细菌","物","bacteri"],"inflam":["炎症","物","inflam"],"syndrome":["综合征","物","syndrome"],"dosis":["剂量","物","dosis"],"praesc":["处方","物","praesc"],"clinic":["诊所","物","clinic"],"hospital":["医院","物","hospital"],"cheirur":["外科医师","物","cheirur"],"ambula":["救护车","物","ambula"],"scalpe":["手术刀","物","scalpe"],"bandag":["绷带","物","bandag"],"splint":["夹板","物","splint"],"crutch":["拐杖","物","crutch"],"prosthe":["假肢","物","prosthe"],"transpl":["移植","物","transpl"],"dialysis":["透析","物","dialysis"],"transfu":["输血","物","transfu"],"onco":["肿瘤","物","onco"],"cardio":["心脏","物","cardio"],"pediat":["儿科","物","pediat"],"turbine":["涡轮","物","turbine"],"generator":["发电机","物","generator"],"piston":["活塞","物","piston"],"cylind":["汽缸","物","cylind"],"bolt":["螺栓","物","bolt"],"rivet":["铆钉","物","rivet"],"weld":["焊接","物","weld"],"sold":["钎焊","物","sold"],"foundr":["铸造厂","物","foundr"],"lathe":["车床","物","lathe"],"circuit":["电路","物","circuit"],"amper":["电流","物","amper"],"voltag":["电压","物","voltag"],"resist":["电阻","物","resist"],"inductor":["电感","物","inductor"],"transistor":["晶体管","物","transistor"],"diod":["二极管","物","diod"],"semico":["半导体","物","semico"],"chip":["芯片","物","chip"],"algor":["算法","物","algor"],"program":["程序","物","program"],"protocol":["协议","物","protocol"],"crypt":["加密","物","crypt"],"binary":["二进制","物","binary"],"digital":["数字","物","digital"],"subse":["子集","物","subse"],"varia":["变量","物","varia"],"limit":["极限","物","limit"],"continuu":["连续","物","continuu"],"deriv":["导数","物","deriv"],"differen":["微分","物","differen"],"probab":["概率","物","probab"],"statis":["统计","物","statis"],"averag":["平均","物","averag"],"varian":["方差","物","varian"],"correl":["相关","物","correl"],"regres":["回归","物","regres"],"sampl":["样本","物","sampl"],"axiom":["公理","物","axiom"],"lemma":["引理","物","lemma"],"topol":["拓扑","物","topol"],"matrix":["矩阵","物","matrix"],"determ":["行列式","物","determ"],"permut":["排列","物","permut"],"conver":["收敛","物","conver"],"diverg":["发散","物","diverg"],"graph":["图","物","graph"],"recurs":["递归","物","recurs"],"optim":["最优化","物","optim"],"proposit":["命题","性","proposit"],"premiss":["前提","性","premiss"],"infer":["推断","性","infer"],"deduc":["演绎","性","deduc"],"abduc":["溯因","性","abduc"],"syllog":["三段论","性","syllog"],"induc":["归纳","性","induc"],"falsif":["证伪","性","falsif"],"verif":["验证","性","verif"],"consist":["一致","性","consist"],"contradict":["矛盾","性","contradict"],"paradox":["悖论","性","paradox"],"fallac":["谬误","性","fallac"],"sophism":["诡辩","性","sophism"],"quantif":["量化","性","quantif"],"predicat":["谓词","性","predicat"],"entail":["蕴涵","性","entail"],"implic":["蕴含","性","implic"],"equival":["等价","性","equival"],"negation":["否定","性","negation"],"conjunct":["合取","性","conjunct"],"disjunct":["析取","性","disjunct"],"tautolog":["重言","性","tautolog"],"assert":["断言","性","assert"],"corollar":["系","性","corollar"],"literat":["文学","物","literat"],"prose":["散文","物","prose"],"epic":["史诗","物","epic"],"lyric":["抒情诗","物","lyric"],"elegy":["挽歌","物","elegy"],"sonnet":["十四行诗","物","sonnet"],"roman":["长篇小说","物","roman"],"romance":["传奇","物","romance"],"tale":["故事","物","tale"],"episode":["插曲","物","episode"],"plot":["情节","物","plot"],"theme":["主题","物","theme"],"motif":["母题","物","motif"],"protago":["主角","物","protago"],"antago":["反派","物","antago"],"editor":["编辑","物","editor"],"publis":["出版者","物","publis"],"critic":["批评家","物","critic"],"revie":["评论","物","revie"],"essay":["随笔","物","essay"],"biogra":["传记","物","biogra"],"memoir":["回忆录","物","memoir"],"anthol":["选集","物","anthol"],"metaphor":["隐喻","物","metaphor"],"parody":["戏仿","物","parody"],"pitch":["音高","物","pitch"],"chord":["和弦","物","chord"],"clef":["谱号","物","clef"],"staff":["谱表","物","staff"],"ensemble":["合奏","物","ensemble"],"solo":["独奏","物","solo"],"duet":["二重奏","物","duet"],"conductor":["指挥","物","conductor"],"concert":["音乐会","物","concert"],"opera":["歌剧","物","opera"],"operet":["轻歌剧","物","operet"],"ballet":["芭蕾","物","ballet"],"puppet":["木偶","物","puppet"],"masque":["假面剧","物","masque"],"carnival":["狂欢","物","carnival"],"parade":["游行","物","parade"],"acrobat":["杂技","物","acrobat"],"jongl":["杂耍","物","jongl"],"aria":["咏叹调","物","aria"],"sonata":["奏鸣曲","物","sonata"],"sympho":["交响乐","物","sympho"],"quartet":["四重奏","物","quartet"],"prelude":["前奏","物","prelude"],"canvas":["画布","物","canvas"],"pigment":["颜料","物","pigment"],"palette":["调色板","物","palette"],"brush":["画笔","物","brush"],"easel":["画架","物","easel"],"sketch":["速写","物","sketch"],"portra":["肖像","物","portra"],"landscape":["风景","物","landscape"],"mural":["壁画","物","mural"],"fresco":["湿壁画","物","fresco"],"engrav":["版画","物","engrav"],"etch":["蚀刻","物","etch"],"lithog":["石版","物","lithog"],"woodcu":["木刻","物","woodcu"],"relie":["浮雕","物","relie"],"bust":["胸像","物","bust"],"medall":["像章","物","medall"],"gallery":["画廊","物","gallery"],"exhib":["展览","物","exhib"],"curator":["策展人","物","curator"],"aesthe":["美学","物","aesthe"],"perspe":["透视","物","perspe"],"symmetry":["对称","物","symmetry"],"contrast":["对比","物","contrast"],"tinct":["淡色","物","tinct"],"phonet":["语音学","物","phonet"],"phonol":["音系学","物","phonol"],"morpho":["形态学","物","morpho"],"pragma":["语用","物","pragma"],"sociole":["社会方言","物","sociole"],"pictog":["象形","物","pictog"],"ideog":["表意","物","ideog"],"alphabet":["字母表","物","alphabet"],"graphem":["字素","物","graphem"],"alloph":["音位变体","物","alloph"],"prefix":["前缀","物","prefix"],"suffix":["后缀","物","suffix"],"infix":["中缀","物","infix"],"stem":["词干","物","stem"],"lexem":["词位","物","lexem"],"paradigm":["词形变化","物","paradigm"],"declension":["变格","物","declension"],"conjug":["变位","物","conjug"],"congru":["一致","物","congru"],"casus":["格","物","casus"],"aspect":["体","物","aspect"],"transla":["翻译","物","transla"],"transcr":["转写","物","transcr"],"translit":["音译","物","translit"],"orthogr":["正字法","物","orthogr"],"guilt":["内疚","性","guilt"],"superb":["骄傲","性","superb"],"zel":["妒羡","性","zel"],"resent":["怨恨","性","resent"],"rabi":["暴怒","性","rabi"],"furia":["狂怒","性","furia"],"wrath":["盛怒","性","wrath"],"scorn":["蔑视","性","scorn"],"dread":["畏惧","性","dread"],"panic":["恐慌","性","panic"],"shock":["震惊","性","shock"],"surpr":["惊讶","性","surpr"],"amaze":["惊异","性","amaze"],"awe":["敬畏","性","awe"],"rever":["敬仰","性","rever"],"nostal":["怀旧","性","nostal"],"grief":["哀痛","性","grief"],"optimis":["乐观","性","optimis"],"pessim":["悲观","性","pessim"],"conten":["满足","性","conten"],"embarr":["尴尬","性","embarr"],"confid":["自信","性","confid"],"ecsta":["狂喜","性","ecsta"],"euphor":["欣快","性","euphor"],"irrita":["烦躁","性","irrita"],"vision":["视觉","性","vision"],"audit":["听觉","性","audit"],"somato":["躯体感觉","性","somato"],"nocice":["痛觉","性","nocice"],"thermo":["温觉","性","thermo"],"proprio":["本体觉","性","proprio"],"stimulus":["刺激","性","stimulus"],"threshold":["阈","性","threshold"],"sensit":["敏感","性","sensit"],"habitu":["习惯化","性","habitu"],"illusion":["错觉","性","illusion"],"halluc":["幻觉","性","halluc"],"bright":["亮度","性","bright"],"loudn":["响度","性","loudn"],"reverb":["混响","性","reverb"],"synest":["通感","性","synest"],"kinest":["动觉","性","kinest"],"apperc":["统觉","性","apperc"],"recogn":["识别","性","recogn"],"identif":["辨认","性","identif"],"orient":["定向","性","orient"],"vestibul":["前庭觉","性","vestibul"],"sensor":["传感器","性","sensor"],"rostr":["喙","物","rostr"],"ala":["翼","物","ala"],"ungul":["蹄","物","ungul"],"caud":["尾","物","caud"],"iub":["鬃","物","iub"],"vell":["毛皮","物","vell"],"antenna":["触角","物","antenna"],"branchi":["鳃","物","branchi"],"nid":["巢","物","nid"],"hibern":["冬眠","物","hibern"],"rumin":["反刍","物","rumin"],"predat":["捕食","物","predat"],"pinna":["鳍","物","pinna"],"squam":["鳞","物","squam"],"crist":["冠羽","物","crist"],"gregar":["群居","物","gregar"],"carniv":["食肉","物","carniv"],"herbiv":["食草","物","herbiv"],"omniv":["杂食","物","omniv"],"larva":["幼体","物","larva"],"pupa":["蛹","物","pupa"],"nymph":["若虫","物","nymph"],"cocon":["茧","物","cocon"],"chrysal":["蛹壳","物","chrysal"],"plumag":["羽衣","物","plumag"],"caul":["茎","物","caul"],"gemin":["叶芽","物","gemin"],"flosc":["花冠","物","flosc"],"petal":["花瓣","物","petal"],"stamen":["雄蕊","物","stamen"],"pistil":["雌蕊","物","pistil"],"perica":["果皮","物","perica"],"testac":["种皮","物","testac"],"radicul":["须根","物","radicul"],"tuber":["块茎","物","tuber"],"viticul":["藤蔓","物","viticul"],"decidu":["落叶","物","decidu"],"semperv":["常绿","物","semperv"],"pollin":["花粉","物","pollin"],"insit":["嫁接","物","insit"],"propag":["扦插","物","propag"],"putat":["修剪","物","putat"],"tepidar":["温室","物","tepidar"],"pomari":["果园","物","pomari"],"hortul":["菜圃","物","hortul"],"seminari":["苗圃","物","seminari"],"stercor":["施肥","物","stercor"],"herbic":["除草","物","herbic"],"frond":["叶丛","物","frond"],"bulb":["鳞茎","物","bulb"],"platea":["街道","物","platea"],"angipo":["巷","物","angipo"],"forum":["广场","物","forum"],"porta":["城门","物","porta"],"dok":["码头","物","dok"],"pharos":["灯塔","物","pharos"],"fontan":["喷泉","物","fontan"],"monument":["纪念碑","物","monument"],"macell":["市场","物","macell"],"officina":["作坊","物","officina"],"arena":["竞技场","物","arena"],"aquaed":["水渠","物","aquaed"],"cloaca":["下水道","物","cloaca"],"lantern":["路灯","物","lantern"],"puteus":["水井","物","puteus"],"campan":["钟楼","物","campan"],"ergast":["牢房","物","ergast"],"teloni":["海关","物","teloni"],"cancell":["栅栏","物","cancell"],"paviment":["铺面","物","paviment"],"crepidin":["路缘","物","crepidin"],"suggest":["讲坛","物","suggest"],"basilica":["会堂","物","basilica"],"thermae":["浴场","物","thermae"],"hippodro":["跑马场","物","hippodro"],"mensula":["小桌","物","mensula"],"scamnum":["长凳","物","scamnum"],"lectulus":["卧榻","物","lectulus"],"pluteus":["壁架","物","pluteus"],"calathus":["花篮","物","calathus"],"patina":["盘","物","patina"],"catillus":["碟","物","catillus"],"urceus":["壶","物","urceus"],"olla":["锅","物","olla"],"cacabus":["炖锅","物","cacabus"],"foculus":["小炉","物","foculus"],"furca":["叉","物","furca"],"cochlear":["勺","物","cochlear"],"bacill":["小棒、筷","物","bacill"],"forfex":["剪","物","forfex"],"situla":["桶","物","situla"],"ampulla":["瓶","物","ampulla"],"candela":["烛台","物","candela"],"pelvis":["盆","物","pelvis"],"labrum":["洗涤盆","物","labrum"],"mappa":["餐巾","物","mappa"],"abacus":["算盘","物","abacus"],"tintin":["铃","物","tintin"],"scrinium":["卷箱","物","scrinium"],"capsula":["小盒","物","capsula"],"ablut":["盥洗","动","ablut"],"lotio":["洗涤","动","lotio"],"ters":["擦拭","动","ters"],"purgat":["打扫","动","purgat"],"compo":["整理","动","compo"],"sarci":["缝补","动","sarci"],"fod":["挖掘","动","fod"],"cumul":["堆叠","动","cumul"],"suspend":["悬挂","动","suspend"],"accend":["点燃","动","accend"],"extingu":["熄灭","动","extingu"],"haur":["舀取","动","haur"],"pensa":["称量","动","pensa"],"involv":["包裹","动","involv"],"fasc":["捆扎","动","fasc"],"sterna":["铺展","动","sterna"],"volv":["卷起","动","volv"],"scop":["扫帚","动","scop"],"verrit":["清扫","动","verrit"],"deterg":["去污","动","deterg"],"laxa":["放松","动","laxa"],"quiesc":["歇息","动","quiesc"],"suscit":["唤醒","动","suscit"],"pervig":["守夜","动","pervig"],"famul":["侍奉","动","famul"],"incumb":["俯身","动","incumb"],"genu":["跪","动","genu"],"serpo":["爬行","动","serpo"],"volut":["翻滚","动","volut"],"levat":["举起","动","levat"],"iact":["抛掷","动","iact"],"excip":["接住","动","excip"],"vellic":["拧捏","动","vellic"],"calcat":["踩踏","动","calcat"],"alapa":["拍打","动","alapa"],"calcitr":["踢","动","calcitr"],"gest":["扛抬","动","gest"],"innu":["点头示意","动","innu"],"renu":["摇头拒绝","动","renu"],"suffl":["吹气","动","suffl"],"sibil":["吹哨","动","sibil"],"scalpt":["搔","动","scalpt"],"tunde":["捶打","动","tunde"],"nut":["摆动","动","nut"],"titub":["踉跄","动","titub"],"claudic":["跛行","动","claudic"],"gress":["迈步","动","gress"],"sess":["坐姿","动","sess"],"fricat":["揉搓","动","fricat"],"laevis":["平滑","性","laevis"],"crepit":["噼啪","性","crepit"],"strid":["刺耳","性","strid"],"murmur":["低语声","性","murmur"],"susurr":["窸窣","性","susurr"],"fragr":["芬芳","性","fragr"],"putid":["恶臭","性","putid"],"sapid":["有味","性","sapid"],"insuls":["无味","性","insuls"],"squal":["污秽","性","squal"],"limpid":["清澈","性","limpid"],"turbid":["浑浊","性","turbid"],"lucid":["明亮","性","lucid"],"tenebr":["幽暗","性","tenebr"],"pallid":["苍白","性","pallid"],"ferrugin":["铁锈色","性","ferrugin"],"ianthin":["紫罗兰色","性","ianthin"],"punic":["绛红","性","punic"],"smaragd":["翠绿","性","smaragd"],"sapphir":["天蓝","性","sapphir"],"amethyst":["紫晶","性","amethyst"],"ochr":["赭石","性","ochr"],"miniat":["朱红","性","miniat"],"nive":["雪白","性","nive"],"fulgid":["闪耀","性","fulgid"],"primav":["早春","物","primav"],"hiem":["严冬","物","hiem"],"canic":["伏天","物","canic"],"nival":["降雪","物","nival"],"pluvial":["雨季","物","pluvial"],"siccit":["旱季","物","siccit"],"aestiv":["夏令","物","aestiv"],"vernal":["春令","物","vernal"],"nubos":["多云","物","nubos"],"fulmin":["打雷","物","fulmin"],"grandin":["下雹","物","grandin"],"pruin":["结霜","物","pruin"],"roran":["降露","物","roran"],"calig":["雾霭","物","calig"],"flatus":["阵风","物","flatus"],"afflat":["吹拂","物","afflat"],"imbrif":["多雨","物","imbrif"],"gelid":["严寒","物","gelid"],"tepor":["微温","物","tepor"],"umbrat":["荫凉","物","umbrat"],"apric":["向阳","物","apric"],"roscid":["带露","物","roscid"],"nimbos":["阴云","物","nimbos"],"ventos":["多风","物","ventos"],"frigor":["寒气","物","frigor"],"vehicul":["车辆","物","vehicul"],"carpent":["车架","物","carpent"],"cisi":["轻车","物","cisi"],"essed":["战车","物","essed"],"carruc":["篷车","物","carruc"],"lectic":["肩舆","物","lectic"],"stiva":["车辕","物","stiva"],"temo":["车辕","物","temo"],"canth":["轮辋","物","canth"],"modiol":["轮毂","物","modiol"],"iugum":["轭","物","iugum"],"habena":["缰绳","物","habena"],"fren":["马嚼","物","fren"],"mutat":["换马","物","mutat"],"tabell":["信使","物","tabell"],"rheda":["四轮车","物","rheda"],"clabul":["货车","物","clabul"],"remig":["划桨","物","remig"],"velific":["扬帆","物","velific"],"navig":["航行","物","navig"],"prora":["船首","物","prora"],"puppis":["船尾","物","puppis"],"malus":["桅","物","malus"],"antemna":["帆桁","物","antemna"],"rudens":["缆绳","物","rudens"],"venalic":["贩卖","物","venalic"],"auctio":["拍卖","物","auctio"],"licitat":["竞价","物","licitat"],"campon":["店主","物","campon"],"propola":["零售商","物","propola"],"sector":["囤积者","物","sector"],"argentar":["钱庄","物","argentar"],"mensari":["兑换商","物","mensari"],"trapezit":["钱商","物","trapezit"],"syngraph":["借据","物","syngraph"],"apocha":["收据","物","apocha"],"portitor":["承运人","物","portitor"],"naulum":["运费","物","naulum"],"vectura":["运输","物","vectura"],"mercim":["货物","物","mercim"],"promptuar":["货栈","物","promptuar"],"apotheca":["货仓","物","apotheca"],"empori":["商埠","物","empori"],"redempt":["赎买","物","redempt"],"redemptor":["承包人","物","redemptor"],"locator":["出租人","物","locator"],"fructuar":["收益人","物","fructuar"],"impensa":["开销","物","impensa"],"sumptus":["费用","物","sumptus"],"lucellum":["小利","物","lucellum"],"satio":["播种","动","satio"],"plantat":["栽种","动","plantat"],"sarri":["除草","动","sarri"],"runca":["拔草","动","runca"],"mess":["收割","动","mess"],"tritur":["脱粒","动","tritur"],"ventil":["扬谷","动","ventil"],"granar":["谷仓","物","granar"],"frug":["收成","物","frug"],"noval":["休耕地","物","noval"],"hiberna":["越冬","动","hiberna"],"pecuaria":["畜牧","动","pecuaria"],"mulctr":["挤奶","动","mulctr"],"tonsur":["剪毛","动","tonsur"],"veller":["羊毛","物","veller"],"apicul":["养蜂","动","apicul"],"sericu":["养蚕","动","sericu"],"vivarium":["养殖场","物","vivarium"],"compasc":["共牧","动","compasc"],"clausur":["围圈","动","clausur"],"olivet":["橄榄园","物","olivet"],"viridari":["花园","物","viridari"],"rosari":["玫瑰园","物","rosari"],"herbari":["草药园","物","herbari"],"falc":["镰刀","物","falc"],"figul":["陶工","动","figul"],"coctur":["烧制","动","coctur"],"emal":["珐琅","动","emal"],"frit":["釉料","动","frit"],"vitrif":["成玻璃","动","vitrif"],"fusor":["铸工","动","fusor"],"flatil":["吹制","动","flatil"],"politor":["磨工","动","politor"],"fullon":["漂洗工","动","fullon"],"ting":["染色","动","ting"],"textrin":["织坊","动","textrin"],"netr":["纺纱","动","netr"],"lanific":["毛纺","动","lanific"],"pellio":["皮匠","动","pellio"],"coriar":["制革","动","coriar"],"sarcinat":["缝补匠","动","sarcinat"],"sutrin":["鞋匠铺","动","sutrin"],"scob":["木屑","动","scob"],"rasur":["刨花","动","rasur"],"torn":["旋削","动","torn"],"caelam":["錾刻","动","caelam"],"bractea":["金箔","动","bractea"],"murex":["骨螺紫","动","murex"],"purpurar":["染坊","动","purpurar"],"lanari":["毛织工","动","lanari"],"sphygm":["脉搏","动","sphygm"],"arteri":["动脉","动","arteri"],"medull":["骨髓","动","medull"],"tendin":["肌腱","动","tendin"],"articul":["关节","动","articul"],"cartilag":["软骨","动","cartilag"],"ligament":["韧带","动","ligament"],"glandul":["腺","动","glandul"],"splen":["脾","动","splen"],"vesic":["膀胱","动","vesic"],"ureter":["输尿管","动","ureter"],"phleb":["静脉","动","phleb"],"gangli":["神经节","动","gangli"],"synaps":["突触","动","synaps"],"neuron":["神经元","动","neuron"],"cerebr":["大脑","动","cerebr"],"cerebell":["小脑","动","cerebell"],"lymph":["淋巴","动","lymph"],"serum":["血清","动","serum"],"plasma":["血浆","动","plasma"],"hormon":["激素","动","hormon"],"enzym":["酶","动","enzym"],"vitamin":["维生素","动","vitamin"],"febrif":["退热","动","febrif"],"sedat":["镇静","动","sedat"],"expect":["期待","性","expect"],"disapp":["失望","性","disapp"],"paenit":["后悔","性","paenit"],"haesit":["犹豫","性","haesit"],"destin":["决意","性","destin"],"confirm":["确认","性","confirm"],"trepid":["慌乱","性","trepid"],"solac":["慰藉","性","solac"],"cruci":["煎熬","性","cruci"],"animat":["振作","性","animat"],"despond":["消沉","性","despond"],"elat":["得意","性","elat"],"abject":["自弃","性","abject"],"pudibund":["羞怯","性","pudibund"],"aequanim":["平静","性","aequanim"],"perturb":["烦乱","性","perturb"],"concitat":["激动","性","concitat"],"langu":["倦怠","性","langu"],"alacr":["振奋","性","alacr"],"indign":["愤慨","性","indign"],"obsequ":["顺从","性","obsequ"],"contumac":["倔强","性","contumac"],"impavid":["无畏","性","impavid"],"exsult":["雀跃","性","exsult"],"lament":["哀叹","性","lament"],"congrat":["道贺","动","congrat"],"invit":["邀请","动","invit"],"epul":["宴飨","动","epul"],"propin":["敬酒","动","propin"],"officios":["殷勤","动","officios"],"comitat":["礼让","动","comitat"],"urbanit":["文雅","动","urbanit"],"rusticit":["粗鲁","动","rusticit"],"assent":["附和","动","assent"],"obtrect":["贬损","动","obtrect"],"maledict":["咒骂","动","maledict"],"congress":["会面","动","congress"],"conloq":["交谈","动","conloq"],"sermocin":["闲谈","动","sermocin"],"facet":["诙谐","动","facet"],"conviva":["同席","动","conviva"],"familiar":["亲近","动","familiar"],"gratios":["承欢","动","gratios"],"obviam":["迎候","动","obviam"],"deduct":["送行","动","deduct"],"prosequ":["送别","动","prosequ"],"sectat":["随从","动","sectat"],"assect":["侍从","动","assect"],"lepor":["风趣","动","lepor"],"comis":["和蔼","动","comis"],"cacumen":["山峰","物","cacumen"],"cliv":["山坡","物","cliv"],"convall":["峡谷","物","convall"],"antrum":["洞穴","物","antrum"],"spelunc":["岩洞","物","spelunc"],"cataract":["瀑布","物","cataract"],"torren":["急流","物","torren"],"tundr":["冻原","物","tundr"],"crater":["火山口","物","crater"],"fumarol":["喷气孔","物","fumarol"],"scatebr":["泉源","物","scatebr"],"rup":["峭壁","物","rup"],"moles":["巨岩","物","moles"],"cautes":["礁石","物","cautes"],"scopul":["礁岩","物","scopul"],"dune":["沙丘","物","dune"],"loam":["壤土","物","loam"],"marl":["泥灰","物","marl"],"peat":["泥炭","物","peat"],"bog":["泥沼","物","bog"],"moor":["荒沼","物","moor"],"heath":["石南荒原","物","heath"],"steppe":["草原","物","steppe"],"savanna":["稀树草原","物","savanna"],"jungle":["丛林","物","jungle"],"administr":["行政","物","administr"],"regim":["政体","物","regim"],"rescript":["敕答","物","rescript"],"diplom":["文书","物","diplom"],"codicill":["附敕","物","codicill"],"formul":["程式","物","formul"],"procurat":["代理","物","procurat"],"praefec":["长官署","物","praefec"],"proconsul":["总督","物","proconsul"],"internunt":["中介","物","internunt"],"praetori":["禁卫","物","praetori"],"comitatus":["随从","物","comitatus"],"scrini":["档案库","物","scrini"],"magistrat":["官职","物","magistrat"],"quaestur":["财务官署","物","quaestur"],"censur":["监察职","物","censur"],"tribunat":["护民官职","物","tribunat"],"consulat":["执政官职","物","consulat"],"dictatur":["独裁职","物","dictatur"],"princeps":["元首","物","princeps"],"equester":["骑士阶","物","equester"],"apparit":["侍从官","物","apparit"],"lictor":["扈从","物","lictor"],"lis":["诉讼","动","lis"],"controvers":["争讼","动","controvers"],"cognitio":["审理","动","cognitio"],"testimon":["证言","动","testimon"],"pandect":["法典","动","pandect"],"digest":["汇纂","动","digest"],"institut":["法学阶梯","动","institut"],"novell":["新敕","动","novell"],"supplic":["请愿","动","supplic"],"intercess":["异议","动","intercess"],"veto":["否决","动","veto"],"tribunic":["否决权","动","tribunic"],"cognitor":["诉讼代理人","动","cognitor"],"procurator":["代诉人","动","procurator"],"delator":["告发者","动","delator"],"vindex":["担保人","动","vindex"],"fideiussor":["保证人","动","fideiussor"],"hypothec":["抵押","动","hypothec"],"mancip":["要式买卖","动","mancip"],"nexum":["债务奴役","动","nexum"],"addict":["判归债主","动","addict"],"obnox":["负债","动","obnox"],"poenal":["刑罚的","动","poenal"],"exsil":["流放","动","exsil"],"deport":["放逐","动","deport"],"dimens":["尺寸","物","dimens"],"interstit":["间隙","物","interstit"],"ponder":["称重","物","ponder"],"cubat":["容积","物","cubat"],"convers":["换算","物","convers"],"scalae":["标尺","物","scalae"],"calibr":["校准","物","calibr"],"uncial":["一寸的","物","uncial"],"pedal":["一尺的","物","pedal"],"libral":["一磅的","物","libral"],"cyath":["杯量","物","cyath"],"sextar":["升量","物","sextar"],"hemin":["半升","物","hemin"],"choenix":["日粮量","物","choenix"],"medimn":["斗量","物","medimn"],"congius":["加仑量","物","congius"],"metric":["度量学","物","metric"],"geodes":["测地","物","geodes"],"hypsom":["测高","物","hypsom"],"thermom":["温度计","物","thermom"],"chronom":["精密计时","物","chronom"],"odomet":["计程","物","odomet"],"peramb":["测距轮","物","peramb"],"aequipond":["配重","物","aequipond"],"examen":["衡器","物","examen"],"sustent":["维系","物","sustent"],"pollut":["污染","物","pollut"],"contamin":["玷污","物","contamin"],"purific":["净化","物","purific"],"recycl":["循环","物","recycl"],"diversit":["多样","物","diversit"],"extinct":["灭绝","物","extinct"],"endang":["濒危","物","endang"],"sanctuar":["保护区","物","sanctuar"],"reserv":["保留","物","reserv"],"reforest":["再造林","物","reforest"],"afforest":["造林","物","afforest"],"drainag":["排水","物","drainag"],"desali":["脱盐","物","desali"],"fertil":["肥沃","物","fertil"],"saliniz":["盐渍化","物","saliniz"],"laterit":["红土","物","laterit"],"humif":["腐殖化","物","humif"],"compost":["堆肥","物","compost"],"conservat":["养护","物","conservat"],"parcim":["节约","物","parcim"],"frugal":["俭朴","物","frugal"],"sterilit":["贫瘠","物","sterilit"],"silvicul":["育林","物","silvicul"],"piscicul":["养鱼","物","piscicul"],"mola":["磨粉","物","mola"],"subig":["揉面","物","subig"],"elix":["熬煮","物","elix"],"acet":["醋","物","acet"],"gar":["鱼酱","物","gar"],"sapa":["浓浆","物","sapa"],"defrut":["果浆","物","defrut"],"salit":["腌渍","物","salit"],"fumig":["熏制","物","fumig"],"siccat":["风干","物","siccat"],"tost":["烘烤","物","tost"],"pins":["捣饼","物","pins"],"crust":["酥皮","物","crust"],"placen":["薄饼","物","placen"],"libum":["糕","物","libum"],"pulment":["羹","物","pulment"],"condim":["佐料","物","condim"],"cinnam":["肉桂","物","cinnam"],"zingib":["姜","物","zingib"],"passum":["果干","物","passum"],"must":["新酒","物","must"],"mulsum":["蜜酒","物","mulsum"],"lora":["淡酒","物","lora"],"amyl":["淀粉","物","amyl"],"gelat":["胶冻","物","gelat"],"collar":["衣领","物","collar"],"manic":["袖","物","manic"],"sinu":["衣褶","物","sinu"],"instita":["缘饰","物","instita"],"nodus":["纽结","物","nodus"],"sutur":["缝线","物","sutur"],"pannic":["衬里","物","pannic"],"chirot":["手套","物","chirot"],"tibial":["胫衣、袜","物","tibial"],"caligu":["长靴","物","caligu"],"sagum":["斗篷","物","sagum"],"paenul":["披风","物","paenul"],"perizo":["围裙","物","perizo"],"amicu":["披肩","物","amicu"],"velam":["面纱","物","velam"],"crinal":["簪","物","crinal"],"limbus":["缘带","物","limbus"],"clavus":["紫条纹","物","clavus"],"filum":["丝线","物","filum"],"fusus":["纺锤","物","fusus"],"pecten":["筘","物","pecten"],"tela":["织布","物","tela"],"mitra":["头巾","物","mitra"],"galer":["皮帽","物","galer"],"cucull":["兜帽","物","cucull"],"cortil":["庭院","物","cortil"],"pergul":["露台","物","pergul"],"clathr":["栏杆","物","clathr"],"luminar":["天窗","物","luminar"],"fumarium":["烟囱","物","fumarium"],"cellar":["地窖","物","cellar"],"tabulat":["阁楼","物","tabulat"],"equile":["马厩","物","equile"],"alveus":["水槽","物","alveus"],"peribol":["围墙","物","peribol"],"propyl":["门廊","物","propyl"],"tectorium":["灰泥","物","tectorium"],"culmen":["屋脊","物","culmen"],"fastig":["山墙","物","fastig"],"hypoca":["地暖","物","hypoca"],"lacunar":["藻井","物","lacunar"],"antefix":["檐饰","物","antefix"],"acrote":["山花饰","物","acrote"],"stylob":["台基","物","stylob"],"metopa":["间板","物","metopa"],"trigly":["三联槽","物","trigly"],"architr":["额枋","物","architr"],"zophor":["饰带","物","zophor"],"ambulac":["回廊","物","ambulac"],"xyst":["林荫道","物","xyst"],"frons":["额","物","frons"],"gena":["颊","物","gena"],"mentum":["颏","物","mentum"],"cervix":["颈","物","cervix"],"umerus":["肩","物","umerus"],"cubitus":["肘","物","cubitus"],"carpus":["腕","物","carpus"],"palma":["掌","物","palma"],"talus":["踝","物","talus"],"calcane":["踵","物","calcane"],"dorsum":["背","物","dorsum"],"lumbus":["腰","物","lumbus"],"costa":["肋","物","costa"],"pectus":["胸","物","pectus"],"clunis":["臀","物","clunis"],"guttur":["喉","物","guttur"],"pharynx":["咽","物","pharynx"],"superci":["眉","物","superci"],"cilium":["睫","物","cilium"],"pupilla":["瞳","物","pupilla"],"gingiva":["龈","物","gingiva"],"labium":["唇","物","labium"],"bucca":["口腔","物","bucca"],"naris":["鼻孔","物","naris"],"palatum":["腭","物","palatum"],"vepres":["荆棘","物","vepres"],"harundo":["芦苇","物","harundo"],"caries":["腐木","物","caries"],"sarment":["枯枝","物","sarment"],"ramale":["落枝","物","ramale"],"putamen":["果核","物","putamen"],"glans":["橡实","物","glans"],"cupula":["壳斗","物","cupula"],"volva":["菌托","物","volva"],"stipes":["菌柄","物","stipes"],"uligo":["湿地","物","uligo"],"calculus":["卵石","物","calculus"],"furfur":["麸皮","物","furfur"],"palea":["谷壳","物","palea"],"acervus":["堆","物","acervus"],"gemma":["花芽","物","gemma"],"turio":["嫩芽","物","turio"],"surculus":["新枝","物","surculus"],"stolo":["根蘖","物","stolo"],"flagell":["纤枝","物","flagell"],"capreo":["卷须","物","capreo"],"aculeus":["蜂刺","物","aculeus"],"ulva":["水草","物","ulva"],"carex":["苔草","物","carex"],"juncus":["灯芯草","物","juncus"],"fulgor":["闪光","物","fulgor"],"coruscat":["电光","物","coruscat"],"fulmen":["雷击","物","fulmen"],"stilla":["水珠","物","stilla"],"floccus":["雪片","物","floccus"],"ventulus":["微风","物","ventulus"],"flamen":["气流","物","flamen"],"jubar":["星辉","物","jubar"],"penumbra":["半影","物","penumbra"],"scintill":["闪烁","物","scintill"],"mic":["闪耀","物","mic"],"lucifer":["启明星","物","lucifer"],"noctiluc":["夜光","物","noctiluc"],"halitus":["薄雾","物","halitus"],"chasma":["云隙光","物","chasma"],"anthel":["幻日","物","anthel"],"parheli":["幻日","物","parheli"],"aureola":["光晕","物","aureola"],"serenum":["晴空","物","serenum"],"nubilum":["阴天","物","nubilum"],"occasus":["日落","物","occasus"],"ortus":["日出","物","ortus"],"contici":["夜深","物","contici"],"gallic":["鸡鸣时","物","gallic"],"dilucu":["破晓","物","dilucu"],"aequab":["沉稳","性","aequab"],"liberal":["慷慨","性","liberal"],"parc":["吝啬","性","parc"],"probit":["诚实","性","probit"],"fucat":["虚伪","性","fucat"],"fortitud":["勇敢","性","fortitud"],"ignav":["怯懦","性","ignav"],"indulg":["宽容","性","indulg"],"faceti":["幽默","性","faceti"],"serios":["严肃","性","serios"],"versut":["圆滑","性","versut"],"rigid":["耿直","性","rigid"],"suspic":["多疑","性","suspic"],"credul":["轻信","性","credul"],"frugi":["淡泊","性","frugi"],"abstin":["克己","性","abstin"],"intemp":["放纵","性","intemp"],"tenac":["坚韧","性","tenac"],"languid":["颓唐","性","languid"],"fervid":["热忱","性","fervid"],"frigid":["冷漠","性","frigid"],"mansuet":["温驯","性","mansuet"],"trucul":["凶横","性","trucul"],"moros":["乖僻","性","moros"],"scurril":["粗俗","性","scurril"],"consoci":["结社","物","consoci"],"convent":["聚会","物","convent"],"stipem":["募捐","物","stipem"],"discept":["辩论","物","discept"],"reclam":["抗议","物","reclam"],"interced":["调停","物","interced"],"exsequ":["履约","物","exsequ"],"spons":["担保","物","spons"],"mutuum":["赊欠","物","mutuum"],"exsolu":["清偿","物","exsolu"],"decoct":["破产","物","decoct"],"confus":["兼并","物","confus"],"foederat":["结盟","物","foederat"],"defect":["叛离","物","defect"],"secess":["分离","物","secess"],"coit":["联合","物","coit"],"conjur":["盟誓","物","conjur"],"tumult":["骚动","物","tumult"],"coercit":["弹压","物","coercit"],"proscr":["公敌宣告","物","proscr"],"confisc":["没收","物","confisc"],"multat":["罚款","物","multat"],"frument":["征粮","物","frument"],"compar":["比较","物","compar"],"perpens":["权衡","物","perpens"],"refut":["反驳","物","refut"],"conject":["推测","物","conject"],"temer":["臆断","物","temer"],"discern":["明辨","物","discern"],"confund":["混淆","物","confund"],"malint":["误解","物","malint"],"perspicu":["洞见","物","perspicu"],"recogit":["反思","物","recogit"],"excogit":["推敲","物","excogit"],"aestim":["审度","物","aestim"],"deliber":["抉择","物","deliber"],"select":["取舍","物","select"],"dijud":["辨析","物","dijud"],"sentisc":["体察","物","sentisc"],"compreh":["领悟","物","compreh"],"cognos":["参悟","物","cognos"],"praesag":["预判","物","praesag"],"retros":["回顾","物","retros"],"dubit":["质疑","物","dubit"],"notion":["概念","物","notion"],"examin":["审查","物","examin"],"fascic":["束","物","fascic"],"manip":["把、束","物","manip"],"corymb":["串","物","corymb"],"strues":["堆","物","strues"],"turba":["人群","物","turba"],"caterva":["队","物","caterva"],"globus":["团","物","globus"],"gutta":["滴","物","gutta"],"micul":["粒","物","micul"],"triens":["三分之一","物","triens"],"duplus":["双倍","物","duplus"],"triplus":["三倍","物","triplus"],"quadrupl":["四倍","物","quadrupl"],"nemo":["无人","物","nemo"],"quotus":["第几","物","quotus"],"tantun":["同量","物","tantun"],"quantul":["少许","物","quantul"],"tantil":["些微","物","tantil"],"aliquan":["若干","物","aliquan"],"singuli":["各一","物","singuli"],"bini":["每二","物","bini"],"terni":["每三","物","terni"],"seni":["每六","物","seni"],"viceni":["每二十","物","viceni"],"centeni":["每百","物","centeni"],"tremor":["震响","物","tremor"],"eruptio":["喷发","物","eruptio"],"lava":["熔岩","物","lava"],"inundat":["泛滥","物","inundat"],"alluvio":["冲积","物","alluvio"],"diluvies":["洪泛","物","diluvies"],"ariditas":["干旱","物","ariditas"],"turbo":["旋风","物","turbo"],"vortex":["漩涡","物","vortex"],"fissura":["裂缝","物","fissura"],"labes":["崩塌","物","labes"],"crepitus":["爆裂声","物","crepitus"],"sonitus":["轰鸣","物","sonitus"],"terraem":["地震","物","terraem"],"incend":["大火","物","incend"],"naufrag":["海难","物","naufrag"],"calamit":["灾祸","物","calamit"],"vorago":["深渊漩涡","物","vorago"],"barath":["深渊","物","barath"],"thorax":["胸甲","物","thorax"],"ocrea":["胫甲","物","ocrea"],"parma":["圆盾","物","parma"],"clypeus":["圆盾","物","clypeus"],"pugio":["短剑","物","pugio"],"sica":["曲剑","物","sica"],"spatha":["长剑","物","spatha"],"lancea":["长枪","物","lancea"],"tragula":["轻标枪","物","tragula"],"funda":["投石索","物","funda"],"insigne":["徽记","物","insigne"],"balteus":["腰带","物","balteus"],"verutum":["重标枪","物","verutum"],"matteris":["重矛","物","matteris"],"cateia":["战槌","物","cateia"],"caestus":["拳套","物","caestus"],"clava":["棍棒","物","clava"],"fustis":["短棍","物","fustis"],"contus":["长杆","物","contus"],"sarissa":["长矛","物","sarissa"],"romphae":["巨剑","物","romphae"],"bipennis":["双刃斧","物","bipennis"],"dolabra":["锛斧","物","dolabra"],"harpe":["弯刀","物","harpe"],"tormentum":["弩炮","物","tormentum"],"dominus":["主人、先生","物","dominus"],"domina":["女主人","物","domina"],"senior":["长者","物","senior"],"iunior":["晚辈","物","iunior"],"hospes":["客人","物","hospes"],"patronus":["恩主","物","patronus"],"collega":["同僚","物","collega"],"affinis":["姻亲","物","affinis"],"avuncu":["叔伯","物","avuncu"],"amita":["姑姨","物","amita"],"socer":["岳父","物","socer"],"socrus":["岳母","物","socrus"],"gener":["女婿","物","gener"],"nurus":["儿媳","物","nurus"],"levir":["夫兄","物","levir"],"privig":["继子","物","privig"],"vitricus":["继父","物","vitricus"],"noverca":["继母","物","noverca"],"comes":["侍从","物","comes"],"famulus":["仆从","物","famulus"],"ancilla":["婢女","物","ancilla"],"verna":["家生奴","物","verna"],"nutrix":["乳母","物","nutrix"],"tutor":["监护人","物","tutor"],"hospita":["女主人","物","hospita"],"statura":["身材","性","statura"],"procer":["高大","性","procer"],"pumilus":["矮小","性","pumilus"],"obesus":["肥胖","性","obesus"],"macilent":["瘦削","性","macilent"],"formos":["俊美","性","formos"],"deform":["丑陋","性","deform"],"robust":["健壮","性","robust"],"debilit":["衰弱","性","debilit"],"canus":["白发","性","canus"],"calvus":["秃顶","性","calvus"],"barbat":["有须","性","barbat"],"comat":["长发","性","comat"],"luscus":["独眼","性","luscus"],"claudus":["跛足","性","claudus"],"gibber":["驼背","性","gibber"],"strenuus":["矫健","性","strenuus"],"agilis":["灵巧","性","agilis"],"torosus":["肌肉发达","性","torosus"],"pallens":["苍白","性","pallens"],"rubens":["红润","性","rubens"],"stigma":["烙印","性","stigma"],"livor":["青紫","性","livor"],"vibex":["鞭痕","性","vibex"],"loquac":["多言","动","loquac"],"taciturn":["寡言","动","taciturn"],"argut":["巧辩","动","argut"],"blandil":["甜言","动","blandil"],"iura":["立誓","动","iura"],"cachinn":["大笑","动","cachinn"],"subrid":["微笑","动","subrid"],"gem":["呻吟","动","gem"],"eiul":["哀号","动","eiul"],"querul":["抱怨","动","querul"],"obtest":["恳求","动","obtest"],"obsecr":["哀求","动","obsecr"],"minit":["威胁","动","minit"],"increpit":["斥责","动","increpit"],"exprobr":["责难","动","exprobr"],"convic":["辱骂","动","convic"],"suggill":["讥讽","动","suggill"],"subsann":["嘲笑","动","subsann"],"dissent":["异议","动","dissent"],"peror":["陈词","动","peror"],"declam":["朗诵","动","declam"],"recit":["背诵","动","recit"],"pronun":["宣告","动","pronun"],"praelo":["开场白","动","praelo"],"epilog":["结语","动","epilog"],"incant":["吟唱施法","动","incant"],"excant":["解咒","动","excant"],"devov":["诅咒","动","devov"],"exsecr":["咒逐","动","exsecr"],"run":["符文","动","run"],"glyph":["刻符","动","glyph"],"tessera":["符牌","动","tessera"],"amulet":["护符","动","amulet"],"talisman":["法宝","动","talisman"],"philtrum":["迷药","动","philtrum"],"venefic":["施毒","动","venefic"],"malefic":["邪术","动","malefic"],"benefic":["善术","动","benefic"],"goet":["巫术","动","goet"],"magir":["法术","动","magir"],"sortil":["抽签占卜","动","sortil"],"abjur":["弃誓","动","abjur"],"adjur":["严令","动","adjur"],"imprec":["祈祸","动","imprec"],"deprec":["祈免","动","deprec"],"arcane":["秘传","动","arcane"],"esoter":["秘教","动","esoter"],"exoter":["显教","动","exoter"],"hierat":["圣职的","动","hierat"],"telet":["入教礼","动","telet"],"affix":["附着","动","affix"],"adhaer":["黏附","动","adhaer"],"concit":["激起","动","concit"],"impell":["驱动","动","impell"],"transmut":["嬗变","动","transmut"],"phaenom":["现象","动","phaenom"],"inhib":["抑制","动","inhib"],"amplif":["放大","动","amplif"],"attenu":["衰减","动","attenu"],"refract":["折射","动","refract"],"reflect":["反射","动","reflect"],"absorb":["吸收","动","absorb"],"emitt":["发射","动","emitt"],"diffus":["扩散","动","diffus"],"polar":["极性","动","polar"],"aether":["以太","动","aether"],"quinte":["第五元素","动","quinte"],"phlogist":["燃素","动","phlogist"],"mana":["玛那","动","mana"],"virtu":["德能","动","virtu"],"elan":["活力","动","elan"],"chakra":["脉轮","动","chakra"],"prana":["气","动","prana"],"telesm":["法器","动","telesm"],"arcanum":["奥秘","动","arcanum"],"illumin":["照亮","动","illumin"],"obscur":["使暗、蔽","动","obscur"],"lassit":["疲乏","动","lassit"],"palpit":["心悸","动","palpit"],"sudor":["汗","动","sudor"],"lacrima":["泪","动","lacrima"],"saliva":["唾液","动","saliva"],"mucus":["鼻涕","动","mucus"],"urina":["尿","动","urina"],"pulsus":["脉搏","动","pulsus"],"torpor":["麻木","动","torpor"],"rigor":["寒战","动","rigor"],"vigor":["精力","动","vigor"],"stamina":["耐力","动","stamina"],"sopor":["昏睡","动","sopor"],"letarg":["昏睡症","动","letarg"],"syncop":["晕厥","动","syncop"],"spasm":["痉挛","动","spasm"],"tetan":["强直","动","tetan"],"prurig":["痒症","动","prurig"],"rubor":["红肿","动","rubor"],"algid":["酷寒感","动","algid"],"aestumat":["燥热","动","aestumat"],"inedia":["绝食","动","inedia"],"crapula":["宿醉","动","crapula"],"ebriet":["醉酒","动","ebriet"],"aestus":["潮汐","物","aestus"],"access":["涨潮","物","access"],"recess":["落潮","物","recess"],"fluctus":["浪头","物","fluctus"],"brevia":["浅滩","物","brevia"],"canalis":["航道","物","canalis"],"navale":["船坞","物","navale"],"latera":["舷侧","物","latera"],"constrat":["甲板","物","constrat"],"saburra":["压舱","物","saburra"],"remex":["桨手","物","remex"],"gubernator":["舵手","物","gubernator"],"proreta":["领航","物","proreta"],"nautic":["航海术","物","nautic"],"acta":["海岸","物","acta"],"salum":["海涌","物","salum"],"pontus":["深海","物","pontus"],"aequor":["海面","物","aequor"],"remigi":["桨列","物","remigi"],"velum":["帆","物","velum"],"syrtic":["暗沙","物","syrtic"],"charyb":["大漩涡","物","charyb"],"scyll":["礁岩","物","scyll"],"harpax":["钩锚","物","harpax"],"sentina":["舱底污水","物","sentina"],"venabu":["猎矛","动","venabu"],"pedica":["捕兽夹","动","pedica"],"aucup":["捕鸟","动","aucup"],"sagena":["拖网","动","sagena"],"nassa":["鱼笼","动","nassa"],"indago":["围猎","动","indago"],"vestig":["追踪","动","vestig"],"latibu":["兽穴","动","latibu"],"spolium":["猎物皮","动","spolium"],"exuvi":["蜕壳","动","exuvi"],"collect":["采集","动","collect"],"baca":["浆果","动","baca"],"casses":["罗网","动","casses"],"plaga":["网罗","动","plaga"],"tendic":["绊索","动","tendic"],"decipula":["陷阱","动","decipula"],"fovea":["陷坑","动","fovea"],"cuspis":["矛尖","动","cuspis"],"esca":["诱饵","动","esca"],"illece":["诱物","动","illece"],"visci":["粘鸟胶","动","visci"],"trophae":["猎获纪念","动","trophae"],"aucupat":["捕鸟者","动","aucupat"],"venatric":["女猎手","动","venatric"],"decoqu":["熬煮","动","decoqu"],"excoqu":["煎干","动","excoqu"],"incoqu":["炖","动","incoqu"],"percoq":["炖烂","动","percoq"],"subfri":["微煎","动","subfri"],"inass":["入炉烤","动","inass"],"farc":["填料","动","farc"],"infund":["倾注","动","infund"],"perfund":["浇淋","动","perfund"],"asperg":["洒","动","asperg"],"consperg":["撒粉","动","consperg"],"inting":["蘸","动","inting"],"sorbill":["啜","动","sorbill"],"exsug":["吮","动","exsug"],"cremor":["浓汤","动","cremor"],"iuscul":["薄汤","动","iuscul"],"offula":["肉片","动","offula"],"sorbitio":["饮剂","动","sorbitio"],"frustum":["块","动","frustum"],"segmen":["片","动","segmen"],"buccel":["一口","动","buccel"],"daps":["盛宴","动","daps"],"ferculum":["菜肴","动","ferculum"],"oenopho":["酒器","动","oenopho"],"patella":["浅锅","动","patella"],"pens":["纺线","动","pens"],"colus":["纺锤杆","动","colus"],"carmin":["梳理","动","carmin"],"trama":["纬线","动","trama"],"subteg":["纬纱","动","subteg"],"licium":["综线","动","licium"],"insili":["经线","动","insili"],"mordant":["媒染","动","mordant"],"alumen":["明矾","动","alumen"],"coccum":["胭脂虫红","动","coccum"],"indig":["靛蓝","动","indig"],"glastum":["菘蓝","动","glastum"],"rubia":["茜草","动","rubia"],"crocus":["番红花","动","crocus"],"netrix":["纺女","动","netrix"],"fullonica":["漂洗坊","动","fullonica"],"tinctor":["染工","动","tinctor"],"calamis":["烫褶器","动","calamis"],"carbasum":["细麻","动","carbasum"],"polymita":["多色织物","动","polymita"],"plumat":["羽织","动","plumat"],"scutul":["方格纹","动","scutul"],"undulata":["波纹","动","undulata"],"gausapa":["绒面","动","gausapa"],"trilix":["三股线","动","trilix"],"domit":["驯服","动","domit"],"iug":["套轭","动","iug"],"mansue":["驯化","动","mansue"],"allig":["拴系","动","allig"],"admiss":["配种","动","admiss"],"fetus":["产仔","动","fetus"],"sagin":["育肥","动","sagin"],"castrat":["去势","动","castrat"],"inust":["烙印","动","inust"],"agit":["驱赶","动","agit"],"revoc":["唤回","动","revoc"],"stabul":["厩养","动","stabul"],"praese":["饲槽","动","praese"],"pabulum":["草料","动","pabulum"],"adaqu":["饮水","动","adaqu"],"sericar":["蚕室","动","sericar"],"alvear":["蜂箱","动","alvear"],"bubul":["牧牛人","动","bubul"],"opilio":["牧羊人","动","opilio"],"subulc":["牧猪人","动","subulc"],"equiso":["马夫","动","equiso"],"capistr":["笼头","动","capistr"],"fiscella":["草编食篮","动","fiscella"],"forceps":["钳","动","forceps"],"stimul":["刺棒","动","stimul"],"intue":["凝视","动","intue"],"conspic":["注视","动","conspic"],"adspect":["瞥见","动","adspect"],"limis":["斜视","动","limis"],"prospic":["远眺","动","prospic"],"perscrut":["细察","动","perscrut"],"scrut":["探究","动","scrut"],"auscult":["倾听","动","auscult"],"degust":["品尝","动","degust"],"attrect":["触摸","动","attrect"],"contrect":["抚弄","动","contrect"],"tent":["试探","动","tent"],"negleg":["忽略","动","negleg"],"contu":["打量","动","contu"],"subleg":["偷听","动","subleg"],"rim":["窥探","动","rim"],"obtut":["凝视","动","obtut"],"tuit":["注视","动","tuit"],"conniv":["闭眼","动","conniv"],"olfact":["嗅闻","动","olfact"],"contempl":["默观","动","contempl"],"persent":["觉察","动","persent"],"animad":["留意","动","animad"],"reper":["发现","动","reper"],"nutus":["颔首","动","nutus"],"renutus":["摇头","动","renutus"],"subrisus":["浅笑","动","subrisus"],"fletus":["哭泣","动","fletus"],"gemitus":["叹息","动","gemitus"],"suspir":["长叹","动","suspir"],"stupor":["呆滞","动","stupor"],"fremitus":["咬牙","动","fremitus"],"stridor":["咬牙声","动","stridor"],"torvi":["凶相","动","torvi"],"hilarit":["喜色","动","hilarit"],"tristit":["愁容","动","tristit"],"severit":["严厉神色","动","severit"],"verecun":["赧色","动","verecun"],"constan":["镇定","动","constan"],"iactant":["得意之色","动","iactant"],"fastus":["傲慢之色","动","fastus"],"maestit":["悲戚","动","maestit"],"habitus":["举止","动","habitus"],"gestus":["手势","动","gestus"],"incessus":["步态","动","incessus"],"facies":["面色","动","facies"],"exanim":["失色","动","exanim"],"gradior":["迈步","动","gradior"],"proper":["疾行","动","proper"],"lente":["缓行","动","lente"],"errab":["徘徊","动","errab"],"morat":["逗留","动","morat"],"substit":["驻足","动","substit"],"innit":["倚靠","动","innit"],"recumb":["斜倚","动","recumb"],"assid":["端坐","动","assid"],"procumb":["匍匐","动","procumb"],"result":["跃起","动","result"],"corrui":["栽倒","动","corrui"],"adrep":["匍匐而行","动","adrep"],"circumi":["环行","动","circumi"],"praegred":["先行","动","praegred"],"subsequ":["随行","动","subsequ"],"obambul":["踱步","动","obambul"],"deambul":["散步","动","deambul"],"contend":["疾奔","动","contend"],"festin":["赶路","动","festin"],"rept":["爬行","动","rept"],"sublim":["登高","动","sublim"],"nixus":["奋力","动","nixus"],"conat":["尝试","动","conat"],"tardig":["缓步","动","tardig"],"graveol":["浓臭","物","graveol"],"putor":["腐臭","物","putor"],"rancor":["哈喇味","物","rancor"],"nidor":["油烟味","物","nidor"],"sulf":["硫味","物","sulf"],"muria":["咸腥","物","muria"],"nardus":["甘松香","物","nardus"],"tus":["乳香","物","tus"],"myrrha":["没药","物","myrrha"],"balsam":["香膏","物","balsam"],"ambra":["龙涎香","物","ambra"],"mosch":["麝香","物","mosch"],"sandal":["檀香","物","sandal"],"camphor":["樟脑","物","camphor"],"thurib":["香炉","物","thurib"],"acerra":["香盒","物","acerra"],"suffim":["熏香","物","suffim"],"odoram":["香料","物","odoram"],"foetor":["恶臭","物","foetor"],"exhalat":["散出","物","exhalat"],"redol":["散发香气","物","redol"],"olens":["有气味的","物","olens"],"iners":["无味的","物","iners"],"flagran":["气味浓烈","物","flagran"],"dulcedo":["甘味","性","dulcedo"],"amaror":["苦味","性","amaror"],"salsedo":["咸味","性","salsedo"],"austerus":["涩","性","austerus"],"ponticus":["酸涩","性","ponticus"],"oleag":["油润","性","oleag"],"farinac":["粉质","性","farinac"],"friab":["酥脆","性","friab"],"crisp":["酥脆声","性","crisp"],"lentus":["黏韧","性","lentus"],"succulent":["多汁","性","succulent"],"vapidus":["走味","性","vapidus"],"insipidus":["无味","性","insipidus"],"apian":["蜜甜","性","apian"],"nauseos":["令人作呕","性","nauseos"],"fastidios":["倒胃","性","fastidios"],"saturit":["饱腻","性","saturit"],"mellitus":["蜜渍","性","mellitus"],"dulciar":["甜食","性","dulciar"],"bellaria":["甜点","性","bellaria"],"crustulum":["酥点","性","crustulum"],"libari":["糕点","性","libari"],"potulent":["饮品","性","potulent"],"esculent":["食品","性","esculent"],"nitor":["光泽","性","nitor"],"albedo":["皎白","性","albedo"],"nigredo":["黝黑","性","nigredo"],"rubedo":["赤红","性","rubedo"],"viridit":["翠绿","性","viridit"],"caerul":["蔚蓝","性","caerul"],"flavedo":["橙黄","性","flavedo"],"marmorat":["斑驳","性","marmorat"],"opacit":["不透明","性","opacit"],"transluc":["半透","性","transluc"],"perlucid":["透亮","性","perlucid"],"nitens":["润泽","性","nitens"],"levor":["光滑度","性","levor"],"asperit":["粗糙感","性","asperit"],"glabri":["无毛的","性","glabri"],"scabri":["凹凸","性","scabri"],"obscurit":["幽暗","性","obscurit"],"clarit":["明亮","性","clarit"],"colorat":["着色","性","colorat"],"luminesc":["发光","性","luminesc"],"phosphor":["磷光","性","phosphor"],"iridesc":["虹彩","性","iridesc"],"refulg":["返照","性","refulg"],"opert":["遮蔽","性","opert"],"reteg":["显露","性","reteg"],"sonor":["洪亮","性","sonor"],"clangor":["铿锵","性","clangor"],"tinnit":["耳鸣","性","tinnit"],"bombus":["嗡嗡","性","bombus"],"sibilus":["嘶声","性","sibilus"],"ululat":["嚎声","性","ululat"],"plausus":["掌声","性","plausus"],"modulat":["抑扬","性","modulat"],"canor":["旋律美","性","canor"],"disson":["不谐","性","disson"],"conson":["谐和","性","conson"],"fremor":["低沉声","性","fremor"],"raucit":["沙哑","性","raucit"],"arguti":["尖细","性","arguti"],"clariso":["清亮","性","clariso"],"obtusus":["闷响","性","obtusus"],"acut":["尖锐","性","acut"],"perstrep":["喧腾","性","perstrep"],"obstre":["嘈杂","性","obstre"],"stridul":["吱呀","性","stridul"],"modulam":["曲调","性","modulam"],"numeri":["节拍","性","numeri"],"sonorit":["响亮","性","sonorit"],"boatus":["牛鸣声","性","boatus"],"lentor":["黏滞","性","lentor"],"punctur":["刺痛","性","punctur"],"formicat":["发麻","性","formicat"],"ardor":["灼痛","性","ardor"],"morsus":["咬痛","性","morsus"],"pulsat":["搏动","性","pulsat"],"callosit":["茧","性","callosit"],"mollit":["柔软感","性","mollit"],"durit":["坚硬感","性","durit"],"scabies":["疥癣","性","scabies"],"papula":["丘疹","性","papula"],"pustula":["脓疱","性","pustula"],"torridus":["灼热","性","torridus"],"tepid":["微温","性","tepid"],"lubricus":["滑溜","性","lubricus"],"scaber":["粗糙面","性","scaber"],"rasilis":["光滑易磨","性","rasilis"],"mucor":["霉滑","性","mucor"],"scalpor":["刺痛感","性","scalpor"],"algidit":["寒冷","性","algidit"],"calidit":["温热","性","calidit"],"horrip":["起鸡皮","性","horrip"],"tormina":["绞痛","性","tormina"],"mordic":["刺痛","性","mordic"],"praecipi":["坠崖刑","物","praecipi"],"supplicium":["极刑","物","supplicium"],"crux":["十字刑","物","crux"],"flagrum":["鞭","物","flagrum"],"virga":["杖","物","virga"],"compes":["脚镣","物","compes"],"boiae":["项圈枷","物","boiae"],"metallum":["矿役","物","metallum"],"decoll":["斩首","物","decoll"],"patibu":["刑架","物","patibu"],"verber":["笞打","物","verber"],"talio":["同态复仇","物","talio"],"eculeus":["拷问架","物","eculeus"],"ungula":["钳烙","物","ungula"],"lamina":["烙铁","物","lamina"],"catasta":["刑台","物","catasta"],"manicae":["手铐","物","manicae"],"numella":["足枷","物","numella"],"cippus":["木枷","物","cippus"],"cruciat":["酷刑","物","cruciat"],"excarn":["凌迟","物","excarn"],"strangul":["绞杀","物","strangul"],"submer":["溺刑","物","submer"],"ustion":["火刑","物","ustion"],"mulcta":["罚金","物","mulcta"],"dot":["嫁妆","物","dot"],"thalamus":["婚房","物","thalamus"],"pronuba":["伴娘","物","pronuba"],"auspex":["证婚","物","auspex"],"taeda":["婚炬","物","taeda"],"confarr":["麦饼婚","物","confarr"],"repudium":["休婚","物","repudium"],"iustit":["国丧","物","iustit"],"lugubr":["丧服","物","lugubr"],"planctus":["捶胸哀哭","物","planctus"],"naenia":["挽歌","物","naenia"],"rogus":["火葬堆","物","rogus"],"bustum":["火葬场","物","bustum"],"sarcoph":["石棺","物","sarcoph"],"parental":["祭祖节","物","parental"],"inferiae":["祭亡","物","inferiae"],"novendi":["九日祭","物","novendi"],"silicer":["丧宴","物","silicer"],"iusta":["葬礼","物","iusta"],"elogium":["墓志铭","物","elogium"],"cunae":["摇篮","物","cunae"],"togavir":["成年袍","物","togavir"],"deductio":["迎亲","物","deductio"],"pompa":["仪仗","物","pompa"],"fasces":["权标","物","fasces"],"sors":["份额","物","sors"],"symbola":["分摊","物","symbola"],"collecta":["摊派","物","collecta"],"collatio":["凑份","物","collatio"],"pensita":["摊还","物","pensita"],"decuma":["什一税","物","decuma"],"centesi":["百分税","物","centesi"],"vicensi":["二十分税","物","vicensi"],"multa":["罚金","物","multa"],"manubi":["战利品","物","manubi"],"donativ":["赏赐","物","donativ"],"congiar":["赐粮","物","congiar"],"largitio":["赏赉","物","largitio"],"sortit":["抽签分配","物","sortit"],"adsigna":["分配","物","adsigna"],"attribu":["归属","物","attribu"],"dispens":["调度","物","dispens"],"erogat":["发放","物","erogat"],"ratioci":["核算","物","ratioci"],"expensum":["支出账","物","expensum"],"accept":["收入账","物","accept"],"collybus":["兑换率","物","collybus"],"fenerat":["放贷者","物","fenerat"],"peculi":["私产","物","peculi"],"ephipp":["马鞍","物","ephipp"],"stapes":["马镫","物","stapes"],"scutica":["鞭","物","scutica"],"crepida":["蹄铁","物","crepida"],"culcitra":["鞍褥","物","culcitra"],"cingulum":["肚带","物","cingulum"],"calcari":["马刺","物","calcari"],"sagma":["驮架","物","sagma"],"clitell":["驮鞍","物","clitell"],"lupatum":["马衔铁","物","lupatum"],"desultor":["马术师","物","desultor"],"veredus":["驿马","物","veredus"],"caballus":["驽马","物","caballus"],"sonipes":["蹄声马","物","sonipes"],"quadriga":["四马战车","物","quadriga"],"bige":["双马车","物","bige"],"hippoco":["马夫","物","hippoco"],"strator":["马夫","物","strator"],"parhipp":["副马","物","parhipp"],"faler":["马饰","物","faler"],"mulus":["骡","物","mulus"],"burdo":["役骡","物","burdo"],"iument":["役畜","物","iument"],"curso":["跑马","物","curso"],"equirr":["赛马节","物","equirr"],"astrag":["骰骨","动","astrag"],"scacc":["棋子","动","scacc"],"latrunc":["跳棋","动","latrunc"],"pila":["玩球","动","pila"],"harpast":["抢球戏","动","harpast"],"trigon":["三角球戏","动","trigon"],"certamen":["竞赛","动","certamen"],"palaest":["角力场","动","palaest"],"luctam":["角力","动","luctam"],"pancrat":["全能搏斗","动","pancrat"],"discus":["铁饼","动","discus"],"iaculum":["标枪","动","iaculum"],"funamb":["走索","动","funamb"],"praestig":["幻术","动","praestig"],"agon":["竞赛","动","agon"],"athlet":["竞技者","动","athlet"],"gymnic":["竞技的","动","gymnic"],"stadio":["竞走","动","stadio"],"diaul":["往返跑","动","diaul"],"coryc":["练拳袋","动","coryc"],"halter":["哑铃","动","halter"],"sphaeri":["球室","动","sphaeri"],"aleator":["赌徒","动","aleator"],"fritill":["骰筒","动","fritill"],"petaur":["跳板","动","petaur"],"ascesis":["苦修","物","ascesis"],"meditatio":["冥想","物","meditatio"],"ieiunium":["斋戒","物","ieiunium"],"litania":["连祷","物","litania"],"psalmus":["圣咏","物","psalmus"],"monachus":["修士","物","monachus"],"anacho":["隐修者","物","anacho"],"abbas":["院长","物","abbas"],"prioris":["女院长","物","prioris"],"novic":["初学生","物","novic"],"obedientia":["服从","物","obedientia"],"paupertas":["清贫","物","paupertas"],"castitas":["守贞","物","castitas"],"oratorium":["祈祷室","物","oratorium"],"cenobi":["团修院","物","cenobi"],"stupa":["塔庙","物","stupa"],"pagoda":["佛塔","物","pagoda"],"sangha":["僧团","物","sangha"],"bhikkhu":["比丘","物","bhikkhu"],"yogi":["瑜伽士","物","yogi"],"asana":["坐姿","物","asana"],"mantra":["真言","物","mantra"],"sutra":["经","物","sutra"],"dharma":["法理","物","dharma"],"karma":["业","物","karma"],"cephala":["头痛","物","cephala"],"odontal":["牙痛","物","odontal"],"arthrit":["关节炎","物","arthrit"],"podagra":["痛风","物","podagra"],"colic":["绞痛","物","colic"],"diarrh":["腹泻","物","diarrh"],"dysent":["痢疾","物","dysent"],"obstip":["便秘","物","obstip"],"lipoth":["昏厥","物","lipoth"],"convuls":["抽搐","物","convuls"],"paralys":["瘫痪","物","paralys"],"caecit":["失明","物","caecit"],"surdit":["耳聋","物","surdit"],"aphasia":["失语","物","aphasia"],"amnesia":["健忘","物","amnesia"],"icterus":["黄疸","物","icterus"],"hydrops":["水肿","物","hydrops"],"abscess":["脓肿","物","abscess"],"gangrae":["坏疽","物","gangrae"],"febricula":["低热","物","febricula"],"struma":["瘰疬","物","struma"],"variola":["天花","物","variola"],"morbill":["麻疹","物","morbill"],"scarlat":["猩红热","物","scarlat"],"diphthe":["白喉","物","diphthe"],"faex":["酒渣","动","faex"],"vinace":["葡萄渣","动","vinace"],"torcul":["压榨机","动","torcul"],"prelum":["榨机","动","prelum"],"lacus":["酒池","动","lacus"],"cupa":["酒桶","动","cupa"],"penus":["储粮","动","penus"],"silo":["地窖仓","动","silo"],"salitur":["腌藏","动","salitur"],"liquam":["鱼酱汁","动","liquam"],"conditu":["腌渍","动","conditu"],"carnar":["肉库","动","carnar"],"doliar":["桶匠","动","doliar"],"cupar":["桶匠","动","cupar"],"vindemia":["采葡萄","动","vindemia"],"torcular":["榨酒","动","torcular"],"caroen":["煮酒","动","caroen"],"oleari":["油商","动","oleari"],"vinari":["酒商","动","vinari"],"cetari":["鱼商","动","cetari"],"frigida":["冷藏室","动","frigida"],"carnifi":["屠宰场","动","carnifi"],"salsam":["腌鱼","动","salsam"],"salsur":["盐渍","动","salsur"],"fumos":["熏制的","动","fumos"],"discrim":["发缝","物","discrim"],"crinale":["发针","物","crinale"],"pulvis":["粉","物","pulvis"],"cerussa":["铅粉","物","cerussa"],"purpuris":["胭脂","物","purpuris"],"rubrica":["赭红","物","rubrica"],"stibi":["黛","物","stibi"],"unguent":["香膏","物","unguent"],"myrothe":["香油盒","物","myrothe"],"narthe":["药膏盒","物","narthe"],"tonstrin":["剃发铺","物","tonstrin"],"novacula":["剃刀","物","novacula"],"volsella":["镊","物","volsella"],"depil":["拔毛","物","depil"],"smegma":["擦身膏","物","smegma"],"strigilis":["刮身器","物","strigilis"],"sudator":["汗浴室","物","sudator"],"tepidarium":["温浴室","物","tepidarium"],"capilla":["发式","物","capilla"],"ciniflo":["烫发师","物","ciniflo"],"crinis":["发丝","物","crinis"],"collyr":["眼膏","物","collyr"],"psilot":["脱毛药","物","psilot"],"sapo":["皂","物","sapo"],"puella":["女孩","物","puella"],"parvul":["幼童","物","parvul"],"lactens":["乳儿","物","lactens"],"crepund":["摇铃","物","crepund"],"oscill":["小面具","物","oscill"],"turben":["陀螺","物","turben"],"trochus":["铁环","物","trochus"],"pilula":["小球","物","pilula"],"gerula":["育儿嫂","物","gerula"],"ludicrum":["玩物","物","ludicrum"],"crepitac":["摇响器","物","crepitac"],"rhombus":["陀螺","物","rhombus"],"lusus":["游戏","物","lusus"],"nugae":["琐戏","物","nugae"],"gerrae":["玩意儿","物","gerrae"],"inepti":["嬉闹","物","inepti"],"ludibrium":["笑柄玩物","物","ludibrium"],"puerilis":["稚气","物","puerilis"],"vagitus":["婴儿啼","物","vagitus"],"balbut":["咿呀","物","balbut"],"mammula":["儿语妈","物","mammula"],"pusio":["小男孩","物","pusio"],"pusa":["小女孩","物","pusa"],"paegnium":["玩物","物","paegnium"],"infantil":["幼儿的","物","infantil"],"vomer":["犁铧","物","vomer"],"dental":["犁齿","物","dental"],"raster":["耙","物","raster"],"sarcul":["锄","物","sarcul"],"bidens":["双齿锄","物","bidens"],"secula":["镰刀","物","secula"],"vannus":["簸箕","物","vannus"],"tribel":["脱粒器","物","tribel"],"pala":["铲","物","pala"],"rutrum":["锹","物","rutrum"],"ligo":["鹤嘴锄","物","ligo"],"marra":["大锄","物","marra"],"occator":["耙地者","物","occator"],"fossor":["掘土者","物","fossor"],"sator":["播种者","物","sator"],"messor":["收割者","物","messor"],"arator":["耕者","物","arator"],"putator":["修剪者","物","putator"],"fiscina":["草篮","物","fiscina"],"corbis":["粮筐","物","corbis"],"qualus":["篓","物","qualus"],"sporta":["篮筐","物","sporta"],"rutellum":["小锹","物","rutellum"],"marculus":["小锤","物","marculus"],"falcula":["小镰","物","falcula"],"officin":["匠人","物","officin"],"tegular":["瓦匠","物","tegular"],"dealba":["粉刷匠","物","dealba"],"scenogr":["布景师","物","scenogr"],"glutinat":["裱糊匠","物","glutinat"],"clavar":["锁匠","物","clavar"],"serrar":["锯匠","物","serrar"],"vitrar":["玻璃匠","物","vitrar"],"aurif":["金匠","物","aurif"],"argentari":["银器匠","物","argentari"],"lignar":["木匠","物","lignar"],"marmorar":["石匠","物","marmorar"],"calcinar":["烧灰匠","物","calcinar"],"laterar":["砖匠","物","laterar"],"fictor":["塑匠","物","fictor"],"ceropla":["蜡塑匠","物","ceropla"],"coronar":["花冠匠","物","coronar"],"unguentar":["香膏匠","物","unguentar"],"saponar":["制皂匠","物","saponar"],"armamentar":["兵器匠","物","armamentar"],"scutar":["盾匠","物","scutar"],"sellular":["椅匠","物","sellular"],"lecticar":["肩舆匠","物","lecticar"],"tornat":["旋工","物","tornat"],"limat":["锉工","物","limat"],"aula":["宫廷","物","aula"],"regia":["王宫","物","regia"],"palatium":["宫殿","物","palatium"],"thronus":["王座","物","thronus"],"diadema":["王冠","物","diadema"],"sceptrum":["权杖","物","sceptrum"],"infula":["绶带","物","infula"],"audientia":["觐见","物","audientia"],"admissio":["召见","物","admissio"],"salutat":["朝贺","物","salutat"],"processi":["仪仗游行","物","processi"],"nomencl":["唱名官","物","nomencl"],"cubicul":["侍寝官","物","cubicul"],"aulae":["宫人","物","aulae"],"sellacur":["象牙椅","物","sellacur"],"chlamys":["宫袍","物","chlamys"],"paludam":["元帅披风","物","paludam"],"cathedra":["宝座","物","cathedra"],"solium":["御座","物","solium"],"referen":["奏事官","物","referen"],"silentia":["静默官","物","silentia"],"castren":["宫廷总管","物","castren"],"sacella":["库官","物","sacella"],"ostiar":["门官","物","ostiar"],"decanus":["十人长","物","decanus"],"sollemn":["庆典","物","sollemn"],"circens":["竞技会","物","circens"],"saturnal":["农神节","物","saturnal"],"luperca":["牧神节","物","luperca"],"floral":["花神节","物","floral"],"compita":["路口节","物","compita"],"rosali":["玫瑰节","物","rosali"],"amburb":["绕城祭","物","amburb"],"muner":["角斗表演","物","muner"],"naumach":["海战表演","物","naumach"],"bacchan":["酒神节","物","bacchan"],"cereal":["谷神节","物","cereal"],"vestal":["灶神节","物","vestal"],"quirina":["市民节","物","quirina"],"fordici":["孕牛祭","物","fordici"],"ambarva":["田巡祭","物","ambarva"],"terminal":["界石节","物","terminal"],"regifug":["逐王节","物","regifug"],"nefast":["凶日","物","nefast"],"intercal":["闰月","物","intercal"],"vinali":["酒节","物","vinali"],"meditri":["新酒节","物","meditri"],"fontin":["泉节","物","fontin"],"robiga":["祛锈节","物","robiga"],"opali":["丰产节","物","opali"],"schedula":["小签","物","schedula"],"frontis":["扉页","物","frontis"],"praefat":["序言","物","praefat"],"prooemi":["绪论","物","prooemi"],"appendi":["附录","物","appendi"],"marginal":["页边注","物","marginal"],"scholi":["笺注","物","scholi"],"coloph":["题跋","物","coloph"],"explicit":["卷末题","物","explicit"],"incipit":["卷首题","物","incipit"],"quatern":["书帖","物","quatern"],"pugilla":["手札板","物","pugilla"],"diptych":["双折板","物","diptych"],"tripty":["三折板","物","tripty"],"polypty":["多折板","物","polypty"],"subscri":["卷末署名","物","subscri"],"bybl":["纸莎草芯","物","bybl"],"bombyci":["棉纸","物","bombyci"],"pumex":["磨纸石","物","pumex"],"commenta":["注记","物","commenta"],"diar":["日记","物","diar"],"adversa":["杂记","物","adversa"],"capitula":["敕令集","物","capitula"],"breviar":["节本","物","breviar"],"florileg":["花絮集","物","florileg"],"molitura":["磨粉","动","molitura"],"pistur":["舂米","动","pistur"],"cribrat":["筛粉","动","cribrat"],"subact":["揉面","动","subact"],"assatur":["炙烤","动","assatur"],"frictur":["油炸","动","frictur"],"infusio":["浸泡","动","infusio"],"macera":["浸渍","动","macera"],"torrefa":["焙炒","动","torrefa"],"pressur":["压榨","动","pressur"],"gelatio":["冻结","动","gelatio"],"mellif":["酿蜜","动","mellif"],"vinif":["酿酒","动","vinif"],"acetif":["酿醋","动","acetif"],"caseif":["制酪","动","caseif"],"panif":["制面包","动","panif"],"oleif":["榨油","动","oleif"],"saccharif":["制糖","动","saccharif"],"farinari":["磨坊主","动","farinari"],"molito":["磨坊主","动","molito"],"condito":["调味者","动","condito"],"salsamen":["腌鱼匠","动","salsamen"],"carnari":["肉贩","动","carnari"],"cisterna":["蓄水池","物","cisterna"],"rotaqua":["水车","物","rotaqua"],"molaaqu":["水磨","物","molaaqu"],"incile":["引水渠","物","incile"],"emissar":["排水道","物","emissar"],"colare":["滤水","物","colare"],"fistula":["水管","物","fistula"],"castella":["水塔","物","castella"],"hydraul":["水力机械","物","hydraul"],"noria":["水车","物","noria"],"aquilex":["找水人","物","aquilex"],"groma":["测角仪","物","groma"],"choroba":["水准仪","物","choroba"],"dioptra":["测角器","物","dioptra"],"puteal":["井栏","物","puteal"],"substruc":["基堤","物","substruc"],"fulcimen":["支柱","物","fulcimen"],"aquagi":["水道税","物","aquagi"],"navigi":["通航","物","navigi"],"ripa":["河岸","物","ripa"],"molendi":["磨坊","物","molendi"],"siphunc":["小管","物","siphunc"],"canalic":["小渠","物","canalic"],"aquari":["水工","物","aquari"],"librator":["水准测量员","物","librator"],"celox":["快船","物","celox"],"liburna":["轻帆船","物","liburna"],"triremis":["三列桨船","物","triremis"],"quinqueremis":["五列桨船","物","quinqueremis"],"actuaria":["快艇","物","actuaria"],"ponto":["平底船","物","ponto"],"scapha":["小艇","物","scapha"],"horia":["渔船","物","horia"],"onerari":["商船","物","onerari"],"longa":["战船","物","longa"],"lembus":["轻舟","物","lembus"],"cercur":["赛普勒斯船","物","cercur"],"catasco":["侦察船","物","catasco"],"hippago":["运马船","物","hippago"],"schedia":["筏","物","schedia"],"utricul":["皮筏","物","utricul"],"carabus":["柳条艇","物","carabus"],"nauclerus":["船主","物","nauclerus"],"celeus":["桨手长","物","celeus"],"apparat":["索具","物","apparat"],"anquina":["帆脚索","物","anquina"],"scalmus":["桨架","物","scalmus"],"tonsa":["桨叶","物","tonsa"],"portisc":["桨手歌者","物","portisc"],"hortat":["催桨者","物","hortat"],"madeo":["浸湿","动","madeo"],"madid":["湿透","动","madid"],"udus":["潮湿","动","udus"],"bulla":["水泡","动","bulla"],"spuma":["泡沫","动","spuma"],"merso":["沉没","动","merso"],"fluito":["漂浮","动","fluito"],"subsid":["下沉","动","subsid"],"emerg":["浮出","动","emerg"],"stillici":["滴水","动","stillici"],"proluvi":["冲积","动","proluvi"],"colluvi":["淤积","动","colluvi"],"manatio":["涌流","动","manatio"],"profluvi":["流出","动","profluvi"],"redunda":["溢出","动","redunda"],"exundat":["泛滥","动","exundat"],"irrigu":["灌区","动","irrigu"],"aquatio":["取水","动","aquatio"],"haurito":["汲水处","动","haurito"],"umecto":["润湿","动","umecto"],"roro":["降露","动","roro"],"pluo":["下雨","动","pluo"],"ningo":["下雪","动","ningo"],"madefac":["使湿","动","madefac"],"arefaci":["使干","动","arefaci"],"cymatium":["线脚","物","cymatium"],"capitellum":["柱头","物","capitellum"],"scamillus":["柱础","物","scamillus"],"anaglyph":["浮雕","物","anaglyph"],"polychr":["彩绘","物","polychr"],"encaust":["蜡画","物","encaust"],"opussect":["镶嵌石","物","opussect"],"crustat":["贴面","物","crustat"],"albari":["白灰","物","albari"],"signinum":["碎石地","物","signinum"],"lithost":["铺石","物","lithost"],"sectil":["拼花","物","sectil"],"sima":["檐口","物","sima"],"emblem":["镶嵌图","物","emblem"],"hypaeth":["露天顶","物","hypaeth"],"columnat":["列柱","物","columnat"],"peristy":["列柱中庭","物","peristy"],"strobil":["柱头卷叶","物","strobil"],"voluta":["涡卷","物","voluta"],"acanthus":["茛苕叶饰","物","acanthus"],"fasciola":["小带饰","物","fasciola"],"scotia":["凹圆线","物","scotia"],"mutulus":["檐下托块","物","mutulus"],"denticu":["齿饰","物","denticu"],"anthemion":["花饰","物","anthemion"],"campana":["钟","物","campana"],"crotalum":["响板","物","crotalum"],"sistrum":["叉铃","物","sistrum"],"pandura":["三弦","物","pandura"],"nablium":["竖琴","物","nablium"],"psalterium":["瑟","物","psalterium"],"hydraulus":["水力风琴","物","hydraulus"],"monaulus":["单管","物","monaulus"],"scabellum":["拍板","物","scabellum"],"melos":["曲调","物","melos"],"tonus":["调","物","tonus"],"choraul":["笛伴歌者","物","choraul"],"citharo":["琴歌者","物","citharo"],"auloed":["管歌者","物","auloed"],"tibicen":["笛手","物","tibicen"],"fidicen":["琴手","物","fidicen"],"symphon":["乐师","物","symphon"],"musicus":["乐人","物","musicus"],"cantor":["歌者","物","cantor"],"psaltes":["弹瑟者","物","psaltes"],"saltato":["舞者","物","saltato"],"exodium":["幕间剧","物","exodium"],"emboli":["插曲","物","emboli"],"minus":["哑剧","物","minus"],"atellana":["笑剧","物","atellana"],"tranquil":["安宁","性","tranquil"],"fiducia":["信赖","性","fiducia"],"formido":["惊惶","性","formido"],"angustia":["郁结","性","angustia"],"moeror":["悲恸","性","moeror"],"luctus":["哀恸","性","luctus"],"desider":["眷恋","性","desider"],"dedecus":["耻辱","性","dedecus"],"ignomin":["羞辱","性","ignomin"],"probrum":["丑行","性","probrum"],"blandimen":["柔情","性","blandimen"],"commotio":["激动","性","commotio"],"permotio":["情绪震动","性","permotio"],"turbatio":["烦乱","性","turbatio"],"abomina":["憎恶","性","abomina"],"detesta":["嫌恶","性","detesta"],"aversat":["反感","性","aversat"],"compunc":["悔恨","性","compunc"],"remors":["悔意","性","remors"],"querimo":["怨诉","性","querimo"],"complor":["哀号","性","complor"],"consolat":["慰藉","性","consolat"],"exhorta":["鼓励","性","exhorta"],"adhorta":["劝勉","性","adhorta"],"rotundus":["圆的","性","rotundus"],"quadratus":["方的","性","quadratus"],"oblongus":["长方的","性","oblongus"],"curvus":["弯的","性","curvus"],"flexuos":["曲折的","性","flexuos"],"sinuos":["蜿蜒的","性","sinuos"],"angulos":["多角的","性","angulos"],"striatus":["条纹的","性","striatus"],"maculos":["斑点的","性","maculos"],"globos":["球状的","性","globos"],"ovatus":["卵形的","性","ovatus"],"conic":["锥形的","性","conic"],"planus":["平的","性","planus"],"convexus":["凸的","性","convexus"],"concavus":["凹的","性","concavus"],"nodos":["多节的","性","nodos"],"sphaeric":["球面的","性","sphaeric"],"cubicus":["立方的","性","cubicus"],"triangul":["三角的","性","triangul"],"hexagon":["六角的","性","hexagon"],"acumina":["尖的","性","acumina"],"retusus":["钝的","性","retusus"],"hamatus":["钩状的","性","hamatus"],"serratus":["锯齿的","性","serratus"],"stellat":["星形的","性","stellat"],"sumo":["拿起","动","sumo"],"pono":["放下","动","pono"],"extraho":["拔出","动","extraho"],"imprimo":["压入","动","imprimo"],"compon":["对齐","动","compon"],"aequa":["弄平","动","aequa"],"hebeto":["弄钝","动","hebeto"],"acuo":["磨利","动","acuo"],"diruo":["拆毁","动","diruo"],"trado":["交付","动","trado"],"abdo":["藏匿","动","abdo"],"recond":["收藏","动","recond"],"promo":["取出","动","promo"],"repono":["放回","动","repono"],"eximo":["取出","动","eximo"],"erigo":["竖立","动","erigo"],"inclino":["倾斜","动","inclino"],"percuti":["敲击","动","percuti"],"ferio":["打击","动","ferio"],"verso":["翻动","动","verso"],"figo":["钉住","动","figo"],"infigo":["钉入","动","infigo"],"defigo":["钉牢","动","defigo"],"scindo":["劈开","动","scindo"],"findo":["裂开","动","findo"],"grand":["宏大","性","grand"],"ingen":["庞大","性","ingen"],"imman":["巨大","性","imman"],"enorm":["异常大","性","enorm"],"spatios":["宽敞","性","spatios"],"copios":["丰富","性","copios"],"abund":["丰裕","性","abund"],"larg":["丰盛","性","larg"],"profus":["充沛","性","profus"],"multip":["繁多","性","multip"],"numeros":["众多","性","numeros"],"frequens":["稠密","性","frequens"],"creber":["密集","性","creber"],"opim":["丰饶","性","opim"],"uber":["多产","性","uber"],"locupl":["富裕","性","locupl"],"sumptu":["奢华","性","sumptu"],"magnif":["宏伟","性","magnif"],"grandil":["豪言","性","grandil"],"august":["庄严","性","august"],"coloss":["巨型","性","coloss"],"titan":["巨擘","性","titan"],"gigan":["巨人的","性","gigan"],"prolix":["冗长","性","prolix"],"pusill":["微小","性","pusill"],"exigu":["稀少","性","exigu"],"minut":["细微","性","minut"],"subtil":["精细","性","subtil"],"modic":["适中","性","modic"],"infreq":["稀少","性","infreq"],"jejun":["贫瘠","性","jejun"],"inops":["贫乏","性","inops"],"egens":["匮乏","性","egens"],"indige":["短缺","性","indige"],"nugax":["琐屑","性","nugax"],"frivol":["琐碎","性","frivol"],"levid":["浅薄","性","levid"],"atomus":["微尘","性","atomus"],"puncil":["微小点","性","puncil"],"brevil":["简短","性","brevil"],"exili":["贫薄","性","exili"],"macer":["瘦瘠","性","macer"],"gracil":["纤细","性","gracil"],"angust":["狭窄","性","angust"],"arct":["紧窄","性","arct"],"strict":["收紧","性","strict"],"coarct":["压缩","性","coarct"],"contrac":["收缩","性","contrac"],"compres":["压缩","性","compres"],"velox":["迅捷","性","velox"],"pernix":["敏捷","性","pernix"],"ocior":["更快","性","ocior"],"praepes":["疾飞","性","praepes"],"rapid":["急速","性","rapid"],"vehem":["猛烈","性","vehem"],"incit":["疾行","性","incit"],"segnis":["迟缓","性","segnis"],"piger":["怠惰","性","piger"],"deses":["懒散","性","deses"],"morosus":["拖延","性","morosus"],"cunct":["迟缓","性","cunct"],"remora":["迟延","性","remora"],"praecep":["急促","性","praecep"],"subitus":["突然","性","subitus"],"repens":["突兀","性","repens"],"extemp":["立刻","性","extemp"],"seroti":["迟来","性","seroti"],"praecox":["早熟","性","praecox"],"assidu":["不间断","性","assidu"],"morato":["拖延者","性","morato"],"cuncta":["拖延者","性","cuncta"],"pernici":["迅疾","性","pernici"],"propera":["仓促","性","propera"],"valid":["强壮","性","valid"],"nervos":["有力","性","nervos"],"lacert":["健硕","性","lacert"],"praepot":["至强","性","praepot"],"opulen":["富力","性","opulen"],"infirm":["病弱","性","infirm"],"fragil":["易碎","性","fragil"],"caduc":["易倒","性","caduc"],"enerv":["无力","性","enerv"],"effetus":["衰竭","性","effetus"],"marcid":["萎弱","性","marcid"],"tabid":["消耗","性","tabid"],"valetud":["多病","性","valetud"],"praeval":["占优","性","praeval"],"superan":["超越","性","superan"],"invictus":["不败","性","invictus"],"impoten":["无力","性","impoten"],"invalid":["无力","性","invalid"],"tenellus":["娇弱","性","tenellus"],"delica":["娇弱","性","delica"],"fessus":["疲惫","性","fessus"],"lassus":["疲倦","性","lassus"],"defess":["精疲力竭","性","defess"],"exhaus":["耗竭","性","exhaus"],"confect":["衰颓","性","confect"],"specio":["华美","性","specio"],"decor":["雅致","性","decor"],"elegan":["优雅","性","elegan"],"comptus":["修饰","性","comptus"],"lautus":["精美","性","lautus"],"concinn":["工巧","性","concinn"],"lepid":["风趣","性","lepid"],"amabil":["可爱","性","amabil"],"suavis":["甘美","性","suavis"],"taeter":["丑恶","性","taeter"],"horrid":["粗陋","性","horrid"],"monstros":["怪异","性","monstros"],"pulchel":["秀美","性","pulchel"],"splendid":["璀璨","性","splendid"],"eximi":["卓异","性","eximi"],"insign":["非凡","性","insign"],"praest":["卓越","性","praest"],"mediocr":["平庸","性","mediocr"],"turpitu":["丑行","性","turpitu"],"foedit":["污秽","性","foedit"],"rutilus":["红艳","性","rutilus"],"florens":["繁盛","性","florens"],"vernan":["春意","性","vernan"],"ornat":["华饰","性","ornat"],"cultus":["修饰","性","cultus"],"fari":["言说","动","fari"],"effar":["宣说","动","effar"],"proloq":["吐露","动","proloq"],"alloq":["搭话","动","alloq"],"eloq":["陈说","动","eloq"],"interloq":["插话","动","interloq"],"obloq":["反驳","动","obloq"],"colloq":["交谈","动","colloq"],"refer":["转述","动","refer"],"enarr":["详述","动","enarr"],"expon":["陈述","动","expon"],"signifi":["表明","动","signifi"],"declar":["声明","动","declar"],"testari":["作证","动","testari"],"profit":["宣称","动","profit"],"asser":["主张","动","asser"],"inscrib":["题写","动","inscrib"],"adscrib":["附记","动","adscrib"],"edic":["颁布","动","edic"],"interdic":["禁止","动","interdic"],"praedic":["预告","动","praedic"],"dicax":["好讥讽","动","dicax"],"verbos":["冗言","动","verbos"],"garrul":["饶舌","动","garrul"],"facund":["雄辩","动","facund"],"aspic":["注视","动","aspic"],"circums":["环视","动","circums"],"respic":["回看","动","respic"],"despic":["轻视","动","despic"],"dispici":["辨认","动","dispici"],"inspic":["审视","动","inspic"],"perlust":["遍览","动","perlust"],"tueri":["守护看","动","tueri"],"exaud":["听清","动","exaud"],"obaud":["听从","动","obaud"],"inaud":["听闻","动","inaud"],"subaud":["听出","动","subaud"],"peraud":["听遍","动","peraud"],"oculat":["目击的","动","oculat"],"aurit":["有耳的","动","aurit"],"inspect":["细看","动","inspect"],"patul":["张开","动","patul"],"nosc":["认识","动","nosc"],"agnosc":["认出","动","agnosc"],"vener":["瞻仰","动","vener"],"ador":["敬拜","动","ador"],"aspecta":["凝望","动","aspecta"],"visere":["造访看","动","visere"],"invis":["探看","动","invis"],"revis":["重访","动","revis"],"provis":["预察","动","provis"],"capi":["抓取","动","capi"],"prend":["捉","动","prend"],"fero":["持运","动","fero"],"sustin":["托住","动","sustin"],"recipi":["接回","动","recipi"],"retin":["留住","动","retin"],"dimitt":["放开","动","dimitt"],"omitt":["略去","动","omitt"],"relinq":["留下","动","relinq"],"desere":["弃","动","desere"],"abici":["丢弃","动","abici"],"proici":["抛出","动","proici"],"mando":["交付","动","mando"],"commend":["托付","动","commend"],"tribu":["授予","动","tribu"],"asport":["搬走","动","asport"],"adveh":["运来","动","adveh"],"deveh":["运下","动","deveh"],"reveh":["运回","动","reveh"],"subveh":["上运","动","subveh"],"transve":["转运","动","transve"],"inveh":["运入","动","inveh"],"eveh":["运出","动","eveh"],"complec":["拥抱","动","complec"],"retent":["扣留","动","retent"],"eo":["去","动","eo"],"vado":["行走","动","vado"],"inced":["迈步","动","inced"],"perg":["前行","动","perg"],"profic":["启程","动","profic"],"egred":["走出","动","egred"],"ingred":["走入","动","ingred"],"regred":["退回","动","regred"],"transgr":["越过","动","transgr"],"congred":["相会","动","congred"],"palor":["游荡","动","palor"],"discur":["奔走","动","discur"],"obrepo":["潜行","动","obrepo"],"irrep":["潜入","动","irrep"],"subrep":["爬入","动","subrep"],"commig":["迁入","动","commig"],"emig":["迁出","动","emig"],"immig":["移入","动","immig"],"remigr":["迁回","动","remigr"],"exeo":["出去","动","exeo"],"ineo":["进入","动","ineo"],"pereo":["消逝","动","pereo"],"praeteri":["经过","动","praeteri"],"do":["给","动","do"],"largi":["施与","动","largi"],"impert":["分与","动","impert"],"elarg":["慷慨赠","动","elarg"],"munerar":["馈赠","动","munerar"],"condon":["赠予","动","condon"],"restit":["归还","动","restit"],"repend":["偿还","动","repend"],"pendo":["偿付","动","pendo"],"persol":["付清","动","persol"],"acqui":["取得","动","acqui"],"compara":["购置","动","compara"],"paro":["备办","动","paro"],"nancis":["获得","动","nancis"],"potio":["据有","动","potio"],"occup":["占据","动","occup"],"usurp":["篡取","动","usurp"],"surrip":["窃取","动","surrip"],"subrip":["偷取","动","subrip"],"abrip":["夺去","动","abrip"],"erip":["抢出","动","erip"],"dirip":["掠夺","动","dirip"],"corrip":["攫取","动","corrip"],"interci":["截取","动","interci"],"praerip":["抢走","动","praerip"],"pulso":["敲击","动","pulso"],"verbero":["鞭打","动","verbero"],"caed":["砍","动","caed"],"rump":["折断","动","rump"],"quass":["震荡","动","quass"],"concut":["摇撼","动","concut"],"discut":["震散","动","discut"],"excut":["抖出","动","excut"],"succut":["下撼","动","succut"],"labefa":["动摇","动","labefa"],"confrin":["打碎","动","confrin"],"diffrin":["砸裂","动","diffrin"],"perfrin":["击穿","动","perfrin"],"refrin":["折返破","动","refrin"],"tundit":["捶打","动","tundit"],"battu":["击打","动","battu"],"flagella":["鞭笞","动","flagella"],"contund":["捣碎","动","contund"],"extund":["锤出","动","extund"],"retund":["挫钝","动","retund"],"obtund":["使钝","动","obtund"],"compun":["刺穿","动","compun"],"expun":["剔除","动","expun"],"confod":["戳穿","动","confod"],"perfod":["凿穿","动","perfod"],"puto":["以为","动","puto"],"reor":["料想","动","reor"],"arbitra":["判定","动","arbitra"],"existim":["估量","动","existim"],"cense":["评议","动","cense"],"iudico":["判断","动","iudico"],"conici":["推测","动","conici"],"auguro":["占测","动","auguro"],"divina":["占测","动","divina"],"provide":["预见","动","provide"],"comper":["查明","动","comper"],"inven":["发现","动","inven"],"noscit":["熟识","动","noscit"],"sentio":["感觉","动","sentio"],"consen":["同感","动","consen"],"sapio":["有见识","动","sapio"],"desip":["胡涂","动","desip"],"scien":["知情的","动","scien"],"nesci":["不知","动","nesci"],"insci":["无知","动","insci"],"doctus":["博学的","动","doctus"],"indoct":["未学","动","indoct"],"memini":["记得","动","memini"],"cogita":["沉思的","动","cogita"],"medita":["默想的","动","medita"],"amo":["爱","性","amo"],"diligo":["珍爱","性","diligo"],"carus":["亲爱","性","carus"],"fave":["偏爱","性","fave"],"studeo":["热衷","性","studeo"],"opto":["愿望","性","opto"],"vove":["许愿","性","vove"],"appet":["渴求","性","appet"],"concup":["贪求","性","concup"],"exsecro":["咒恨","性","exsecro"],"detest":["憎恶","性","detest"],"abomin":["厌憎","性","abomin"],"invisus":["被憎的","性","invisus"],"peros":["极恨","性","peros"],"osor":["憎恨者","性","osor"],"aemulo":["争爱","性","aemulo"],"invide":["嫉妒","性","invide"],"zeloty":["妒忌","性","zeloty"],"amato":["爱者","性","amato"],"amatr":["女爱者","性","amatr"],"dilect":["珍爱者","性","dilect"],"malevo":["恶意","性","malevo"],"invidio":["妒忌的","性","invidio"],"odios":["可憎的","性","odios"],"elabor":["精作","动","elabor"],"molio":["营建","动","molio"],"elucub":["苦研","动","elucub"],"desud":["辛劳","动","desud"],"defati":["使疲","动","defati"],"fatig":["使累","动","fatig"],"exancl":["竭力","动","exancl"],"requie":["安歇","动","requie"],"otio":["闲居","动","otio"],"vaco":["空闲","动","vaco"],"desid":["闲坐","动","desid"],"ignavo":["偷懒","动","ignavo"],"pigro":["怠惰","动","pigro"],"socord":["怠惰","动","socord"],"sedul":["勤勉","动","sedul"],"operos":["费力的","动","operos"],"labori":["勤劳的","动","labori"],"molest":["烦累的","动","molest"],"quietus":["安定的","动","quietus"],"sedo":["使静","动","sedo"],"refoci":["使恢复","动","refoci"],"recreo":["使复原","动","recreo"],"refici":["修复","动","refici"],"rogo":["问","动","rogo"],"interro":["追问","动","interro"],"percon":["详问","动","percon"],"sciscit":["探问","动","sciscit"],"exquir":["细究","动","exquir"],"requir":["索求","动","requir"],"rescrib":["回信","动","rescrib"],"renunt":["回报","动","renunt"],"postula":["诉求","动","postula"],"exact":["催缴","动","exact"],"instan":["催逼","动","instan"],"postul":["要求","动","postul"],"flagit":["催讨","动","flagit"],"interpe":["插问","动","interpe"],"ambigu":["歧义","动","ambigu"],"consult":["请教","动","consult"],"scitor":["探询","动","scitor"],"inquis":["查问","动","inquis"],"confess":["供认","动","confess"],"affirm":["肯定","动","affirm"],"abiura":["矢口否认","动","abiura"],"iurat":["宣誓","动","iurat"],"protes":["声明","动","protes"],"iuvo":["帮助","动","iuvo"],"adiuv":["援助","动","adiuv"],"auxil":["支援","动","auxil"],"opitu":["救助","动","opitu"],"subven":["接济","动","subven"],"succur":["驰援","动","succur"],"prosum":["有益","动","prosum"],"commod":["便利","动","commod"],"defend":["护卫","动","defend"],"proteg":["掩护","动","proteg"],"munio":["筑防","动","munio"],"obsto":["阻碍","动","obsto"],"offici":["妨碍","动","offici"],"imped":["阻挠","动","imped"],"impedi":["妨碍","动","impedi"],"moror":["拖延阻","动","moror"],"retard":["延缓","动","retard"],"obstac":["设障","动","obstac"],"prohib":["禁止","动","prohib"],"suppet":["增援","动","suppet"],"subsidi":["后备援","动","subsidi"],"adiuto":["助手","动","adiuto"],"adstip":["声援者","动","adstip"],"fauto":["赞助者","动","fauto"],"iube":["命令","动","iube"],"impero":["下令","动","impero"],"decern":["裁定","动","decern"],"sancis":["钦定","动","sancis"],"praescr":["规定","动","praescr"],"moneo":["告诫","动","moneo"],"admon":["提醒","动","admon"],"praemon":["预警","动","praemon"],"denunt":["通令","动","denunt"],"indico":["宣布","动","indico"],"nuntio":["传令","动","nuntio"],"pareo":["服从","动","pareo"],"oboed":["听命","动","oboed"],"obtemper":["遵从","动","obtemper"],"morige":["迎合","动","morige"],"ausculto":["听从","动","ausculto"],"subici":["使臣服","动","subici"],"dominor":["主宰","动","dominor"],"servio":["服役","动","servio"],"ancill":["婢侍","动","ancill"],"iussio":["命令","动","iussio"],"scitum":["决议","动","scitum"],"vendo":["卖","动","vendo"],"mereo":["赚得","动","mereo"],"liceor":["竞买","动","liceor"],"addico":["判卖","动","addico"],"mutuo":["借贷","动","mutuo"],"faener":["放贷","动","faener"],"credo":["贷出","动","credo"],"debeo":["欠","动","debeo"],"repraes":["付现","动","repraes"],"locito":["出租","动","locito"],"emo":["买","动","emo"],"nundino":["做买卖","动","nundino"],"negoti":["经营","动","negoti"],"merco":["经商","动","merco"],"taberno":["开店","动","taberno"],"circumf":["行商","动","circumf"],"cambio":["汇兑","动","cambio"],"chirogr":["手据","动","chirogr"],"vadio":["抵押物","动","vadio"],"fideiu":["作保","动","fideiu"],"sponde":["承诺","动","sponde"],"exprom":["代诺","动","exprom"],"aedifi":["兴建","动","aedifi"],"exstru":["筑起","动","exstru"],"constr":["构建","动","constr"],"instr":["布置","动","instr"],"evert":["推翻","动","evert"],"subver":["颠覆","动","subver"],"perver":["败坏","动","perver"],"deici":["拆倒","动","deici"],"proste":["夷平","动","proste"],"complana":["铲平","动","complana"],"exscin":["夷灭","动","exscin"],"demol":["拆毁","动","demol"],"excid":["削去","动","excid"],"molar":["墙石","动","molar"],"machinor":["设计建造","动","machinor"],"archite":["主持建造","动","archite"],"exaedi":["建成","动","exaedi"],"peraed":["竣工","动","peraed"],"inaedi":["筑入","动","inaedi"],"obstr":["堵塞","动","obstr"],"interst":["夹建","动","interst"],"prodig":["拆散","动","prodig"],"dissip":["拆散","动","dissip"],"vasto":["蹂躏","动","vasto"],"ruinos":["倾颓的","动","ruinos"],"erudio":["教导","动","erudio"],"institu":["设教","动","institu"],"inform":["训导","动","inform"],"formo":["培养","动","formo"],"excol":["栽培","动","excol"],"educo":["养育","动","educo"],"imbu":["启蒙","动","imbu"],"instil":["灌输","动","instil"],"monstro":["指教","动","monstro"],"demonst":["演示","动","demonst"],"ostend":["展示","动","ostend"],"disco":["学习","动","disco"],"addisc":["学会","动","addisc"],"perdis":["学透","动","perdis"],"edisc":["熟记","动","edisc"],"assues":["使习惯","动","assues"],"consues":["惯于","动","consues"],"meditor":["研习","动","meditor"],"scriptit":["常写","动","scriptit"],"probo":["考核","动","probo"],"improbo":["否决","动","improbo"],"guberno":["治理","动","guberno"],"rego":["统辖","动","rego"],"moderor":["节制","动","moderor"],"tempero":["调和","动","tempero"],"adminis":["施政","动","adminis"],"procuro":["督办","动","procuro"],"ordino":["整饬","动","ordino"],"dispon":["调度","动","dispon"],"constit":["设立","动","constit"],"lego":["委任","动","lego"],"creo":["选任","动","creo"],"design":["指派","动","design"],"praefic":["任为长官","动","praefic"],"promov":["擢升","动","promov"],"amov":["免职","动","amov"],"summov":["斥退","动","summov"],"remov":["撤职","动","remov"],"depon":["罢黜","动","depon"],"abdic":["让位","动","abdic"],"seditios":["好乱","动","seditios"],"factios":["结党","动","factios"],"perdue":["叛国者","动","perdue"],"moderam":["治术","动","moderam"],"pacat":["绥靖的","动","pacat"],"dormi":["睡","动","dormi"],"somni":["做梦","动","somni"],"dormit":["打盹","动","dormit"],"obdorm":["入睡","动","obdorm"],"soporo":["使睡","动","soporo"],"consop":["催眠","动","consop"],"sterto":["打鼾","动","sterto"],"vigilo":["守夜","动","vigilo"],"evigil":["醒来","动","evigil"],"experg":["苏醒","动","experg"],"excito":["唤醒","动","excito"],"resipi":["清醒","动","resipi"],"insomn":["失眠","动","insomn"],"soporif":["致睡的","动","soporif"],"somnif":["催眠的","动","somnif"],"dormitor":["卧者","动","dormitor"],"cubati":["卧眠","动","cubati"],"decubi":["卧姿","动","decubi"],"accubi":["侧卧","动","accubi"],"vigilia":["守夜礼","动","vigilia"],"pervigi":["通宵","动","pervigi"],"noctur":["夜间的","动","noctur"],"lucubr":["夜读","动","lucubr"],"somnicu":["嗜睡的","动","somnicu"],"hypno":["睡意","动","hypno"],"arrid":["微笑迎","动","arrid"],"irrid":["嘲笑","动","irrid"],"derid":["讽笑","动","derid"],"cachinno":["狂笑","动","cachinno"],"fleo":["哭泣","动","fleo"],"lacrimo":["流泪","动","lacrimo"],"complora":["共哭","动","complora"],"deplor":["痛哭","动","deplor"],"exclam":["惊呼","动","exclam"],"vagio":["婴啼","动","vagio"],"gemisc":["呻吟起","动","gemisc"],"ingem":["呻吟","动","ingem"],"risus":["笑声","动","risus"],"lamentu":["哀词","动","lamentu"],"mugitu":["低鸣","动","mugitu"],"singult":["抽泣","动","singult"],"questu":["哀诉","动","questu"],"ridicu":["可笑的","动","ridicu"],"deridic":["极可笑","动","deridic"],"renid":["含笑","动","renid"],"flens":["哭泣的","动","flens"],"irasc":["发怒","性","irasc"],"succens":["恼怒","性","succens"],"stomacho":["恼怒","性","stomacho"],"furo":["狂怒","性","furo"],"saevi":["暴怒","性","saevi"],"bacchor":["狂乱","性","bacchor"],"timeo":["害怕","性","timeo"],"metuo":["畏惧","性","metuo"],"vereor":["敬畏","性","vereor"],"paveo":["惊恐","性","paveo"],"trepido":["惶急","性","trepido"],"exhorres":["悚然","性","exhorres"],"pertime":["深惧","性","pertime"],"terreo":["使惧","性","terreo"],"dirus":["可怖的","性","dirus"],"atrox":["凶暴","性","atrox"],"ferox":["凶猛","性","ferox"],"immit":["严酷","性","immit"],"rabid":["狂怒的","性","rabid"],"furibu":["暴怒的","性","furibu"],"formidol":["可怕的","性","formidol"],"meticul":["胆怯的","性","meticul"],"furor":["狂暴","性","furor"],"opulens":["富裕","性","opulens"],"beato":["有福","性","beato"],"fortuna":["幸运","性","fortuna"],"felix":["幸运","性","felix"],"prosper":["顺遂","性","prosper"],"mendic":["乞讨的","性","mendic"],"egenu":["穷困","性","egenu"],"penuri":["匮乏","性","penuri"],"inopi":["贫乏","性","inopi"],"ops":["财富","性","ops"],"gaza":["宝库","性","gaza"],"thesaur":["宝库","性","thesaur"],"dapsil":["丰盛","性","dapsil"],"afflu":["富足","性","afflu"],"profluen":["丰沛","性","profluen"],"egest":["贫困","性","egest"],"mendici":["行乞","性","mendici"],"nud":["赤贫","性","nud"],"squalor":["贫陋","性","squalor"],"provent":["收益","性","provent"],"reditus":["进项","性","reditus"],"quaestu":["营利","性","quaestu"],"peculat":["侵吞","性","peculat"],"repetun":["勒索","性","repetun"],"profusi":["挥霍","性","profusi"],"vetul":["小老头","物","vetul"],"anus":["老妇","物","anus"],"anil":["老妇的","物","anil"],"grandae":["高龄","物","grandae"],"decrepi":["衰朽","物","decrepi"],"longaev":["长寿","物","longaev"],"iuvenis":["青年","物","iuvenis"],"adules":["少年","物","adules"],"adolesc":["成长","物","adolesc"],"puber":["成丁","物","puber"],"viripo":["及笄","物","viripo"],"caniti":["白头","物","caniti"],"seniu":["暮年","物","seniu"],"senil":["老态的","物","senil"],"pubes":["成丁期","物","pubes"],"virgini":["童贞","物","virgini"],"adultus":["成年的","物","adultus"],"incunab":["襁褓","物","incunab"],"alumn":["养子","物","alumn"],"orphan":["孤儿","物","orphan"],"avia":["祖母","物","avia"],"maior":["长辈","物","maior"],"natu":["年齿","物","natu"],"primaev":["初年","物","primaev"],"castus":["洁净","性","castus"],"impur":["不洁","性","impur"],"inmund":["污秽","性","inmund"],"caenos":["泥污","性","caenos"],"lutulen":["泥泞","性","lutulen"],"maculat":["沾污","性","maculat"],"inquina":["玷污","性","inquina"],"lotura":["洗液","性","lotura"],"lavacr":["浴池","性","lavacr"],"deters":["擦净","性","deters"],"purgam":["污物","性","purgam"],"sordes":["污垢","性","sordes"],"caenum":["污泥","性","caenum"],"amurca":["油渣","性","amurca"],"recrem":["渣滓","性","recrem"],"quisqui":["垃圾","性","quisqui"],"tersus":["洁净的","性","tersus"],"piatus":["涤罪","性","piatus"],"expiat":["赎净","性","expiat"],"lustra":["祓净","性","lustra"],"defaec":["澄清","性","defaec"],"elutri":["淘净","性","elutri"],"faece":["渣滓的","性","faece"],"purgati":["清洗","性","purgati"],"castimo":["贞洁","性","castimo"],"sapien":["智慧","性","sapien"],"cordat":["明智","性","cordat"],"consili":["谋略","性","consili"],"fatu":["愚妄","性","fatu"],"insipie":["无知","性","insipie"],"brut":["粗钝","性","brut"],"idiot":["愚人","性","idiot"],"moroso":["愚哲","性","moroso"],"littera":["博文","性","littera"],"perit":["熟练","性","perit"],"imperit":["生疏","性","imperit"],"gnar":["通晓","性","gnar"],"ignar":["不知","性","ignar"],"catus":["精明的","性","catus"],"vafer":["狡黠","性","vafer"],"astut":["机敏","性","astut"],"stolid":["愚钝","性","stolid"],"bard":["蠢笨","性","bard"],"inept":["笨拙","性","inept"],"socor":["愚钝","性","socor"],"demen":["疯狂","性","demen"],"amens":["失智","性","amens"],"vecor":["昏聩","性","vecor"],"excor":["无智","性","excor"],"phrone":["实践智","性","phrone"],"edo":["吃","动","edo"],"comed":["共食","动","comed"],"vescor":["进食","动","vescor"],"pascor":["吃草","动","pascor"],"gusto":["品尝","动","gusto"],"deglut":["吞咽","动","deglut"],"glutt":["吞","动","glutt"],"mastic":["细嚼","动","mastic"],"vorax":["贪食","动","vorax"],"bibo":["饮","动","bibo"],"poto":["喝","动","poto"],"sorbeo":["啜饮","动","sorbeo"],"potito":["常饮","动","potito"],"esurio":["饿","动","esurio"],"ientac":["早餐","动","ientac"],"merenda":["午后点心","动","merenda"],"obsoni":["菜肴","动","obsoni"],"ganeo":["饕客","动","ganeo"],"heluo":["贪食者","动","heluo"],"crapul":["暴饮","动","crapul"],"ebrios":["嗜酒","动","ebrios"],"temulen":["醉的","动","temulen"],"induo":["穿上","动","induo"],"exuo":["脱下","动","exuo"],"vestio":["给穿","动","vestio"],"amici":["披上","动","amici"],"circumd":["裹上","动","circumd"],"denud":["裸露","动","denud"],"nudo":["使裸","动","nudo"],"velo":["遮盖","动","velo"],"advel":["蒙上","动","advel"],"obvolv":["裹住","动","obvolv"],"evolv":["解开","动","evolv"],"cingo":["系带","动","cingo"],"discin":["解带","动","discin"],"succin":["束腰","动","succin"],"calceo":["穿鞋","动","calceo"],"excalc":["脱鞋","动","excalc"],"discal":["赤足","动","discal"],"exuv":["蜕皮","动","exuv"],"succinc":["束腰的","动","succinc"],"semiind":["半穿衣的","动","semiind"],"induv":["内衣","动","induv"],"secto":["切割","动","secto"],"desec":["割下","动","desec"],"resec":["切除","动","resec"],"amput":["截肢","动","amput"],"praecid":["切断","动","praecid"],"recid":["削去","动","recid"],"succid":["砍倒","动","succid"],"incid":["切入","动","incid"],"concid":["剁碎","动","concid"],"dissec":["剖开","动","dissec"],"intersec":["截断","动","intersec"],"consuo":["缝合","动","consuo"],"insuo":["缝入","动","insuo"],"resuo":["拆缝","动","resuo"],"pannicu":["破布","动","pannicu"],"centro":["百衲","动","centro"],"sarcio":["缝缀","动","sarcio"],"obsuo":["封缝","动","obsuo"],"praesuo":["预缝","动","praesuo"],"lacero":["撕裂","动","lacero"],"dilace":["撕碎","动","dilace"],"lancin":["撕扯","动","lancin"],"cano":["唱","动","cano"],"decant":["吟唱","动","decant"],"recino":["重唱","动","recino"],"incino":["起唱","动","incino"],"concinno":["合唱","动","concinno"],"occino":["对唱","动","occino"],"succino":["伴唱","动","succino"],"modulor":["按调唱","动","modulor"],"psallo":["抚琴","动","psallo"],"cithari":["弹琴","动","cithari"],"tibicin":["吹笛","动","tibicin"],"buccin":["吹号","动","buccin"],"cornici":["吹角","动","cornici"],"persono":["鸣响","动","persono"],"resono":["回响","动","resono"],"crepo":["爆响","动","crepo"],"cantile":["小调","动","cantile"],"fremit":["轰鸣","动","fremit"],"crepitu":["爆响","动","crepitu"],"strepi":["喧响","动","strepi"],"tinnio":["丁当","动","tinnio"],"cantio":["曲","动","cantio"],"io":["欢呼","动","io"],"pingo":["绘画","动","pingo"],"deping":["描画","动","deping"],"adumbr":["勾轮廓","动","adumbr"],"lineo":["勾线","动","lineo"],"caelo":["錾刻","动","caelo"],"inscul":["刻入","动","inscul"],"exscul":["刻出","动","exscul"],"scalpo":["刮刻","动","scalpo"],"rado":["刮","动","rado"],"tero":["磨擦","动","tero"],"levigo":["磨光","动","levigo"],"dolo":["削平","动","dolo"],"ascio":["斧削","动","ascio"],"runco":["锉平","动","runco"],"limo":["锉","动","limo"],"effigi":["肖像","动","effigi"],"torno":["旋刻","动","torno"],"chalco":["铜版术","动","chalco"],"toreum":["錾刻品","动","toreum"],"caelatu":["錾工","动","caelatu"],"celtis":["凿","动","celtis"],"limatu":["锉屑","动","limatu"],"perfor":["穿孔","动","perfor"],"excud":["锻刻","动","excud"],"ardeo":["燃烧","动","ardeo"],"flagro":["燃炽","动","flagro"],"cremo":["焚","动","cremo"],"uro":["烧","动","uro"],"aduro":["灼","动","aduro"],"comburo":["烧尽","动","comburo"],"inuro":["烙","动","inuro"],"exuro":["烧掉","动","exuro"],"succend":["点燃","动","succend"],"restin":["熄灭","动","restin"],"opprim":["压灭","动","opprim"],"fumo":["冒烟","动","fumo"],"torreo":["焙","动","torreo"],"pruna":["炭火","动","pruna"],"carbo":["炭","动","carbo"],"cremio":["柴火","动","cremio"],"fomes":["引火物","动","fomes"],"fulig":["烟炱","动","fulig"],"favill":["飞灰","动","favill"],"exstinc":["熄灭","动","exstinc"],"ustio":["烙","动","ustio"],"ambust":["灼伤","动","ambust"],"adust":["烤焦的","动","adust"],"praeust":["烧硬的","动","praeust"],"neo":["纺","动","neo"],"texo":["织","动","texo"],"torque":["捻","动","torque"],"necto":["结","动","necto"],"vincio":["缚","动","vincio"],"relig":["解开系","动","relig"],"constrin":["束缚","动","constrin"],"obstrin":["束住","动","obstrin"],"devinc":["紧缚","动","devinc"],"revinc":["反缚","动","revinc"],"sublig":["下系","动","sublig"],"reticul":["结网","动","reticul"],"funicu":["细绳","动","funicu"],"retiac":["小网","动","retiac"],"stuppa":["麻絮","动","stuppa"],"toment":["填絮","动","toment"],"pensum":["一日之纱","动","pensum"],"glome":["绕线","动","glome"],"volvo":["缠绕","动","volvo"],"circumv":["盘绕","动","circumv"],"plexus":["交织","动","plexus"],"funal":["绳索的","动","funal"],"iaculor":["抛射","动","iaculor"],"conicio":["投合","动","conicio"],"reici":["掷回","动","reici"],"subicio":["投下","动","subicio"],"obici":["投向前","动","obici"],"traici":["掷过","动","traici"],"inicio":["投入","动","inicio"],"praemitt":["预遣","动","praemitt"],"promitt":["许诺","动","promitt"],"admitt":["接纳","动","admitt"],"committ":["交托","动","committ"],"remitt":["送回","动","remitt"],"summitt":["呈送","动","summitt"],"transmitt":["转送","动","transmitt"],"fundo":["倾泻","动","fundo"],"effund":["倾倒","动","effund"],"spargo":["撒播","动","spargo"],"aspergo":["洒上","动","aspergo"],"disperg":["散开","动","disperg"],"sagitto":["射箭","动","sagitto"],"roto":["抛转","动","roto"],"adigo":["投掷","动","adigo"],"emissi":["放出之物","动","emissi"],"duco":["引","动","duco"],"adduc":["引向","动","adduc"],"abduco":["引开","动","abduco"],"induco":["引入","动","induco"],"produc":["引出","动","produc"],"reduc":["引回","动","reduc"],"subduc":["引退","动","subduc"],"seduco":["引离","动","seduco"],"circumdu":["绕引","动","circumdu"],"pello":["推动","动","pello"],"propel":["推前","动","propel"],"expel":["逐出","动","expel"],"repel":["推回","动","repel"],"compel":["强推","动","compel"],"depel":["推下","动","depel"],"dispel":["驱散","动","dispel"],"vello":["拔","动","vello"],"avell":["拔去","动","avell"],"evell":["拔出","动","evell"],"revell":["扯下","动","revell"],"retrah":["拉回","动","retrah"],"detrah":["拉下","动","detrah"],"convel":["拔起","动","convel"],"divel":["扯开","动","divel"],"comprim":["压紧","动","comprim"],"exprim":["挤出","动","exprim"],"supprim":["压下","动","supprim"],"reprim":["抑制","动","reprim"],"deprim":["压下","动","deprim"],"arcio":["紧逼","动","arcio"],"coarto":["压缩","动","coarto"],"frequen":["挤满","动","frequen"],"stipo":["塞满","动","stipo"],"farcio":["填塞","动","farcio"],"referc":["塞满","动","referc"],"conferc":["压实","动","conferc"],"obtero":["压碎","动","obtero"],"contero":["磨碎","动","contero"],"attero":["磨损","动","attero"],"detero":["擦损","动","detero"],"arto":["逼紧","动","arto"],"adarto":["紧逼","动","adarto"],"angusto":["使窄","动","angusto"],"urgeo":["催逼","动","urgeo"],"perurge":["紧迫","动","perurge"],"insto":["逼近","动","insto"],"calco":["践踏","动","calco"],"concul":["踩碎","动","concul"],"odoro":["闻","动","odoro"],"oleo":["发味","动","oleo"],"fragro":["发香","动","fragro"],"puteo":["发臭","动","puteo"],"foete":["恶臭","动","foete"],"lambo":["舔","动","lambo"],"liguri":["贪吃","动","liguri"],"sallo":["盐渍","动","sallo"],"halitu":["呼气","动","halitu"],"fastid":["嫌味","动","fastid"],"amarit":["苦味","动","amarit"],"acidit":["酸味","动","acidit"],"salugo":["咸味","动","salugo"],"exhala":["散发","动","exhala"],"narco":["麻醉气","动","narco"],"olent":["香气","动","olent"],"graveo":["浓味","动","graveo"],"tinctur":["浸液","动","tinctur"],"sapora":["调味品","动","sapora"],"gustam":["品味之物","动","gustam"],"suffit":["熏烟","动","suffit"],"thymia":["香薰","动","thymia"],"tango":["触","性","tango"],"atting":["触及","性","atting"],"conting":["接触","性","conting"],"palpo":["抚","性","palpo"],"contrec":["摩挲","性","contrec"],"attrec":["摩触","性","attrec"],"perstrin":["轻掠","性","perstrin"],"tracto":["摆弄","性","tracto"],"hispid":["粗糙多毛","性","hispid"],"villosus":["绒毛的","性","villosus"],"veluti":["天鹅绒的","性","veluti"],"glutino":["胶黏","性","glutino"],"lubric":["滑的","性","lubric"],"teres":["圆滑的","性","teres"],"callos":["硬皮","性","callos"],"tenax":["黏韧","性","tenax"],"tractab":["可触的","性","tractab"],"ictus":["触击","性","ictus"],"attact":["接触","性","attact"],"horripi":["毛骨悚然","性","horripi"],"scabrit":["粗糙","性","scabrit"],"viscam":["黏稠","性","viscam"],"formica":["酥痒","性","formica"],"saluto":["致意","动","saluto"],"consalu":["问候","动","consalu"],"appello":["称呼","动","appello"],"compella":["招呼","动","compella"],"convenio":["会见","动","convenio"],"visito":["拜访","动","visito"],"inviso":["探访","动","inviso"],"convivo":["共宴","动","convivo"],"epulor":["赴宴","动","epulor"],"comito":["陪同","动","comito"],"prosequo":["随行","动","prosequo"],"consect":["追随","动","consect"],"occurro":["迎上","动","occurro"],"offendo":["撞见","动","offendo"],"arcess":["召来","动","arcess"],"accers":["传召","动","accers"],"except":["接客","动","except"],"gratulor":["致贺","动","gratulor"],"condol":["慰问","动","condol"],"consolor":["安慰","动","consolor"],"advent":["来访","动","advent"],"hospitor":["做客","动","hospitor"],"deducti":["护送","动","deducti"],"ministro":["侍候","动","ministro"],"magis":["更","数","magis"],"parum":["太少","数","parum"],"nimis":["过度","数","nimis"],"nimiu":["太多","数","nimiu"],"satis":["足够","数","satis"],"affati":["充分","数","affati"],"abunde":["丰足","数","abunde"],"multum":["多","数","multum"],"paulum":["少许","数","paulum"],"quantum":["多少","数","quantum"],"tantul":["微小量","数","tantul"],"plerum":["多半","数","plerum"],"pleriqu":["多数","数","pleriqu"],"nonnih":["不少","数","nonnih"],"exiguum":["少许","数","exiguum"],"minimu":["最少","数","minimu"],"maximu":["最多","数","maximu"],"plurimu":["极多","数","plurimu"],"parce":["节省地","数","parce"],"summati":["概括地","数","summati"],"particu":["逐条","数","particu"],"summa":["总量","数","summa"],"multitu":["众多","数","multitu"],"paucit":["寡少","数","paucit"],"neur":["神经","物","neur"],"myo":["肌","物","myo"],"oste":["骨","物","oste"],"haem":["血","物","haem"],"cyto":["细胞","物","cyto"],"textus":["组织","物","textus"],"arthro":["关节","物","arthro"],"cardi":["心","物","cardi"],"pneumo":["肺","物","pneumo"],"nephro":["肾","物","nephro"],"gastro":["胃","物","gastro"],"entero":["肠","物","entero"],"dermato":["皮","物","dermato"],"ophthal":["眼","物","ophthal"],"auric":["耳","物","auric"],"rhino":["鼻","物","rhino"],"stomato":["口","物","stomato"],"glosso":["舌","物","glosso"],"odonto":["牙","物","odonto"],"tricho":["毛","物","tricho"],"onycho":["甲","物","onycho"],"splanchno":["内脏","物","splanchno"],"chondro":["软骨","物","chondro"],"organo":["器官","物","organo"],"patho":["病","物","patho"],"algo":["痛","物","algo"],"pyo":["脓","物","pyo"],"septi":["腐","物","septi"],"toxo":["毒","物","toxo"],"therap":["疗","物","therap"],"progno":["预后","物","progno"],"sympto":["症","物","sympto"],"crisis":["危象","物","crisis"],"remiss":["缓解","物","remiss"],"recidiv":["复发","物","recidiv"],"chrono":["慢性","物","chrono"],"acuto":["急性","物","acuto"],"benigno":["良性","物","benigno"],"maligno":["恶性","物","maligno"],"heredo":["遗传","物","heredo"],"allergo":["过敏","物","allergo"],"necro":["坏死","物","necro"],"sclero":["硬化","物","sclero"],"steno":["狭窄","物","steno"],"psycho":["心灵","性","psycho"],"noo":["心智","性","noo"],"mnemo":["记忆","性","mnemo"],"phreno":["精神","性","phreno"],"thymo":["情绪","性","thymo"],"hormo":["冲动","性","hormo"],"hedono":["快乐","性","hedono"],"phobo":["恐惧","性","phobo"],"letho":["遗忘沉睡","性","letho"],"oneiro":["梦","性","oneiro"],"estheto":["感觉","性","estheto"],"logo":["理性","性","logo"],"doxo":["意见","性","doxo"],"fide":["信念","性","fide"],"etho":["习惯","性","etho"],"catharo":["宣泄","性","catharo"],"libido":["欲力","性","libido"],"complexo":["情结","性","complexo"],"affecto":["情感","性","affecto"],"cognito":["认知","性","cognito"],"volitio":["意志","性","volitio"],"demo":["民众","物","demo"],"polito":["城邦","物","polito"],"crati":["统治","物","crati"],"archo":["为首","物","archo"],"hiero":["圣职","物","hiero"],"theo":["神","物","theo"],"ethno":["民族","物","ethno"],"phylo":["部族","物","phylo"],"nomo":["习俗法","物","nomo"],"grapho":["书记","物","grapho"],"tyranno":["僭主","物","tyranno"],"oligo":["寡头","物","oligo"],"aristo":["贵族","物","aristo"],"pluto":["富豪","物","pluto"],"anarcho":["无政府","物","anarcho"],"bureau":["官僚","物","bureau"],"federo":["联邦","物","federo"],"socio":["社会","物","socio"],"patricio":["世家","物","patricio"],"senato":["元老","物","senato"],"consulo":["执政","物","consulo"],"hydro":["水","物","hydro"],"pyro":["火","物","pyro"],"aero":["气","物","aero"],"geo":["地","物","geo"],"helio":["日","物","helio"],"seleno":["月","物","seleno"],"astro":["星","物","astro"],"cosmo":["宇宙","物","cosmo"],"atmo":["蒸汽","物","atmo"],"litho":["石质","物","litho"],"metallo":["金属","物","metallo"],"crystallo":["晶","物","crystallo"],"cryo":["冷","物","cryo"],"photo":["光","物","photo"],"chromo":["色","物","chromo"],"baro":["重","物","baro"],"cyclo":["环","物","cyclo"],"schema":["形","物","schema"],"plasto":["塑","物","plasto"],"tomo":["切","物","tomo"],"kineto":["动","物","kineto"],"stato":["静","物","stato"],"bio":["生命","物","bio"],"zoo":["动物","物","zoo"],"phyto":["植物","物","phyto"],"viro":["病毒","物","viro"],"gene":["基因","物","gene"],"evolo":["演化","物","evolo"],"ecos":["生态","物","ecos"],"sedes":["栖息地","物","sedes"],"locus":["位置","物","locus"],"convit":["共栖","物","convit"],"estivo":["夏眠","物","estivo"],"metamorpho":["变态","物","metamorpho"],"larvo":["幼虫","物","larvo"],"pupo":["蛹","物","pupo"],"imago":["成虫","物","imago"],"ovio":["卵","物","ovio"],"mechano":["机械","物","mechano"],"automato":["自动","物","automato"],"electr":["电","物","electr"],"magneto":["磁","物","magneto"],"pneumato":["气动","物","pneumato"],"teleo":["远","物","teleo"],"phono":["声","物","phono"],"scopo":["观察","物","scopo"],"crypto":["隐秘","物","crypto"],"glypto":["刻","物","glypto"],"typo":["印","物","typo"],"syntheto":["合成","物","syntheto"],"ergo":["功","物","ergo"],"trocho":["轮","物","trocho"],"cochlio":["螺旋","物","cochlio"],"clino":["斜","物","clino"],"goni":["角度","物","goni"],"topo":["位置","物","topo"],"taxis":["排列","物","taxis"],"harmo":["契合","物","harmo"],"itis":["炎","性","itis"],"osis":["病变","性","osis"],"oma":["瘤","性","oma"],"emia":["血症","性","emia"],"uria":["尿症","性","uria"],"rrhag":["出血","性","rrhag"],"rrhoe":["溢出","性","rrhoe"],"ptos":["下垂","性","ptos"],"plasia":["增生","性","plasia"],"troph":["营养","性","troph"],"lys":["溶解","性","lys"],"pex":["固定","性","pex"],"ectom":["切除","性","ectom"],"otom":["切开","性","otom"],"tonia":["肌张力","性","tonia"],"praxia":["行为","性","praxia"],"gnosia":["认知","性","gnosia"],"mnesia":["记忆","性","mnesia"],"phasia":["言语","性","phasia"],"lalia":["谈话","性","lalia"],"opia":["视觉","性","opia"],"acusis":["听觉","性","acusis"],"osmia":["嗅觉","性","osmia"],"algebr":["代数","物","algebr"],"logarith":["对数","物","logarith"],"functio":["函数","物","functio"],"consta":["常数","物","consta"],"limes":["极限","物","limes"],"integral":["积分","物","integral"],"vecto":["向量","物","vecto"],"scalar":["标量","物","scalar"],"tensor":["张量","物","tensor"],"grex":["群","物","grex"],"campus":["域","物","campus"],"anulus":["环","物","anulus"],"tangens":["切线","物","tangens"],"secans":["割线","物","secans"],"sinus":["正弦","物","sinus"],"cosinus":["余弦","物","cosinus"],"lemn":["引理","物","lemn"],"coroll":["推论","物","coroll"],"demonstr":["论证","物","demonstr"],"praemiss":["前提","物","praemiss"],"analog":["类比","物","analog"],"antinom":["二律背反","物","antinom"],"metonym":["转喻","物","metonym"],"synecdoch":["提喻","物","synecdoch"],"hyperbol":["夸张","物","hyperbol"],"ironia":["反讽","物","ironia"],"allegor":["寓言","物","allegor"],"enthymem":["省略推理","物","enthymem"],"aporia":["疑难","物","aporia"],"elench":["反驳法","物","elench"],"rhythmus":["节律","物","rhythmus"],"scala":["音阶","物","scala"],"octava":["八度","物","octava"],"monod":["独奏","物","monod"],"orchestra":["乐队","物","orchestra"],"lyricus":["抒情","物","lyricus"],"arioso":["咏叹","物","arioso"],"sonat":["奏鸣","物","sonat"],"fuga":["赋格","物","fuga"],"canon":["卡农","物","canon"],"praelud":["序曲","物","praelud"],"overtura":["开场曲","物","overtura"],"cadentia":["终止式","物","cadentia"],"timbr":["音色","物","timbr"],"virtuose":["名手","物","virtuose"],"concentus":["和声","物","concentus"],"harmonia":["和声学","物","harmonia"],"melisma":["花腔","物","melisma"],"tonalis":["调性的","物","tonalis"],"modalis":["调式的","物","modalis"],"dissonan":["不协和","物","dissonan"],"consenan":["协和","物","consenan"],"thema":["主题","物","thema"],"paideia":["教育","物","paideia"],"didactic":["教授法","物","didactic"],"pedagog":["教学法","物","pedagog"],"syllabus":["教学大纲","物","syllabus"],"academia":["学院","物","academia"],"lyceum":["学园","物","lyceum"],"scholarch":["校长","物","scholarch"],"professor":["教授","物","professor"],"lectura":["讲席","物","lectura"],"seminarium":["研讨课","物","seminarium"],"tutela":["导师","物","tutela"],"matricul":["注册","物","matricul"],"graduat":["毕业","物","graduat"],"thesis":["论文","物","thesis"],"dissertat":["学位论文","物","dissertat"],"symposium":["学术会议","物","symposium"],"pedant":["炫学者","物","pedant"],"didascal":["教条","物","didascal"],"collegium":["学社","物","collegium"],"rector":["院长","物","rector"],"auditor":["旁听者","物","auditor"],"probato":["考试","物","probato"],"laurea":["学位","物","laurea"],"oeconomia":["经济","物","oeconomia"],"chrematist":["理财术","物","chrematist"],"trapez":["银行家","物","trapez"],"drachma":["德拉克马","物","drachma"],"obolus":["小币","物","obolus"],"stater":["金币","物","stater"],"talentum":["塔兰特","物","talentum"],"nomism":["通货","物","nomism"],"monopol":["垄断","物","monopol"],"oligopol":["寡头垄断","物","oligopol"],"kartel":["卡特尔","物","kartel"],"syndicat":["辛迪加","物","syndicat"],"kredit":["信贷","物","kredit"],"debet":["借方","物","debet"],"saldo":["余额","物","saldo"],"ratio":["预算","物","ratio"],"census":["普查","物","census"],"portorium":["关税","物","portorium"],"nummulari":["钱商","物","nummulari"],"fenus":["利息","物","fenus"],"usura":["高利贷","物","usura"],"syngraf":["契约","物","syngraf"],"banca":["钱庄","物","banca"],"strategus":["战略家","物","strategus"],"tactica":["战术","物","tactica"],"hoplit":["重装兵","物","hoplit"],"phalanx":["方阵","物","phalanx"],"legio":["军团","物","legio"],"maniple":["小队","物","maniple"],"alar":["翼队","物","alar"],"turna":["骑兵队","物","turna"],"cataphract":["铁甲骑","物","cataphract"],"poliorket":["攻城术","物","poliorket"],"navarch":["舰队司令","物","navarch"],"taxiarch":["支队长","物","taxiarch"],"strategema":["计谋","物","strategema"],"agmen":["行军纵队","物","agmen"],"optio":["副官","物","optio"],"decurio":["十夫长","物","decurio"],"centurio":["百夫长","物","centurio"],"tribunus":["护民官","物","tribunus"],"praesidium":["戍卫","物","praesidium"],"explorator":["斥候","物","explorator"],"speculator":["探子","物","speculator"],"mor":["桑","物","mor"],"autumn":["秋","物","autumn"],"vados":["浅","性","vados"],"latifol":["阔叶","物","latifol"],"mediterran":["地中海","物","mediterran"],"semi":["半","性","semi"],"infern":["地狱","物","infern"],"lumen":["微光","物","lumen"]}};
-
-module.exports = EpXsCSyntaxPlugin;
+// src/main.js
+var Plugin = require_plugin();
+module.exports = Plugin;

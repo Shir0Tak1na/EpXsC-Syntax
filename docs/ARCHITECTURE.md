@@ -1,7 +1,7 @@
 # EpXsC Core Architecture
 
-> Status: target design / migration in progress.
-> Current release still ships the single-file `main.js` adapter; no runtime behavior changes are implied by this document.
+> Status: Phase 3 started — `src/main.js` + esbuild is the build boundary; the Obsidian adapter is still the legacy monolith being split.
+> Current release ships the generated `main.js` bundle.
 
 ## 1. Why a core
 

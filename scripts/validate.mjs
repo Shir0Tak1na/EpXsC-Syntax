@@ -10,7 +10,7 @@ const styles = read('styles.css');
 const snippet = read('snippets/EpXsC-Highlight.css');
 
 if (!(manifest.version in versions)) fail('manifest version missing from versions.json');
-if (!main.includes("const BUILD = '" + manifest.version + "'")) fail('BUILD constant does not match manifest version');
+if (!main.includes("BUILD = '" + manifest.version + "'") && !main.includes('BUILD = "' + manifest.version + '"')) fail('BUILD constant does not match manifest version');
 try { new Function(main); } catch (e) { fail('main.js does not parse: ' + e.message); }
 
 for (const [name, css] of [['styles.css', styles], ['snippets/EpXsC-Highlight.css', snippet]]) {
@@ -25,7 +25,11 @@ for (const forbidden of ['app.plugins', 'dump-epx-dom', 'epxsc-render-', 'PLUGIN
 }
 if (main.includes('pre:has(')) fail('main.js still contains pre:has() fallback selector');
 if (main.includes('getFiles(')) fail('main.js still enumerates the whole vault with getFiles()');
-for (const ev of ["vault.on('create'", "vault.on('delete'", "vault.on('rename'"]) { if (!main.includes(ev)) fail('data change event not registered: ' + ev); }
+for (const ev of ['create', 'delete', 'rename']) {
+  const a = "vault.on('" + ev + "'";
+  const b = 'vault.on("' + ev + '"';
+  if (!main.includes(a) && !main.includes(b)) fail('data change event not registered: ' + ev);
+}
 if (!main.includes('_refreshGen')) fail('refresh generation guard missing');
 if (!main.includes('extractEpXsCBlocks')) fail('shared EpXsC block extractor missing');
 

@@ -1,11 +1,15 @@
 {
   "name": "epxsc-syntax",
-  "version": "1.30.0",
+  "version": "1.31.0",
   "private": true,
   "description": "Obsidian plugin: EpXsC syntax highlighting, hover dictionary, and linting",
   "scripts": {
+    "build": "node scripts/build.mjs",
     "check": "node scripts/validate.mjs",
     "test": "node scripts/test.mjs"
   },
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
 }

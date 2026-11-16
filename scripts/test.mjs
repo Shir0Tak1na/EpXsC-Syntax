@@ -1,14 +1,17 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const nodeRequire = createRequire(import.meta.url);
+const blockCore = nodeRequire('../src/core/markdown-blocks.js');
 
-const source = fs.readFileSync('main.js', 'utf8');
+const source = fs.readFileSync('src/legacy/plugin.js', 'utf8');
 const obsidianStub = {
   Plugin: class {}, TFile: class {}, TFolder: class {}, MarkdownView: class {},
   Notice: class {}, Modal: class {}
 };
 const sandbox = {
-  require: (name) => (name === 'obsidian' ? obsidianStub : {}),
+  require: (name) => (name === 'obsidian' ? obsidianStub : (String(name).includes('markdown-blocks') ? blockCore : {})),
   module: { exports: {} },
   exports: {},
   console,
@@ -20,7 +23,8 @@ sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox, { filename: 'main.js' });
 
-const { extractEpXsCBlocks, collectSpells, lintText, builtinLists, makeGrammar, tokenizeText } = sandbox;
+const { collectSpells, lintText, builtinLists, makeGrammar, tokenizeText } = sandbox;
+const { extractEpXsCBlocks } = blockCore;
 
 // 1) 代码围栏别名 + CRLF + 前导空格
 const blocks = extractEpXsCBlocks('x\n```epxsc\r\nA()\r\n```\r\n\n```EPXSC\nB()\n```\n');

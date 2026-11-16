@@ -108,22 +108,29 @@ Tallse aris agrus nec manis humal.
 
 ## Development / 开发
 
-没有构建步骤：`main.js` 就是源码，`styles.css` 就是样式。
+源码在 `src/`；根目录 `main.js` 是 esbuild 产出的 bundle，不要直接手改。
 
 ```bash
-npm run check   # 校验 manifest / 语法 / CSS 括号 / 片段一致性
-npm test        # 代码围栏别名、CRLF、术式作用域回归测试
+npm install       # 安装 esbuild
+npm run build     # src/main.js -> main.js
+npm run check     # manifest / 语法 / CSS / 片段一致性
+npm test          # 围栏别名、CRLF、作用域、tokenizer、括号
 ```
+
+- `src/core/`：可独立测试的纯语言模块（已抽出代码围栏提取器）；
+- `src/legacy/plugin.js`：当前 Obsidian 适配层（单体，逐步拆分）；
+- `styles.css` / `snippets/EpXsC-Highlight.css` 仍手写维护。
 
 | 文件 | 作用 |
 | :-- | :-- |
-| `main.js` | 插件入口：分词、代码块处理器、悬停、检查、词典加载 |
+| `main.js` | 构建产物：`src/main.js` 的 bundle |
+| `src/` | 源码：`core/` 纯逻辑、`legacy/` Obsidian 适配层 |
 | `styles.css` | token 配色、代码块外框、T/G 版面 |
 | `snippets/EpXsC-Highlight.css` | 独立配色片段 |
 | `manifest.json` / `versions.json` | 插件元数据与版本映射 |
 | `docs/ARCHITECTURE.md` | Core / Adapter 分层与迁移计划 |
 
-本地调试：把仓库放进 `<库>/.obsidian/plugins/epxsc-syntax/`，在 Obsidian 里重载插件；改 `main.js` 后关闭再启用即可。Release 附件只放 `main.js`、`manifest.json`、`styles.css` 三个文件。
+本地调试：把仓库放进 `<库>/.obsidian/plugins/epxsc-syntax/`，改 `src/` 后执行 `npm run build`，再在 Obsidian 里关闭/启用插件。Release 附件只放 `main.js`、`manifest.json`、`styles.css` 三个文件。
 
 ## Release notes
 
