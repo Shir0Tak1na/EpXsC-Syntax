@@ -93,7 +93,7 @@ At startup the plugin reads these sources when present:
 | `世界设定集/地域文化图鉴/语言/述无空语/词库/词根表/` | Root volumes (whole directory) |
 | `世界设定集/设定概念集合/魔法/` | Spell declaration registry (whole directory) |
 
-Edit `DICT_PATH`, `SYNTAX_PATH`, `RANK_PATH`, `ROOTS_DIR` and `SPELL_DIR` in `src/adapter/plugin.js` for a different vault layout, then run `npm run build`.
+Edit `DICT_PATH`, `SYNTAX_PATH`, `RANK_PATH`, `ROOTS_DIR` and `SPELL_DIR` in `src/adapter/config.js` for a different vault layout, then run `npm run build`.
 
 When a source is unavailable, the plugin uses `data/builtin-lexicon.json` (`schemaVersion` 1). The snapshot is canonicalized and validated by `scripts/generate-lexicon.mjs --check`.
 
@@ -142,6 +142,7 @@ npm test          # behavior tests + tokenizer/parser/lint/markup fixtures
 | :-- | :-- |
 | `src/main.js` | Build entry; requires the adapter only |
 | `src/adapter/plugin.js` | Obsidian adapter: lifecycle, DOM, hover, commands, processors |
+| `src/adapter/config.js` | Vault source paths and highlight limit |
 | `src/core/` | Pure language logic: grammar / tokenizer / markup / lint / spells / fences |
 | `src/core/index.js` | Stable core entry and aliases |
 | `src/data/parsers.js` | Dictionary / roots / ranks / filter keys / units parsing |

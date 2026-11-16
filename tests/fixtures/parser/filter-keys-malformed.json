@@ -1,0 +1,6 @@
+{
+  "name": "filter-keys-malformed",
+  "kind": "filterKeys",
+  "input": "no heading here",
+  "expected": []
+}

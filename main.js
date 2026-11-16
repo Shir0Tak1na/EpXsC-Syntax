@@ -1082,6 +1082,20 @@ var require_lint = __commonJS({
   }
 });
 
+// src/adapter/config.js
+var require_config = __commonJS({
+  "src/adapter/config.js"(exports2, module2) {
+    "use strict";
+    var DICT_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u8BCD\u5178.md";
+    var RANK_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u7EF4\u5EA6/\u7EF4\u5EA6\u6A21\u578B.md";
+    var SYNTAX_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u672F\u5F0F\u8BED\u6CD5.md";
+    var ROOTS_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8BCD\u5E93/\u8BCD\u6839\u8868/";
+    var SPELL_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u9B54\u6CD5";
+    var MAX_HIGHLIGHT_LINES = 50;
+    module2.exports = { DICT_PATH, RANK_PATH, SYNTAX_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES };
+  }
+});
+
 // data/builtin-lexicon.json
 var require_builtin_lexicon = __commonJS({
   "data/builtin-lexicon.json"(exports2, module2) {
@@ -1104,12 +1118,7 @@ var require_plugin = __commonJS({
     var { FALLBACK, SECTIONS, ELEMENTS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require_parsers();
     var LANG_KEYS = ["EpXsC", "epxsc", "EPXSC"];
     var CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
-    var DICT_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u8BCD\u5178.md";
-    var RANK_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u7EF4\u5EA6/\u7EF4\u5EA6\u6A21\u578B.md";
-    var SYNTAX_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u672F\u5F0F\u8BED\u6CD5.md";
-    var ROOTS_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8BCD\u5E93/\u8BCD\u6839\u8868/";
-    var SPELL_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u9B54\u6CD5";
-    var MAX_HIGHLIGHT_LINES = 50;
+    var { DICT_PATH, RANK_PATH, SYNTAX_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES } = require_config();
     var BUILD = "1.31.0";
     var CLASS_ORDER = ["rankRange", "bracket", "paren", "brace", "pointer", "coordRun", "negPrefix", "modifier", "declTarget", "varUse", "judge", "clause", "declaration", "variable", "type", "element", "unit", "predicate", "spellRef", "function", "keyword", "pretium", "degree", "axis", "number", "comment", "annotation", "operator", "punctuation", "word"];
     var CLASS_LABEL = {

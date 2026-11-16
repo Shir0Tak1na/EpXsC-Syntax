@@ -15,6 +15,8 @@ const builtinLexicon = nodeRequire('../data/builtin-lexicon.json');
 const lexiconCore = nodeRequire('../src/data/lexicon.js');
 
 const source = fs.readFileSync('src/adapter/plugin.js', 'utf8');
+const adapterConfig = fs.readFileSync('src/adapter/config.js', 'utf8');
+const adapterConfigModule = nodeRequire('../src/adapter/config.js');
 const obsidianStub = {
   Plugin: class {}, TFile: class {}, TFolder: class {}, MarkdownView: class {},
   Notice: class {}, Modal: class {}
@@ -155,8 +157,10 @@ assert.ok(css.includes('border-left: 3px solid var(--text-accent)'), 'C border r
 assert.equal(css, snippetCss, 'styles.css and snippet must stay byte-identical');
 assert.ok(source.includes('const CLASS_ORDER'), 'hover regression: CLASS_ORDER must stay in adapter');
 assert.ok(source.includes('const SYMBOL_INFO'), 'hover regression: SYMBOL_INFO must stay in adapter');
-assert.ok(source.includes('const SPELL_DIR'), 'extraction regression: SPELL_DIR must stay in adapter');
-assert.ok(source.includes('const MAX_HIGHLIGHT_LINES'), 'extraction regression: MAX_HIGHLIGHT_LINES must stay in adapter');
+assert.ok(adapterConfig.includes('const SPELL_DIR'), 'extraction regression: SPELL_DIR must stay in adapter config');
+assert.ok(adapterConfig.includes('const MAX_HIGHLIGHT_LINES'), 'extraction regression: MAX_HIGHLIGHT_LINES must stay in adapter config');
+assert.equal(adapterConfigModule.SPELL_DIR, '世界设定集/设定概念集合/魔法');
+assert.equal(adapterConfigModule.MAX_HIGHLIGHT_LINES, 50);
 assert.ok(!tokenizerSrc.includes('CLASS_ORDER'), 'tokenizer must not own CLASS_ORDER');
 assert.ok(!tokenizerSrc.includes('SYMBOL_INFO'), 'tokenizer must not own SYMBOL_INFO');
 assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR');

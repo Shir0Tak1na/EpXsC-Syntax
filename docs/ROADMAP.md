@@ -30,8 +30,8 @@
 
 - [x] T1.1 Move `BUILTIN_LEXICON` to `data/builtin-lexicon.json`; add deterministic `scripts/generate-lexicon.mjs`; no local paths.
 - [x] T1.2 Add `schemaVersion` / `lexiconVersion` / `generatedAt`; loader compatibility check.
-- [ ] T1.3 Tests for Vault priority, missing/empty/malformed/deleted files, duplicate merge, builtin fallback.
-- [ ] T1.4 Centralize data-source paths in one config module.
+- [x] T1.3 Tests for Vault priority, missing/empty/malformed/deleted files, duplicate merge, builtin fallback (core/parser/loader coverage; adapter merge documented).
+- [x] T1.4 Centralize data-source paths in `src/adapter/config.js`.
 
 ### T2 — services / adapter
 
@@ -86,9 +86,9 @@ Do not start T1/T2 migration before T0 is complete.
 | T0.4 | DONE | runner + CI + diff output |
 | T1.1 | DONE | JSON + canonical generator + tests |
 | T1.2 | DONE | schema gate + metadata validation |
-| T1.3 | TODO | next action |
-| T1.4 | TODO | |
-| T2.1 | TODO | |
+| T1.3 | DONE | parser/loader fallback tests + semantics doc |
+| T1.4 | DONE | adapter config module |
+| T2.1 | TODO | next action |
 | T2.2 | TODO | |
 | T2.3 | TODO | |
 | T3.1 | TODO | |
@@ -120,12 +120,13 @@ Do not start T1/T2 migration before T0 is complete.
 
 ## G. Next single action
 
-**T1.3 — priority / fallback tests.**
+**T2.1 — RefreshScheduler.**
 
-T1.2 is done: the snapshot carries `schemaVersion` 1, `lexiconVersion` and `generatedAt`; the adapter rejects incompatible or incomplete snapshots and falls back to empty built-in maps while keeping Vault data usable.
+T1.3/T1.4 are done: parser/loader fallback coverage is in fixtures/tests, data semantics are documented, and paths live in `src/adapter/config.js`.
 
-T1.3 deliverable:
+T2.1 deliverable:
 
-- tests for Vault priority, missing/empty/malformed/deleted sources;
-- built-in snapshot fallback behavior;
-- document the chosen product semantics for empty vs missing vs malformed.
+- `src/services/refresh-scheduler.js` with request/cancel/execute;
+- debounce, dedupe, generation guard preserved;
+- Node tests for debounce and stale-task discard;
+- adapter uses the service; no behavior change.

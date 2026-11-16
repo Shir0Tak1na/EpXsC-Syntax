@@ -1,0 +1,6 @@
+{
+  "name": "units-malformed",
+  "kind": "units",
+  "input": "## 六、单位\nnot a table",
+  "expected": []
+}

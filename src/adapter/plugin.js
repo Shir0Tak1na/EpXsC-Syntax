@@ -22,15 +22,7 @@ const { FALLBACK, SECTIONS, ELEMENTS, splitSections, parseEntries, parseRanks, p
 
 const LANG_KEYS = ['EpXsC', 'epxsc', 'EPXSC'];
 const CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
-const DICT_PATH = '世界设定集/地域文化图鉴/语言/述无空语/述无空语词典.md';
-/* 秩的构成表：悬停秩区间时显示（维度模型 · 九个秩与维度的对应） */
-const RANK_PATH = '世界设定集/设定概念集合/维度/维度模型.md';
-/* 术式语法文档：读「筛选键」表，给 genus / intervall / ordin … 挂释义 */
-const SYNTAX_PATH = '世界设定集/地域文化图鉴/语言/述无空语/述无空语术式语法.md';
-/* 词根表分册目录：整目录都在读，新增分册会自动纳入 */
-const ROOTS_DIR = '世界设定集/地域文化图鉴/语言/述无空语/词库/词根表/';
-const SPELL_DIR = '世界设定集/设定概念集合/魔法';
-const MAX_HIGHLIGHT_LINES = 50;
+const { DICT_PATH, RANK_PATH, SYNTAX_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES } = require('./config.js');
 
 const BUILD = '1.31.0';
 

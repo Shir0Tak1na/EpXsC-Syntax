@@ -1,0 +1,6 @@
+{
+  "name": "dictionary-malformed",
+  "kind": "dictionary",
+  "input": "not a table\njust prose",
+  "expected": []
+}

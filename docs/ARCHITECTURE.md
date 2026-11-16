@@ -44,6 +44,7 @@ src/adapter/plugin.js       Obsidian lifecycle, DOM, hover, commands, processors
 | `src/core/markdown-blocks.js` | fenced-block extraction |
 | `src/core/index.js` | public aggregate + stable aliases |
 | `data/builtin-lexicon.json` | built-in snapshot (entries/roots/units/ranks/keys) |
+| `src/adapter/config.js` | vault data paths and 50-line highlight limit |
 | `src/data/parsers.js` | dictionary / roots / ranks / filter keys / units |
 
 Rules:
@@ -111,6 +112,15 @@ The built-in snapshot lives in `data/builtin-lexicon.json`; it carries `schemaVe
 ```
 
 It must be deterministic, sorted, and contain no local paths or private vault content.
+
+## 4.1 Data source semantics
+
+- **Missing source**: use the built-in snapshot for that source.
+- **Empty source**: parses to empty maps; it is treated as an intentional empty source, not as missing.
+- **Malformed source**: parsers are permissive and return empty/partial maps; refresh keeps the last complete snapshot on a fatal error.
+- **Repeated/duplicate rows**: first or last wins according to the parser (dictionary entries are last-wins; roots are first-wins); fixtures lock the behavior.
+- **Deleted source**: the next refresh sees it as missing and falls back to the built-in snapshot.
+- **Built-in snapshot invalid**: schema gate returns empty maps and logs a warning; Vault data still works.
 
 ## 5. Lifecycle and refresh invariants
 
