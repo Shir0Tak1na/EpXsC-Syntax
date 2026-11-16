@@ -2,19 +2,31 @@
 
 ## 1.31.0
 
-- 重构目录：`src/core`（纯语言逻辑）、`src/data`（解析）、`src/adapter`（Obsidian 适配）、`src/main.js` + esbuild 构建产物。
-- 修复 T/G 在词典载入前用兜底 grammar 渲染且不重绘的问题：refresh 后重新渲染 `.epx-ord` 块。
-- 修复 hover 常量、C 块 `pre.epx-pre` 选择器权重问题。
-- 移除全部临时诊断命令/写入。
-- 引入 `src/` + esbuild：`main.js` 改为构建产物，`src/core/` 开始承载可测试纯逻辑。
-- 代码围栏提取器抽到 `src/core/markdown-blocks.js`，插件与测试共用。
-- 词典 / 词根 / 秩 / 筛选键 / 单位 parser 抽到 `src/data/parsers.js`。
-- 术式登记与 Lint 纯逻辑抽到 `src/core/spells.js` / `src/core/lint.js`。
-- 语法构造与 tokenizer 抽到 `src/core/grammar.js` / `src/core/tokenizer.js`。
-- 括号深度、变量分析、字典键等 token 后处理抽到 `src/core/markup.js`。
-- CI 增加 `npm ci` / `npm run build`；测试覆盖 CLI 构建链。
-- 运行时行为不变。
-- `src/legacy/plugin.js` 更名为 `src/adapter/plugin.js`；新增 `src/core/index.js` 聚合导出；运行时诊断写入已移除。
+发布日期：2026-11-16
+
+### 架构
+
+- 建立构建边界：源码在 `src/`，根目录 `main.js` 由 esbuild 生成，不再手改。
+- 拆出 `src/core/`（grammar、tokenizer、markup、lint、spells、代码围栏提取）与 `src/data/parsers.js`（词典 / 词根 / 秩 / 筛选键 / 单位）。
+- 新增 `src/core/index.js` 聚合导出与稳定别名：`extractBlocks`、`parseDictionary`、`buildGrammar`、`tokenize`、`lint`。
+- Obsidian 相关代码收口到 `src/adapter/plugin.js`；删除 `src/legacy/`。
+- 新增 `docs/ARCHITECTURE.md` 实际分层与 API 合同、`docs/RELEASING.md` 发布节奏。
+
+### 修复
+
+- 修复 T/G 在词典载入前使用兜底 grammar 渲染、之后不再重绘的问题：`refresh()` 完成后重新渲染所有 `.epx-ord` 块。
+- 修复三模式悬停失效：`CLASS_ORDER` / `CLASS_LABEL` / `SYMBOL_INFO` 被错误移入 tokenizer 模块，已放回悬停区并加回归测试。
+- 修复 C 模式左侧框线消失：`.epx-pre` 选择器权重不足，改为 `pre.epx-pre`。
+- 移除全部临时诊断命令与运行时写入（`epxsc-runtime-*`、token dump）。
+
+### 构建与测试
+
+- `npm run build` / `npm run check` / `npm test` 全部通过。
+- 测试覆盖：代码围栏别名、CRLF、行号映射、术式作用域、tokenizer、括号、parser、hover、markup。
+- CI 增加构建 / 校验 / 测试；Release provenance attestation 成功。
+- Release 资产：`main.js`、`manifest.json`、`styles.css`。
+
+---
 
 ## 1.30.0
 

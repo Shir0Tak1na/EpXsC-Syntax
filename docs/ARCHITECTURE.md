@@ -1,82 +1,100 @@
 # EpXsC Core Architecture
 
-> Status: Phase 3 complete enough for review — `src/main.js` + esbuild is the build boundary; `src/core/index.js` is the reusable API; `src/adapter/plugin.js` is the Obsidian adapter.
-> Current release ships the generated `main.js` bundle.
+> Status: **Phase 3 complete** — the plugin ships a generated `main.js`; pure language logic lives in `src/core` + `src/data`, and Obsidian lifecycle lives in `src/adapter`.
+> Current version: **1.31.0**（2026-11-16）.
 
 ## 1. Why a core
 
-EpXsC Syntax currently does four jobs in one `main.js`:
+The plugin does four jobs:
 
-1. language data parsing (dictionary, roots, ranks, spell declarations);
-2. tokenization / highlighting;
-3. linting and scope analysis;
-4. Obsidian lifecycle, DOM, tooltip, commands and persistence.
+1. parse language data (dictionary, roots, ranks, spell declarations);
+2. tokenize / colorize EpXsC text;
+3. lint and scope-check it;
+4. embed it in Obsidian (lifecycle, DOM, tooltip, commands).
 
-The first three are not Obsidian-specific. A translation project should be able to reuse them without loading Obsidian:
+Jobs 1–3 are not Obsidian-specific. A translation project should be able to reuse them without loading Obsidian:
 
 - CLI checker for EpXsC text;
 - VS Code / web editor diagnostics;
 - corpus import and glossary validation;
-- other conlang/translation tooling.
+- other conlang / translation tooling.
 
-## 2. Target layers
+## 2. Actual layers
 
 ```text
-adapters/obsidian/   Obsidian lifecycle, views, commands, processors
+src/main.js                 build entry; only requires the adapter
         |
         v
-services/            refresh scheduler, lexicon service, lint service
+src/adapter/plugin.js       Obsidian lifecycle, DOM, hover, commands, processors
         |
-        +----> core/     pure language logic (no DOM, no vault)
+        +----> src/core/    pure language logic (no obsidian / document / window / vault)
         |
-        +----> data/     built-in snapshot + parsers
+        +----> src/data/    parsers and built-in fallback snapshot
 ```
+
+| Path | Responsibility |
+| :-- | :-- |
+| `src/main.js` | esbuild entry; no language logic |
+| `src/adapter/plugin.js` | plugin lifecycle, markdown processors, DOM rendering, hover UI, commands, data listeners |
+| `src/core/grammar.js` | `AXES` / `TYPES` / `MODIFIERS`, `makeGrammar`, `BASE_LISTS` |
+| `src/core/tokenizer.js` | `tokenizeText` / `asGlobalRe` / `escHtml` |
+| `src/core/markup.js` | bracket depth, variable analysis, dict keys, spell refs |
+| `src/core/spells.js` | `collectSpells` / `parseParamList` |
+| `src/core/lint.js` | `lintText` |
+| `src/core/markdown-blocks.js` | fenced-block extraction |
+| `src/core/index.js` | public aggregate + stable aliases |
+| `src/data/parsers.js` | dictionary / roots / ranks / filter keys / units, built-in constants |
 
 Rules:
 
-- `core/` must not import `obsidian`, `document`, `window` or `app.vault`.
-- `data/` may parse strings/files but must not render or touch UI.
-- Only `adapters/obsidian/` may register lifecycle, commands and markdown processors.
-- Renderers receive analysis results; they do not re-implement tokenization or scope rules.
+- `src/core/` must not import `obsidian`, `document`, `window` or `app.vault`.
+- `src/data/` only parses strings/files; no rendering or UI.
+- Only `src/adapter/` registers lifecycle, commands and markdown processors.
+- Renderers consume analysis results; they do not re-implement tokenization or scope rules.
 
-## 3. Core API contract (target)
+## 3. Public core API
 
 ```js
+const core = require('./src/core');
+
 // data
-parseDictionary(text) -> Map<word, { pos, meaning, abbr }>
-parseRoots(text) -> Map<root, { word, kind, meaning }>
-parseRanks(text) -> Map<rank, { line, components }>
-parseUnits(text) -> Map<unit, { word }>
-parseFilterKeys(text) -> Map<key, { word, meaning }>
+core.parseDictionary(text) // parseEntries alias -> Map<word, entry>
+core.parseRoots(text)      // Map<root, { word, kind, meaning }>
+core.parseRanks(text)      // Map<rank, { line, components }>
+core.parseUnits(text)      // Map<unit, ...>
+core.parseFilterKeys(text) // Map<key, ...>
 
 // language
-buildGrammar(lists, filterKeys) -> grammar
-tokenize(text, grammar) -> html string (escaped)
-extractBlocks(markdown, aliases) -> [{ source, line }]
+core.buildGrammar(lists, filterKeys) // makeGrammar alias
+core.tokenize(text, grammar)         // tokenizeText alias -> escaped HTML
+core.extractBlocks(markdown, aliases) // extractEpXsCBlocks alias
 
 // analysis
-collectSpells(text, map, file) -> Map<name, { file, line, endLine, visibility, params }>
-lint(text, context) -> [{ level, line, message }]
+core.collectSpells(text, map, file)
+core.lint(text, context)             // lintText alias
 ```
 
-Context for `lint`:
+`lint` context:
 
 ```js
 {
-  info, units, keys, spells, path,
-  // path is required for priv/tut file-scoped visibility
+  info, units, keys, spells, path,  // path required for priv/tut scope
+  ranks                              // optional rank definitions for messages
 }
 ```
 
+The adapter and external tools share the same modules; there is no duplicate grammar.
+
 ## 4. Data model and fallback
 
-The current priority is preserved:
+Priority is preserved:
 
-1. Vault dictionary / syntax / rank / root files;
+1. vault dictionary / syntax / rank / root files;
 2. built-in snapshot when a source is missing or unreadable;
 3. partial failures fall back per source, never silently mix incompatible schemas.
 
-Future snapshot file should carry:
+The built-in snapshot (`BUILTIN_LEXICON`) still lives in `src/adapter/plugin.js` for now. A future generated
+`snapshot.json` should carry:
 
 ```json
 {
@@ -89,41 +107,54 @@ Future snapshot file should carry:
 }
 ```
 
-The snapshot must be generated by a deterministic script, sorted, and must not contain local paths or private vault content.
+It must be deterministic, sorted, and contain no local paths or private vault content.
 
-## 5. Migration phases
+## 5. Lifecycle and refresh invariants
+
+These are load-bearing; keep them when changing the adapter:
+
+- data events (`create` / `delete` / `rename`) are debounced;
+- `refresh()` has a generation guard so a slow load cannot overwrite a newer one;
+- after `refresh()` installs the new grammar, C blocks are re-highlighted **and T/G `.epx-ord` blocks are re-rendered**;
+  T/G may have rendered before the dictionary finished loading, so skipping this leaves them on `BASE_LISTS`;
+- `pre.epx-pre` is added by the plugin; do not reintroduce `:has()`;
+- hover constants (`CLASS_ORDER`, `CLASS_LABEL`, `SYMBOL_INFO`) must stay in the adapter/hover layer, not tokenizer.
+
+## 6. Migration phases
 
 ### Phase 1 — baseline (done)
 
-- fixed data-event coverage, refresh race, linter alias/line mapping, priv/tut file scope;
-- added `scripts/test.mjs` for block aliases, CRLF, scope and tokenizer smoke tests;
+- data-event coverage, refresh race, linter alias/line mapping, priv/tut file scope;
+- `scripts/test.mjs` for block aliases, CRLF, scope and tokenizer smoke tests;
 - CI runs check + test.
 
-### Phase 2 — pure modules without build
+### Phase 2 — pure modules (done)
 
-Progress: `extractEpXsCBlocks` → `src/core/markdown-blocks.js`; parsers → `src/data/parsers.js`; spells/lint → `src/core/spells.js` + `src/core/lint.js`; grammar/tokenizer → `src/core/grammar.js` + `src/core/tokenizer.js`; token post-processing → `src/core/markup.js`; all covered by `npm test`.
+- `extractEpXsCBlocks` → `src/core/markdown-blocks.js`;
+- parsers → `src/data/parsers.js`;
+- spells/lint → `src/core/spells.js` + `src/core/lint.js`;
+- grammar/tokenizer → `src/core/grammar.js` + `src/core/tokenizer.js`;
+- token post-processing → `src/core/markup.js`;
+- tests cover parser, tokenizer, bracket, hover and markup paths.
 
-- move `extractBlocks`, data parsers and lint helpers into `src/core/` / `src/data/`;
-- keep `main.js` behavior identical by temporary duplication or a generation script;
-- add golden fixtures for tokenizer and linter output;
-- acceptance: same fixture output before/after, `npm run check` and `npm test` pass.
+### Phase 3 — build boundary (done)
 
-### Phase 3 — build boundary
+- esbuild with `src/main.js` as entry;
+- `main.js` is generated, still the only release entry;
+- CI builds from a clean checkout, runs `check` and `test`;
+- release assets: `main.js`, `manifest.json`, `styles.css`;
+- release provenance attestation passes.
 
-- introduce `esbuild` with `src/main.js` as adapter entry;
-- `main.js` becomes a generated bundle, still the only release entry;
-- CI builds from a clean checkout and checks the generated file is current;
-- acceptance: installable plugin, all release assets present, no behavior diff in fixtures.
+### Phase 4 — external package (next)
 
-### Phase 4 — external package
-
-- publish or expose `@epxsc/core` (pure ESM/CJS) for other tools;
+- publish or expose `@epxsc/core` as a pure ESM/CJS package;
 - adapter imports it; no duplicate language rules;
-- acceptance: CLI sample and Obsidian plugin both consume the same core version.
+- golden fixtures for tokenizer and linter output;
+- acceptance: a CLI sample and the Obsidian plugin consume the same core version.
 
-## 6. Non-goals
+## 7. Non-goals
 
-- No language semantic changes during refactor.
-- No removal of built-in fallback or diagnostics.
-- No TypeScript/framework migration unless a separate decision proves the benefit.
-- No rewrite of the working single-file plugin in one step.
+- No language semantic changes during refactor work.
+- No removal of built-in fallback or diagnostics commands.
+- No TypeScript/framework migration unless separately decided.
+- No rewrite of the working adapter in one step.

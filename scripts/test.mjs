@@ -10,6 +10,7 @@ const lintCore = nodeRequire('../src/core/lint.js');
 const grammarCore = nodeRequire('../src/core/grammar.js');
 const tokenizerCore = nodeRequire('../src/core/tokenizer.js');
 const markupCore = nodeRequire('../src/core/markup.js');
+const coreIndex = nodeRequire('../src/core/index.js');
 
 const source = fs.readFileSync('src/adapter/plugin.js', 'utf8');
 const obsidianStub = {
@@ -109,4 +110,11 @@ const kinds = bracketKinds('Foo(a)');
 assert.equal(kinds[0], '参数表');
 assert.ok(markBracketDepth('<span class="token paren">(</span>', []).includes('epx-d1'));
 
-console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers, hover, markup');
+// 10) public core aliases
+assert.equal(typeof coreIndex.extractBlocks, 'function');
+assert.equal(typeof coreIndex.parseDictionary, 'function');
+assert.equal(typeof coreIndex.buildGrammar, 'function');
+assert.equal(typeof coreIndex.tokenize, 'function');
+assert.equal(typeof coreIndex.lint, 'function');
+
+console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers, hover, markup, core-api');

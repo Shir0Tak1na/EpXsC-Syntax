@@ -8,6 +8,12 @@
 - 需要发布时，先检查当天是否已有 Release；有则等到下一天。
 - 已发布当天唯一 Release 后，如果需要补资产，应**更新该 Release 的 assets**，而不是再建一个 Release。
 
+## 当前最新
+
+- 最新 Release：**1.31.0**（2026-11-16）
+- 市场对应版本：1.31.0
+- 下一个 Release 必须等到下一个 Asia/Shanghai 日历日。
+
 ## 发布前检查
 
 1. `manifest.json` / `package.json` / `BUILD` 版本一致；

@@ -24,6 +24,7 @@ Expaste(METOS: a, METOS: b) {
 - **阅读视图 + 实时预览** —— 两个视图都渲染；点一下渲染块即落回源码继续编辑。
 - **移动端可用** —— 窄屏下外框、译文与词注不会挤成正文。
 - **可选 CSS 片段** —— 不想开插件、只要配色的场合，可单独使用 `snippets/EpXsC-Highlight.css`。
+- **可复用 core** —— 词法、语法构造、解析、Lint 逻辑不依赖 Obsidian，可给 CLI / 编辑器 / 其他翻译工程直接使用。
 
 ## Installation / 安装
 
@@ -89,8 +90,10 @@ Tallse aris agrus nec manis humal.
 | `世界设定集/地域文化图鉴/语言/述无空语/述无空语词典.md` | 词性、释义、缩写 |
 | `世界设定集/地域文化图鉴/语言/述无空语/述无空语术式语法.md` | 筛选键、单位表 |
 | `世界设定集/设定概念集合/维度/维度模型.md` | 秩与维度的对应 |
+| `世界设定集/地域文化图鉴/语言/述无空语/词库/词根表/` | 词根分册（整目录读取） |
+| `世界设定集/设定概念集合/魔法/` | 术式声明登记（整目录读取） |
 
-改这三份文件后插件会自动重读；换库或改路径时，同步修改 `main.js` 里的 `DICT_PATH`、`SYNTAX_PATH`、`RANK_PATH`。读不到文件（例如别人下载的库）时使用内置词库快照，开箱即用。
+改这些文件后插件会自动重读；换库或改路径时，修改 `src/adapter/plugin.js` 里的 `DICT_PATH`、`SYNTAX_PATH`、`RANK_PATH`、`ROOTS_DIR`、`SPELL_DIR`，再执行 `npm run build`。读不到文件（例如别人下载的库）时使用内置词库快照，开箱即用。
 
 ## Customization / 自定义
 
@@ -103,8 +106,24 @@ Tallse aris agrus nec manis humal.
 - 最低 Obsidian **1.4.0**；桌面与移动端都可启用。
 - 阅读视图、实时预览都支持；实时预览中光标进入代码块会暂时显示源码，这是 Obsidian 的默认行为。
 - **超过 50 行**的代码块只保留普通代码块外观，不做 token 着色（性能考虑）。
-- 外框与右上角语言签使用 `:has()`，需要 iOS 15.4+ / 较新的 Chromium；不支持时仅外框不出现，token 着色不受影响。
+- 外框由插件给 `<pre>` 加 `pre.epx-pre` 类，不再依赖 `:has()`；token 着色与外框互不影响。
 - 插件不发起网络请求，不修改笔记内容。
+
+## Core API / 复用
+
+核心模块不依赖 Obsidian、DOM 或 vault：
+
+```js
+const core = require('./src/core');
+
+const dict = core.parseDictionary(text);       // Map<word, entry>
+const grammar = core.buildGrammar(lists, keys);
+const html = core.tokenize(source, grammar);   // escaped HTML tokens
+const spells = core.collectSpells(source, new Map(), 'file.md');
+const issues = core.lint(source, { info, units, keys, spells, path });
+```
+
+导出别名：`extractBlocks`、`parseDictionary`、`buildGrammar`、`tokenize`、`lint`。
 
 ## Development / 开发
 
@@ -114,32 +133,27 @@ Tallse aris agrus nec manis humal.
 npm install       # 安装 esbuild
 npm run build     # src/main.js -> main.js
 npm run check     # manifest / 语法 / CSS / 片段一致性
-npm test          # 围栏别名、CRLF、作用域、tokenizer、括号
+npm test          # 围栏、CRLF、作用域、tokenizer、hover、markup
 ```
 
-- `src/core/`：可独立测试的纯语言模块（围栏提取）；
-- `src/data/parsers.js`：词典 / 词根 / 秩 / 筛选键 / 单位解析；
-- `src/core/spells.js` / `src/core/lint.js`：术式登记与纯 Lint 逻辑；
-- `src/core/grammar.js` / `src/core/tokenizer.js`：语法规则与纯 HTML tokenizer；
-- `src/core/markup.js`：括号深度、变量分析、字典键等 token 后处理；
-- `src/core/index.js`：可直接给其他工具使用的 core 入口；
-- `src/adapter/plugin.js`：Obsidian 适配层（生命周期、DOM、命令、处理器）；
-- `styles.css` / `snippets/EpXsC-Highlight.css` 仍手写维护。
-
-| 文件 | 作用 |
+| 路径 | 作用 |
 | :-- | :-- |
-| `main.js` | 构建产物：`src/main.js` 的 bundle |
-| `src/` | 源码：`core/` 纯逻辑、`legacy/` Obsidian 适配层 |
+| `src/main.js` | 构建入口，只 require adapter |
+| `src/adapter/plugin.js` | Obsidian 适配层：生命周期、DOM、悬停、命令、代码块处理器 |
+| `src/core/` | 纯语言逻辑：grammar / tokenizer / markup / lint / spells / 围栏提取 |
+| `src/core/index.js` | 稳定 core 入口与别名 |
+| `src/data/parsers.js` | 词典 / 词根 / 秩 / 筛选键 / 单位解析 |
 | `styles.css` | token 配色、代码块外框、T/G 版面 |
 | `snippets/EpXsC-Highlight.css` | 独立配色片段 |
 | `manifest.json` / `versions.json` | 插件元数据与版本映射 |
-| `docs/ARCHITECTURE.md` | Core / Adapter 分层与迁移计划 |
+| `docs/ARCHITECTURE.md` | Core / Adapter 分层与实际 API |
+| `docs/RELEASING.md` | 发布节奏 |
 
 本地调试：把仓库放进 `<库>/.obsidian/plugins/epxsc-syntax/`，改 `src/` 后执行 `npm run build`，再在 Obsidian 里关闭/启用插件。Release 附件只放 `main.js`、`manifest.json`、`styles.css` 三个文件。
 
 ## Release notes
 
-[CHANGELOG.md](CHANGELOG.md) · [GitHub Releases](https://github.com/Shir0Tak1na/EpXsC-Syntax/releases)
+[CHANGELOG.md](CHANGELOG.md) · [GitHub Releases](https://github.com/Shir0Tak1na/EpXsC-Syntax/releases) · [发布节奏](docs/RELEASING.md)：每天最多一个 Release。
 
 ## License
 
