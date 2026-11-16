@@ -121,7 +121,7 @@ Tallse aris agrus nec manis humal.
 
 ## Release notes
 
-[GitHub Releases](https://github.com/Shir0Tak1na/EpXsC-Syntax-Highlight/releases)
+[CHANGELOG.md](CHANGELOG.md) · [GitHub Releases](https://github.com/Shir0Tak1na/EpXsC-Syntax-Highlight/releases)
 
 ## License
 
