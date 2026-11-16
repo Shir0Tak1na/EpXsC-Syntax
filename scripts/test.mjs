@@ -117,4 +117,23 @@ assert.equal(typeof coreIndex.buildGrammar, 'function');
 assert.equal(typeof coreIndex.tokenize, 'function');
 assert.equal(typeof coreIndex.lint, 'function');
 
-console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers, hover, markup, core-api');
+// 11) 历史 bug 静态回归（由真实事故固化）
+const tokenizerSrc = fs.readFileSync('src/core/tokenizer.js', 'utf8');
+const css = fs.readFileSync('styles.css', 'utf8');
+const snippetCss = fs.readFileSync('snippets/EpXsC-Highlight.css', 'utf8');
+assert.ok(source.includes('__epxOrd'), 'T/G refresh regression: ordinal source marker must exist');
+assert.ok(source.includes("querySelectorAll('.epx-ord-wrap')"), 'T/G refresh regression: rehighlight must revisit ordinal blocks');
+assert.ok(source.includes("classList.add('epx-pre')"), 'C border regression: plugin must add epx-pre class');
+assert.ok(css.includes('pre.epx-pre'), 'C border regression: epx-pre selector must outrank theme pre');
+assert.ok(!/pre:has\(/.test(css), 'C border regression: do not reintroduce pre:has');
+assert.ok(css.includes('border-left: 3px solid var(--text-accent)'), 'C border regression: left accent border must exist');
+assert.equal(css, snippetCss, 'styles.css and snippet must stay byte-identical');
+assert.ok(source.includes('const CLASS_ORDER'), 'hover regression: CLASS_ORDER must stay in adapter');
+assert.ok(source.includes('const SYMBOL_INFO'), 'hover regression: SYMBOL_INFO must stay in adapter');
+assert.ok(source.includes('const SPELL_DIR'), 'extraction regression: SPELL_DIR must stay in adapter');
+assert.ok(source.includes('const MAX_HIGHLIGHT_LINES'), 'extraction regression: MAX_HIGHLIGHT_LINES must stay in adapter');
+assert.ok(!tokenizerSrc.includes('CLASS_ORDER'), 'tokenizer must not own CLASS_ORDER');
+assert.ok(!tokenizerSrc.includes('SYMBOL_INFO'), 'tokenizer must not own SYMBOL_INFO');
+assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR');
+
+console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers, hover, markup, core-api, history-regression');

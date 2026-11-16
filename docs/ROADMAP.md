@@ -21,8 +21,8 @@
 
 - [x] T0.1 Tokenizer golden fixtures (13 fixtures, scripts/fixture-runner.mjs) (`tests/fixtures/tokenizer/`): keywords, types, modifiers, predicates, elements, units, numbers, rank ranges, nested brackets, comments, annotations, coord runs, negPrefix, empty, very long, unknown words.
 - [x] T0.2 Parser / Lint / Markup golden fixtures (8 parser + 7 lint + 6 markup): dictionary normal/empty/missing/duplicate; root merge; ranks/units/filter keys; spells/params/scope/impo/const rewrite; bracket depth/variable analysis/dict keys.
-- [ ] T0.3 Historical-bug regression list from CHANGELOG/Git: T/G old grammar, lost hover constants, C border specificity, `SPELL_DIR`/`MAX_HIGHLIGHT_LINES`, `CLASS_ORDER`/`SYMBOL_INFO`.
-- [ ] T0.4 Fixture runner wired into `npm test` + CI; prints fixture name and expected/actual diff.
+- [x] T0.3 Historical-bug regression list (static regression section in `scripts/test.mjs`) from CHANGELOG/Git: T/G old grammar, lost hover constants, C border specificity, `SPELL_DIR`/`MAX_HIGHLIGHT_LINES`, `CLASS_ORDER`/`SYMBOL_INFO`.
+- [x] T0.4 Fixture runner wired into `npm test` + CI; prints fixture name and expected/actual diff.
 
 ### T1 — data layer
 
@@ -80,9 +80,9 @@ Do not start T1/T2 migration before T0 is complete.
 | :-- | :-- | :-- |
 | T0.1 | DONE | 13 tokenizer fixtures + runner |
 | T0.2 | DONE | 21 fixtures + runner sections |
-| T0.3 | TODO | next action |
-| T0.4 | TODO | |
-| T1.1 | TODO | high value, low semantic risk |
+| T0.3 | DONE | history-regression in test.mjs |
+| T0.4 | DONE | runner + CI + diff output |
+| T1.1 | TODO | next action |
 | T1.2 | TODO | |
 | T1.3 | TODO | |
 | T1.4 | TODO | |
@@ -118,12 +118,14 @@ Do not start T1/T2 migration before T0 is complete.
 
 ## G. Next single action
 
-**T0.3 — historical-bug regression list.**
+**T1.1 — move the built-in lexicon to `data/builtin-lexicon.json`.**
 
-T0.1 and T0.2 are done: 13 tokenizer + 8 parser + 7 lint + 6 markup golden fixtures, all run by `scripts/fixture-runner.mjs` in `npm test`.
+T0.3/T0.4 are done: historical regressions are asserted in `scripts/test.mjs`; all fixture categories and CI are wired.
 
-T0.3 deliverable:
+T1.1 deliverable:
 
-- one regression test per historical bug from CHANGELOG/Git history;
-- priority: T/G old grammar, lost hover constants, C border specificity, missing extraction constants, renderer/hover regressions;
-- wire into `npm test`.
+- `data/builtin-lexicon.json`;
+- adapter loads JSON, same fallback behavior;
+- deterministic generation/validation for the snapshot;
+- test that JSON structure and fallback maps are intact;
+- build output still contains no vault paths or private data.
