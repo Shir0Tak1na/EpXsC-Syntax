@@ -60,7 +60,7 @@
 
 ### T6 — external core (last)
 
-- [ ] T6.1 `@epxsc/core` or standalone CJS/ESM entry; CLI example + Obsidian adapter consume same core.
+- [x] T6.1 standalone CLI (`bin/epxsc.mjs`), package entry exports and CLI tests; Obsidian adapter and CLI share `src/core/index.js`.
 
 ## C. Order
 
@@ -97,7 +97,7 @@ Do not start T1/T2 migration before T0 is complete.
 | T3.4 | DONE | T/G refresh re-render invariant asserted |
 | T4.1 | DONE | `npm run bench` |
 | T5.1 | DONE | CI now checks bundle freshness after build |
-| T6.1 | TODO | |
+| T6.1 | DONE | CLI + exports + tests | |
 
 ## E. Definition of done per task
 

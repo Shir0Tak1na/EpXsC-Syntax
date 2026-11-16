@@ -5,6 +5,7 @@
 - T0.2：新增 8 个 parser、7 个 lint、6 个 markup golden fixtures；fixture-runner 接入 parser / lint / markup 目录。
 - 文档：README.md 改为英文主文档，中文完整保留在 README.zh-CN.md；manifest 描述改为中英双语，响应 Obsidian Community 对英文 README 的要求。
 - T3.1：T/G DOM 挂载抽到 `src/renderers/ord-dom.js`；adapter 只保留处理器与 UI 事件。
+- T6.1：新增无 Obsidian 依赖的 CLI `bin/epxsc.mjs`（tokenize / lint / JSON / dictionary+syntax 上下文）；新增 package exports/bin、`docs/CLI.md` 与 CLI 测试。
 - T2.3/T3.2/T5.2：diagnostics 移到 `src/ui/diagnostics.js`；adapter 约 34KB；新增 release asset validator 并接入 CI。
 - T3.2：tooltip 数据构建抽到 `src/ui/tooltip.js`；adapter 保留 DOM show/hide，并新增 known-word / coord 测试。
 - T3.2（部分）：LintModal 抽到 `src/ui/lint-modal.js`；修复渲染拆分时误删的 `EXTRA_WORDS` / `SECTION_POS` / `TYPE_NOTES` 并加回归断言。

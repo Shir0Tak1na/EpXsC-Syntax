@@ -127,6 +127,17 @@ const issues = core.lint(source, { info, units, keys, spells, path });
 
 Stable aliases: `extractBlocks`, `parseDictionary`, `buildGrammar`, `tokenize`, `lint`.
 
+## CLI
+
+The same core is available without Obsidian:
+
+```bash
+node bin/epxsc.mjs tokenize note.md
+node bin/epxsc.mjs lint note.md --dictionary path/to/dictionary.md --syntax path/to/syntax.md
+```
+
+See [docs/CLI.md](docs/CLI.md) for commands, JSON output and exit codes.
+
 ## Development
 
 Source lives in `src/`; the root `main.js` is an esbuild bundle — do not edit it by hand.

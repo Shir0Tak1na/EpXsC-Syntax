@@ -127,6 +127,17 @@ const issues = core.lint(source, { info, units, keys, spells, path });
 
 导出别名：`extractBlocks`、`parseDictionary`、`buildGrammar`、`tokenize`、`lint`。
 
+## CLI
+
+同一套 core 也可以脱离 Obsidian 使用：
+
+```bash
+node bin/epxsc.mjs tokenize note.md
+node bin/epxsc.mjs lint note.md --dictionary path/to/dictionary.md --syntax path/to/syntax.md
+```
+
+见 [docs/CLI.md](docs/CLI.md)。
+
 ## Development / 开发
 
 源码在 `src/`；根目录 `main.js` 是 esbuild 产出的 bundle，不要直接手改。
