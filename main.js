@@ -21,393 +21,10 @@ var require_markdown_blocks = __commonJS({
   }
 });
 
-// src/data/parsers.js
-var require_parsers = __commonJS({
-  "src/data/parsers.js"(exports2, module2) {
+// src/core/spells.js
+var require_spells = __commonJS({
+  "src/core/spells.js"(exports2, module2) {
     "use strict";
-    var FALLBACK = {
-      /* 词典读不到时的兜底；in / om 这类词性易漏，一并钉死 */
-      keyword: ["in", "de", "pro", "om", "post", "nec"],
-      judge: ["keal", "keol", "tam", "dum", "nisi", "quan", "vero", "es", "exo", "lic", "re", "ren", "rea", "kon", "aut", "dis", "ergo", "kaus", "ske", "aude", "rase", "fas", "nefas"],
-      clause: ["pretium", "limit", "luss", "solum", "hauri", "vita", "memoria", "sensus", "voluntas", "anima", "vis", "diu", "celer", "metos"],
-      degree: ["max", "min", "valde", "magis", "minus", "parum", "paulum", "nimis"],
-      predicate: ["plur", "navis", "apolus", "expual", "aepaus", "movis", "venis", "retase"],
-      unit: ["MUW", "EUW", "MU", "miteas", "kigrama", "m", "s", "kg"]
-    };
-    var SECTIONS = {
-      /* 功能词（介词·助动词·限定词·代词·疑问词·连接词）：紫 */
-      keyword: ["\u4ECB\u8BCD", "\u52A9\u52A8\u8BCD", "\u9650\u5B9A\u8BCD", "\u65F6\u95F4\u9650\u5B9A", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u6307\u79F0\u9650\u5B9A", "\u987A\u5E8F\u9650\u5B9A", "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09", "\u7591\u95EE\u8BCD", "\u8FDE\u63A5\u8BCD\u4E0E\u4ECE\u53E5\u6807\u8BB0"],
-      /* 判断词（if／elif／else 一族）：单独一色 */
-      judge: ["\u5224\u65AD\u8BCD"],
-      /* 术式关键词（块内条款与术式专用词）：单独一色 */
-      clause: ["\u672F\u5F0F\u5173\u952E\u8BCD"],
-      degree: ["\u7A0B\u5EA6\u9650\u5B9A"],
-      predicate: ["\u52A8\u8BCD"],
-      unit: ["\u5355\u4F4D"]
-    };
-    var ELEMENTS = ["Ert", "Aqu", "Flm", "Wnd", "Nut", "Elc", "Lum", "Duk", "Sar", "Qen"];
-    function splitSections(text) {
-      const map = {};
-      let current = null;
-      const lines = text.split(/\r?\n/);
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const h = /^#{1,6}\s*(.+?)\s*$/.exec(line);
-        if (h) {
-          current = h[1];
-          if (!map[current]) map[current] = [];
-          continue;
-        }
-        if (!current) continue;
-        const m = /^\|\s*([A-Za-z][A-Za-z0-9_-]{0,30})\s*\|/.exec(line);
-        if (m && !/^(word|key|root)$/i.test(m[1])) map[current].push(m[1]);
-      }
-      return map;
-    }
-    function parseEntries(text) {
-      const out = /* @__PURE__ */ new Map();
-      let section = "";
-      const lines = text.split(/\r?\n/);
-      for (let i = 0; i < lines.length; i++) {
-        const h = /^#{1,6}\s*(.+?)\s*$/.exec(lines[i]);
-        if (h) {
-          section = h[1];
-          continue;
-        }
-        const m = /^\|\s*([A-Za-z][A-Za-z0-9_-]{0,30})\s*\|(.*)$/.exec(lines[i]);
-        if (!m) {
-          const c2 = /^\|\s*([^|]{1,14}?)\s*\|\s*([A-Za-z][A-Za-z0-9]{0,6})\s*\|/.exec(lines[i]);
-          if (c2) {
-            const code = c2[2];
-            const cn = c2[1].trim();
-            const k = code.toLowerCase();
-            if (cn && !out.has(k)) out.set(k, { word: code, pos: "\u5143\u7D20\u7801", meaning: cn, abbr: code });
-            if (cn) out.set(code, { word: code, pos: "\u5143\u7D20\u7801", meaning: cn, abbr: code });
-          }
-          continue;
-        }
-        const cells = m[2].split("|");
-        const meaning = (cells[0] || "").trim();
-        if (!meaning || meaning === "meaning" || meaning === "\u4E49" || meaning === "\u91CA\u4E49") continue;
-        const key = m[1].toLowerCase();
-        if (!out.has(key)) out.set(key, { word: m[1], pos: section, meaning, abbr: (cells[1] || "").trim() });
-        const abbr = (cells[1] || "").trim();
-        if (/^[A-Za-z][A-Za-z0-9]{1,6}$/.test(abbr) && !out.has(abbr.toLowerCase())) {
-          out.set(abbr.toLowerCase(), { word: abbr, pos: ELEMENTS.indexOf(abbr) >= 0 ? "\u5143\u7D20\u7801" : section + "\xB7\u7F29\u5199", meaning, abbr });
-        }
-      }
-      return out;
-    }
-    var GREEK = { theta: "\u03B8", lambda: "\u03BB", sigma: "\u03C3", Delta: "\u0394", varphi: "\u03C6", eta: "\u03B7", omega: "\u03C9", mu: "\u03BC", pi: "\u03C0", alpha: "\u03B1", beta: "\u03B2", gamma: "\u03B3", tau: "\u03C4", rho: "\u03C1" };
-    function cleanMath(s) {
-      let t = String(s);
-      t = t.replace(/\$([^$]*)\$/g, "$1");
-      t = t.replace(/\\mathrm\{([^}]*)\}/g, "$1");
-      t = t.replace(/\\text\{([^}]*)\}/g, "$1");
-      t = t.replace(/\\([a-zA-Z]+)/g, function(all, name) {
-        return GREEK[name] || name;
-      });
-      t = t.replace(/\\[,;!]/g, " ");
-      t = t.replace(/[{}]/g, "");
-      t = t.replace(/\\/g, "");
-      return t.replace(/\s+/g, " ").trim();
-    }
-    function parseRanks(text) {
-      const out = /* @__PURE__ */ new Map();
-      const lines = text.split(/\r?\n/);
-      let started = false;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (!started) {
-          if (/九个秩与维度的对应/.test(line)) started = true;
-          continue;
-        }
-        if (!/^\s*\|/.test(line)) {
-          if (out.size) break;
-          else continue;
-        }
-        const m = /^\s*\|\s*(\d{1,2}(?:[–-]\d{1,2})?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|/.exec(line);
-        if (!m) continue;
-        const rank = m[1].replace("-", "\u2013");
-        const parts = [];
-        const comp = cleanMath(m[2]);
-        if (comp) parts.push(comp);
-        if (m[3].trim()) parts.push(m[3].trim());
-        if (parts.length) out.set(rank, parts.join(" \xB7 "));
-      }
-      return out;
-    }
-    function parseFilterKeys(text) {
-      const out = /* @__PURE__ */ new Map();
-      const lines = text.split(/\r?\n/);
-      let started = false;
-      let rows = 0;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (!started) {
-          if (/^#{2,6}\s*筛选键\s*$/.test(line)) started = true;
-          continue;
-        }
-        if (!/^\s*\|/.test(line)) {
-          if (rows) break;
-          else continue;
-        }
-        const m = /^\s*\|\s*\x60?\s*([A-Za-z][A-Za-z0-9_-]{0,30})\s*\x60?\s*\|\s*([^|]*?)\s*\|/.exec(line);
-        if (!m) continue;
-        rows += 1;
-        out.set(m[1].toLowerCase(), { word: m[1], pos: "\u7B5B\u9009\u952E", meaning: m[2].replace(/\x60/g, "").trim(), abbr: "" });
-      }
-      return out;
-    }
-    function cleanCell(s) {
-      return String(s).replace(/\*\*/g, "").replace(/\x60/g, "").trim();
-    }
-    function parseUnits(text) {
-      const out = /* @__PURE__ */ new Map();
-      const lines = text.split(/\r?\n/);
-      let started = false;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (!started) {
-          if (/^#{2,6}\s*六、单位/.test(line)) started = true;
-          continue;
-        }
-        if (/^#{2,6}\s/.test(line) && !/其他单位/.test(line)) break;
-        if (!/^\s*\|/.test(line)) continue;
-        const cells = line.split("|").map(cleanCell);
-        if (cells.length < 5) continue;
-        const energy = /^[?？]?\s*([A-Z]{2,4})$/.exec(cells[1]);
-        if (energy) {
-          const luss = cells[4] || "";
-          const note = /锁存/.test(luss) ? "\u5199\u5B83\u5373\u4E3A\u9501\u5B58\uFF08\u89E6\u53D1\u5F0F\u672F\u5F0F\uFF09" : /不得/.test(luss) ? "\u529F\u7387\u53E3\u5F84\uFF0C\u4E0D\u5F97\u914D luss\uFF08\u6301\u7EED\u53D1\u52A8\uFF09" : "";
-          const ekey = energy[1].toLowerCase();
-          if (!out.has(ekey)) out.set(ekey, { word: energy[1], pos: "\u80FD\u91CF\u5355\u4F4D", meaning: cells[2] + (note ? "\uFF1B" + note : ""), abbr: "" });
-          continue;
-        }
-        const amount = cells[1];
-        const names = (cells[3] || "").match(/[A-Za-z][A-Za-z0-9]*/g) || [];
-        const labels = (cells[2] || "").split("\xB7").map(function(s) {
-          return s.trim();
-        });
-        for (let j = 0; j < names.length; j++) {
-          const key = names[j].toLowerCase();
-          if (out.has(key)) continue;
-          const label = labels.length === names.length ? labels[j] : names.length === 1 ? labels[0] : "";
-          out.set(key, { word: names[j], pos: amount, meaning: label || cells[2], abbr: "" });
-        }
-      }
-      return out;
-    }
-    function parseRoots(text) {
-      const out = /* @__PURE__ */ new Map();
-      const lines = text.split(/\r?\n/);
-      for (let i = 0; i < lines.length; i++) {
-        const m = /^\|\s*([A-Za-z][A-Za-z0-9-]{0,20})\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|/.exec(lines[i]);
-        if (!m || /^(根|word|词根)$/.test(m[1])) continue;
-        const key = m[1].toLowerCase();
-        if (!out.has(key)) out.set(key, { word: m[1], pos: "\u8BCD\u6839\xB7" + m[5].trim(), meaning: m[2].trim(), kind: m[5].trim() });
-      }
-      return out;
-    }
-    function wordsFrom(map, names, fallback) {
-      const out = [];
-      for (let i = 0; i < names.length; i++) {
-        const list = map[names[i]] || [];
-        for (let j = 0; j < list.length; j++) out.push(list[j]);
-      }
-      for (let k = 0; k < fallback.length; k++) out.push(fallback[k]);
-      return Array.from(new Set(out));
-    }
-    module2.exports = {
-      FALLBACK,
-      SECTIONS,
-      ELEMENTS,
-      splitSections,
-      parseEntries,
-      parseDictionary: parseEntries,
-      parseRanks,
-      parseFilterKeys,
-      parseUnits,
-      parseRoots,
-      wordsFrom
-    };
-  }
-});
-
-// src/legacy/plugin.js
-var require_plugin = __commonJS({
-  "src/legacy/plugin.js"(exports2, module2) {
-    "use strict";
-    var { Plugin: Plugin2, TFile, TFolder, Notice, MarkdownView, Modal } = require("obsidian");
-    var { extractEpXsCBlocks } = require_markdown_blocks();
-    var { FALLBACK, SECTIONS, ELEMENTS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require_parsers();
-    var LANG_KEYS = ["EpXsC", "epxsc", "EPXSC"];
-    var CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
-    var DICT_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u8BCD\u5178.md";
-    var RANK_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u7EF4\u5EA6/\u7EF4\u5EA6\u6A21\u578B.md";
-    var SYNTAX_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u672F\u5F0F\u8BED\u6CD5.md";
-    var ROOTS_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8BCD\u5E93/\u8BCD\u6839\u8868/";
-    var AXES = ["vis", "diu", "celer", "latus", "altus", "acutus", "densus", "gravis", "levis"];
-    var TYPES = ["METOS", "locus", "siro", "intervallum", "verb", "littera", "forma", "sonus"];
-    var MODIFIERS = ["priv", "tut", "publ", "consta", "om", "tot"];
-    var BUILD = "1.31.0";
-    function escapeWord(w) {
-      return w.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
-    }
-    function wordPattern(words) {
-      const sorted = (Array.isArray(words) ? words.slice() : []).sort(function(a, b) {
-        return b.length - a.length;
-      });
-      return new RegExp("\\b(?:" + sorted.map(escapeWord).join("|") + ")\\b", "i");
-    }
-    function builtinMap(part) {
-      const out = /* @__PURE__ */ new Map();
-      const source = BUILTIN_LEXICON[part] || {};
-      for (const key in source) {
-        const v = source[key];
-        out.set(key, { word: v[0], pos: v[1], meaning: v[2], abbr: v[3] || "" });
-      }
-      return out;
-    }
-    function builtinRanks() {
-      const out = /* @__PURE__ */ new Map();
-      const source = BUILTIN_LEXICON.ranks || {};
-      for (const key in source) out.set(key, source[key]);
-      return out;
-    }
-    function builtinRoots() {
-      const out = /* @__PURE__ */ new Map();
-      const source = BUILTIN_LEXICON.roots || {};
-      for (const key in source) out.set(key, { word: source[key][2] || key, pos: "\u8BCD\u6839\xB7" + source[key][1], meaning: source[key][0], kind: source[key][1] });
-      return out;
-    }
-    function builtinLists(verbRoots) {
-      const bySection = {};
-      const e = BUILTIN_LEXICON.entries || {};
-      for (const key in e) {
-        const pos = e[key][1];
-        (bySection[pos] = bySection[pos] || []).push(e[key][0]);
-      }
-      const units = Object.keys(BUILTIN_LEXICON.units || {});
-      return {
-        keyword: wordsFrom(bySection, SECTIONS.keyword, FALLBACK.keyword),
-        judge: wordsFrom(bySection, SECTIONS.judge, FALLBACK.judge),
-        clause: wordsFrom(bySection, SECTIONS.clause, FALLBACK.clause),
-        degree: wordsFrom(bySection, SECTIONS.degree, FALLBACK.degree),
-        predicate: wordsFrom(bySection, SECTIONS.predicate, FALLBACK.predicate).concat(verbRoots || []),
-        unit: wordsFrom(bySection, SECTIONS.unit, FALLBACK.unit).concat(units)
-      };
-    }
-    function makeGrammar(lists, keys) {
-      const keyList = Array.isArray(keys) ? keys.slice() : [];
-      return {
-        comment: /\/\*[\s\S]*?\*\//,
-        annotation: /^[ \t]*\.[A-Za-z_][\w-]*(?:[ \t]+[^\n]*)?$/m,
-        /* 导入：块首声明要引用的他处术式（第十二章规则 12.6） */
-        importDecl: {
-          pattern: /^[ \t]*impo[ \t]+[^\n;]*/m,
-          inside: {
-            keyword: /\bimpo\b/,
-            spellRef: /[A-Z][A-Za-z0-9_]*/,
-            punctuation: /[,;]/
-          }
-        },
-        /* 频段标签：协议里 frequent: #… 的 # 之后，直到条目结束（, ; } 或换行） */
-        freqTag: /#[^\n,;}]*/,
-        /* 变量名：紧跟「类型:」的那个词（含 [2:变量] 这类位数写法）。
-           必须排在 type / number 之前——否则冒号左边先被它们吃掉，右边这个词就轮不到这里了。 */
-        variable: {
-          pattern: /([([,][ \t]*(?:(?:priv|tut|publ|consta)[ \t]+)*[A-Za-z0-9_]+:[ \t]*(?:(?:priv|tut|publ|consta)[ \t]+)*)([A-Za-z_][A-Za-z0-9_]*)/,
-          lookbehind: true
-        },
-        /* 位数声明组：[2:名] —— 冒号前是位数、冒号后是变量名（列表容器的声明） */
-        indexDecl: {
-          pattern: /\[[ \t]*\d+[ \t]*:[^\]\n]*\]/,
-          inside: {
-            variable: /[A-Za-z_][A-Za-z0-9_]*/,
-            number: /\d+/,
-            punctuation: /:/,
-            bracket: /[\[\]]/
-          }
-        },
-        /* 下标组：[1] / [1..3] —— 里面的数字按「第 n 位／第 n 秩」解释 */
-        indexGroup: {
-          pattern: /\[[ \t]*\d+[ \t]*(?:\.\.[ \t]*\d*)?[ \t]*\]/,
-          inside: {
-            rankRange: /(?:\d+\.\.\d*|\d*\.\.\d+)(?!\.)/,
-            number: /\d+/,
-            operator: /\.\./,
-            bracket: /[\[\]]/
-          }
-        },
-        pretium: /\bpretium\b/i,
-        /* 秩区间：1..3、..10、2..（要求至少一边有数字，且后面不再跟点，避免吃掉省略号 ...） */
-        rankRange: /(?:\d+\.\.\d*|\d*\.\.\d+)(?!\.)/,
-        number: /\b\d+(?:\.\d+)?\b/,
-        /* 筛选键：genus= / intervall( 这类。放在 declTarget 之前 —— 否则行首的 genus= 会被当成赋值目标 */
-        filterKey: { pattern: new RegExp("\\b(?:" + keyList.map(escapeWord).join("|") + ")\\b(?=[ \\t]*[=(])", "i") },
-        /* 筛选值：ordin= 的三个取值（见第五章筛选键表：proxim 近／procul 远／temer 随机） */
-        filterValue: /\b(?:proxim|procul|temer)\b/i,
-        /* 限定词：作用域与可见性（与 C 的 private／protected／public／const 相当）。
-           放在 unit／predicate 之前 —— tut 这类词兼作动词，靠「后面跟着一个名字」区分 */
-        modifier: /\b(?:priv|tut|publ|consta)\b(?=[ \t]+[A-Za-z_])/,
-        unit: wordPattern(lists.unit),
-        element: new RegExp("\\b(?:" + ELEMENTS.join("|") + ")\\b"),
-        type: new RegExp("\\b(?:" + TYPES.join("|") + ")\\b"),
-        /* 参数表里的类型位：紧跟在 ( 或 , 之后、后面是冒号的词（单个小写字母按变量名处理）。
-           用 Prism 的 lookbehind 写法，避免原生 (?<=) 在旧 iOS Safari 上解析即报错。 */
-        typeParam: {
-          pattern: /([(,]\s*)(?![a-z]\s*:)[A-Za-z_][A-Za-z0-9_]*(?=\s*:(?!:))/,
-          lookbehind: true,
-          alias: "type"
-        },
-        axis: wordPattern(AXES),
-        degree: wordPattern(lists.degree),
-        /* 前置否定：ne 紧跟一个词时，等同 !（逻辑非），否定后面那个成分 */
-        negPrefix: /\bne(?=[ \t]+[A-Za-z_&*@?(\[])/i,
-        /* 声明目标：赋值语句左边的那个名字（前面可带限定词） */
-        declTarget: {
-          pattern: /((?:^|[;\n])[ \t]*(?:(?:priv|tut|publ|consta|om|tot)[ \t]+)*)([A-Za-z_][A-Za-z0-9_]*)(?=[ \t]*=(?!=))/,
-          lookbehind: true
-        },
-        /* 判断词（if／elif／else 一族）与术式关键词（块内条款）各自一色 */
-        judge: wordPattern(lists.judge),
-        clause: wordPattern(lists.clause),
-        keyword: wordPattern(lists.keyword),
-        /* 术式名：大写开头且后面紧跟 ( { [ ，或下划线复合名（Gramakipo_Aepaus） */
-        /* 类名：Class::member 里 :: 前那个名字（排在 declaration 之前，否则被当成术式名） */
-        classUse: { pattern: /[A-Z][A-Za-z0-9_]*(?=[ \t]*::)/, alias: "className" },
-        className: { pattern: /(\bclass[ \t]+)([A-Z][A-Za-z0-9_]*)/, lookbehind: true, alias: "className" },
-        declaration: /\b(?:[A-Z][A-Za-z0-9_]*(?=\s*[({\[])|[A-Z][A-Za-z0-9]*_[A-Za-z0-9_]+)/,
-        predicate: wordPattern(lists.predicate),
-        function: /\b[a-z][A-Za-z0-9_]*(?=\s*\()/,
-        pointer: /\*&|&|@[A-Za-z][A-Za-z0-9_]*|@/,
-        /* 坐标串：同一符号连写两个以上才算坐标（~ 世界轴 / ^ 朝向前三轴） */
-        coordRun: {
-          pattern: /(?:~(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)(?:[ \t]+~(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)+|(?:\^(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)(?:[ \t]+\^(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)+/,
-          greedy: true
-        },
-        classOp: { pattern: /::/, alias: "operator" },
-        operator: /(?:\+=|-=|\*=|\/=|<=|>=|==|!=|\.{2,3})|\+|-|\*|%|\/|=|<|>|\^|~|\?|!/,
-        /* 括号分三类：() 分组 · [] 方括号（列表 / 下标 / 秩）· {} 花括号（语块）；其余标点归 punctuation */
-        paren: /[()]/,
-        bracket: /[\[\]]/,
-        brace: /[{}]/,
-        punctuation: /[;:,]/,
-        /* 兜底：其余标识符也切成 token，只为挂悬停释义；CSS 不给它上色 */
-        word: /\b[A-Za-z_][A-Za-z0-9_]*\b/
-      };
-    }
-    var BASE_LISTS = {
-      keyword: FALLBACK.keyword.slice(),
-      judge: FALLBACK.judge.slice(),
-      clause: FALLBACK.clause.slice(),
-      degree: FALLBACK.degree.slice(),
-      predicate: FALLBACK.predicate.slice(),
-      unit: FALLBACK.unit.slice()
-    };
-    var GLOBAL_RE_CACHE = /* @__PURE__ */ new WeakMap();
-    var SPELL_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u9B54\u6CD5";
     var MOD_WORDS = "priv|tut|publ|consta";
     function parseParamList(text) {
       const out = [];
@@ -482,74 +99,14 @@ var require_plugin = __commonJS({
       }
       return out;
     }
-    var MAX_HIGHLIGHT_LINES = 50;
-    function asGlobalRe(re) {
-      if (re.global) return re;
-      let g = GLOBAL_RE_CACHE.get(re);
-      if (!g) {
-        g = new RegExp(re.source, re.flags + "g");
-        GLOBAL_RE_CACHE.set(re, g);
-      }
-      return g;
-    }
-    function escHtml(s) {
-      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    }
-    function tokenizeText(text, grammar) {
-      let out = "";
-      let pos = 0;
-      while (pos < text.length) {
-        let best = null;
-        for (const name in grammar) {
-          const rule2 = grammar[name];
-          const pattern = rule2 instanceof RegExp ? rule2 : rule2 && rule2.pattern;
-          if (!(pattern instanceof RegExp)) continue;
-          const re = asGlobalRe(pattern);
-          const lb = !(rule2 instanceof RegExp) && rule2.lookbehind;
-          re.lastIndex = lb ? 0 : pos;
-          let m = re.exec(text);
-          let index = 0;
-          let content = "";
-          if (m) {
-            index = m.index;
-            content = m[0];
-            if (lb && m[1]) {
-              index += m[1].length;
-              content = m[0].slice(m[1].length);
-            }
-            if (lb && index < pos) {
-              let guard = 0;
-              while (m && index < pos && guard < 200) {
-                re.lastIndex = index + content.length;
-                m = re.exec(text);
-                if (!m) break;
-                index = m.index;
-                content = m[0];
-                if (m[1]) {
-                  index += m[1].length;
-                  content = m[0].slice(m[1].length);
-                }
-                guard += 1;
-              }
-            }
-          }
-          if (!m || !content) continue;
-          if (index < pos) continue;
-          if (!best || index < best.index) best = { index, content, name, rule: rule2 };
-        }
-        if (!best) {
-          out += escHtml(text.slice(pos));
-          break;
-        }
-        if (best.index > pos) out += escHtml(text.slice(pos, best.index));
-        const rule = best.rule;
-        const cls = best.name + (!(rule instanceof RegExp) && rule.alias ? " " + rule.alias : "");
-        const inner = !(rule instanceof RegExp) && rule.inside ? tokenizeText(best.content, rule.inside) : escHtml(best.content);
-        out += '<span class="token ' + cls + '">' + inner + "</span>";
-        pos = best.index + best.content.length;
-      }
-      return out;
-    }
+    module2.exports = { MOD_WORDS, parseParamList, collectSpells };
+  }
+});
+
+// src/core/lint.js
+var require_lint = __commonJS({
+  "src/core/lint.js"(exports2, module2) {
+    "use strict";
     var BRANCH_WORDS = ["keal", "keol", "tam", "dum", "nisi", "quan"];
     function lintText(text, ctx) {
       const issues = [];
@@ -818,7 +375,7 @@ var require_plugin = __commonJS({
           if (nm) imported.push(nm);
         }
       }
-      const spells = ctx && ctx.spells || spellRegistry;
+      const spells = ctx && ctx.spells || null;
       if (spells && spells.size) {
         const splitTop = function(s) {
           const out = [];
@@ -902,6 +459,467 @@ var require_plugin = __commonJS({
         });
       }
       return issues;
+    }
+    module2.exports = { BRANCH_WORDS, lintText };
+  }
+});
+
+// src/data/parsers.js
+var require_parsers = __commonJS({
+  "src/data/parsers.js"(exports2, module2) {
+    "use strict";
+    var FALLBACK = {
+      /* 词典读不到时的兜底；in / om 这类词性易漏，一并钉死 */
+      keyword: ["in", "de", "pro", "om", "post", "nec"],
+      judge: ["keal", "keol", "tam", "dum", "nisi", "quan", "vero", "es", "exo", "lic", "re", "ren", "rea", "kon", "aut", "dis", "ergo", "kaus", "ske", "aude", "rase", "fas", "nefas"],
+      clause: ["pretium", "limit", "luss", "solum", "hauri", "vita", "memoria", "sensus", "voluntas", "anima", "vis", "diu", "celer", "metos"],
+      degree: ["max", "min", "valde", "magis", "minus", "parum", "paulum", "nimis"],
+      predicate: ["plur", "navis", "apolus", "expual", "aepaus", "movis", "venis", "retase"],
+      unit: ["MUW", "EUW", "MU", "miteas", "kigrama", "m", "s", "kg"]
+    };
+    var SECTIONS = {
+      /* 功能词（介词·助动词·限定词·代词·疑问词·连接词）：紫 */
+      keyword: ["\u4ECB\u8BCD", "\u52A9\u52A8\u8BCD", "\u9650\u5B9A\u8BCD", "\u65F6\u95F4\u9650\u5B9A", "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A", "\u6307\u79F0\u9650\u5B9A", "\u987A\u5E8F\u9650\u5B9A", "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09", "\u7591\u95EE\u8BCD", "\u8FDE\u63A5\u8BCD\u4E0E\u4ECE\u53E5\u6807\u8BB0"],
+      /* 判断词（if／elif／else 一族）：单独一色 */
+      judge: ["\u5224\u65AD\u8BCD"],
+      /* 术式关键词（块内条款与术式专用词）：单独一色 */
+      clause: ["\u672F\u5F0F\u5173\u952E\u8BCD"],
+      degree: ["\u7A0B\u5EA6\u9650\u5B9A"],
+      predicate: ["\u52A8\u8BCD"],
+      unit: ["\u5355\u4F4D"]
+    };
+    var ELEMENTS = ["Ert", "Aqu", "Flm", "Wnd", "Nut", "Elc", "Lum", "Duk", "Sar", "Qen"];
+    function splitSections(text) {
+      const map = {};
+      let current = null;
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const h = /^#{1,6}\s*(.+?)\s*$/.exec(line);
+        if (h) {
+          current = h[1];
+          if (!map[current]) map[current] = [];
+          continue;
+        }
+        if (!current) continue;
+        const m = /^\|\s*([A-Za-z][A-Za-z0-9_-]{0,30})\s*\|/.exec(line);
+        if (m && !/^(word|key|root)$/i.test(m[1])) map[current].push(m[1]);
+      }
+      return map;
+    }
+    function parseEntries(text) {
+      const out = /* @__PURE__ */ new Map();
+      let section = "";
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const h = /^#{1,6}\s*(.+?)\s*$/.exec(lines[i]);
+        if (h) {
+          section = h[1];
+          continue;
+        }
+        const m = /^\|\s*([A-Za-z][A-Za-z0-9_-]{0,30})\s*\|(.*)$/.exec(lines[i]);
+        if (!m) {
+          const c2 = /^\|\s*([^|]{1,14}?)\s*\|\s*([A-Za-z][A-Za-z0-9]{0,6})\s*\|/.exec(lines[i]);
+          if (c2) {
+            const code = c2[2];
+            const cn = c2[1].trim();
+            const k = code.toLowerCase();
+            if (cn && !out.has(k)) out.set(k, { word: code, pos: "\u5143\u7D20\u7801", meaning: cn, abbr: code });
+            if (cn) out.set(code, { word: code, pos: "\u5143\u7D20\u7801", meaning: cn, abbr: code });
+          }
+          continue;
+        }
+        const cells = m[2].split("|");
+        const meaning = (cells[0] || "").trim();
+        if (!meaning || meaning === "meaning" || meaning === "\u4E49" || meaning === "\u91CA\u4E49") continue;
+        const key = m[1].toLowerCase();
+        if (!out.has(key)) out.set(key, { word: m[1], pos: section, meaning, abbr: (cells[1] || "").trim() });
+        const abbr = (cells[1] || "").trim();
+        if (/^[A-Za-z][A-Za-z0-9]{1,6}$/.test(abbr) && !out.has(abbr.toLowerCase())) {
+          out.set(abbr.toLowerCase(), { word: abbr, pos: ELEMENTS.indexOf(abbr) >= 0 ? "\u5143\u7D20\u7801" : section + "\xB7\u7F29\u5199", meaning, abbr });
+        }
+      }
+      return out;
+    }
+    var GREEK = { theta: "\u03B8", lambda: "\u03BB", sigma: "\u03C3", Delta: "\u0394", varphi: "\u03C6", eta: "\u03B7", omega: "\u03C9", mu: "\u03BC", pi: "\u03C0", alpha: "\u03B1", beta: "\u03B2", gamma: "\u03B3", tau: "\u03C4", rho: "\u03C1" };
+    function cleanMath(s) {
+      let t = String(s);
+      t = t.replace(/\$([^$]*)\$/g, "$1");
+      t = t.replace(/\\mathrm\{([^}]*)\}/g, "$1");
+      t = t.replace(/\\text\{([^}]*)\}/g, "$1");
+      t = t.replace(/\\([a-zA-Z]+)/g, function(all, name) {
+        return GREEK[name] || name;
+      });
+      t = t.replace(/\\[,;!]/g, " ");
+      t = t.replace(/[{}]/g, "");
+      t = t.replace(/\\/g, "");
+      return t.replace(/\s+/g, " ").trim();
+    }
+    function parseRanks(text) {
+      const out = /* @__PURE__ */ new Map();
+      const lines = text.split(/\r?\n/);
+      let started = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!started) {
+          if (/九个秩与维度的对应/.test(line)) started = true;
+          continue;
+        }
+        if (!/^\s*\|/.test(line)) {
+          if (out.size) break;
+          else continue;
+        }
+        const m = /^\s*\|\s*(\d{1,2}(?:[–-]\d{1,2})?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|/.exec(line);
+        if (!m) continue;
+        const rank = m[1].replace("-", "\u2013");
+        const parts = [];
+        const comp = cleanMath(m[2]);
+        if (comp) parts.push(comp);
+        if (m[3].trim()) parts.push(m[3].trim());
+        if (parts.length) out.set(rank, parts.join(" \xB7 "));
+      }
+      return out;
+    }
+    function parseFilterKeys(text) {
+      const out = /* @__PURE__ */ new Map();
+      const lines = text.split(/\r?\n/);
+      let started = false;
+      let rows = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!started) {
+          if (/^#{2,6}\s*筛选键\s*$/.test(line)) started = true;
+          continue;
+        }
+        if (!/^\s*\|/.test(line)) {
+          if (rows) break;
+          else continue;
+        }
+        const m = /^\s*\|\s*\x60?\s*([A-Za-z][A-Za-z0-9_-]{0,30})\s*\x60?\s*\|\s*([^|]*?)\s*\|/.exec(line);
+        if (!m) continue;
+        rows += 1;
+        out.set(m[1].toLowerCase(), { word: m[1], pos: "\u7B5B\u9009\u952E", meaning: m[2].replace(/\x60/g, "").trim(), abbr: "" });
+      }
+      return out;
+    }
+    function cleanCell(s) {
+      return String(s).replace(/\*\*/g, "").replace(/\x60/g, "").trim();
+    }
+    function parseUnits(text) {
+      const out = /* @__PURE__ */ new Map();
+      const lines = text.split(/\r?\n/);
+      let started = false;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!started) {
+          if (/^#{2,6}\s*六、单位/.test(line)) started = true;
+          continue;
+        }
+        if (/^#{2,6}\s/.test(line) && !/其他单位/.test(line)) break;
+        if (!/^\s*\|/.test(line)) continue;
+        const cells = line.split("|").map(cleanCell);
+        if (cells.length < 5) continue;
+        const energy = /^[?？]?\s*([A-Z]{2,4})$/.exec(cells[1]);
+        if (energy) {
+          const luss = cells[4] || "";
+          const note = /锁存/.test(luss) ? "\u5199\u5B83\u5373\u4E3A\u9501\u5B58\uFF08\u89E6\u53D1\u5F0F\u672F\u5F0F\uFF09" : /不得/.test(luss) ? "\u529F\u7387\u53E3\u5F84\uFF0C\u4E0D\u5F97\u914D luss\uFF08\u6301\u7EED\u53D1\u52A8\uFF09" : "";
+          const ekey = energy[1].toLowerCase();
+          if (!out.has(ekey)) out.set(ekey, { word: energy[1], pos: "\u80FD\u91CF\u5355\u4F4D", meaning: cells[2] + (note ? "\uFF1B" + note : ""), abbr: "" });
+          continue;
+        }
+        const amount = cells[1];
+        const names = (cells[3] || "").match(/[A-Za-z][A-Za-z0-9]*/g) || [];
+        const labels = (cells[2] || "").split("\xB7").map(function(s) {
+          return s.trim();
+        });
+        for (let j = 0; j < names.length; j++) {
+          const key = names[j].toLowerCase();
+          if (out.has(key)) continue;
+          const label = labels.length === names.length ? labels[j] : names.length === 1 ? labels[0] : "";
+          out.set(key, { word: names[j], pos: amount, meaning: label || cells[2], abbr: "" });
+        }
+      }
+      return out;
+    }
+    function parseRoots(text) {
+      const out = /* @__PURE__ */ new Map();
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i++) {
+        const m = /^\|\s*([A-Za-z][A-Za-z0-9-]{0,20})\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|/.exec(lines[i]);
+        if (!m || /^(根|word|词根)$/.test(m[1])) continue;
+        const key = m[1].toLowerCase();
+        if (!out.has(key)) out.set(key, { word: m[1], pos: "\u8BCD\u6839\xB7" + m[5].trim(), meaning: m[2].trim(), kind: m[5].trim() });
+      }
+      return out;
+    }
+    function wordsFrom(map, names, fallback) {
+      const out = [];
+      for (let i = 0; i < names.length; i++) {
+        const list = map[names[i]] || [];
+        for (let j = 0; j < list.length; j++) out.push(list[j]);
+      }
+      for (let k = 0; k < fallback.length; k++) out.push(fallback[k]);
+      return Array.from(new Set(out));
+    }
+    module2.exports = {
+      FALLBACK,
+      SECTIONS,
+      ELEMENTS,
+      splitSections,
+      parseEntries,
+      parseDictionary: parseEntries,
+      parseRanks,
+      parseFilterKeys,
+      parseUnits,
+      parseRoots,
+      wordsFrom
+    };
+  }
+});
+
+// src/legacy/plugin.js
+var require_plugin = __commonJS({
+  "src/legacy/plugin.js"(exports2, module2) {
+    "use strict";
+    var { Plugin: Plugin2, TFile, TFolder, Notice, MarkdownView, Modal } = require("obsidian");
+    var { extractEpXsCBlocks } = require_markdown_blocks();
+    var { collectSpells } = require_spells();
+    var { lintText } = require_lint();
+    var { FALLBACK, SECTIONS, ELEMENTS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require_parsers();
+    var LANG_KEYS = ["EpXsC", "epxsc", "EPXSC"];
+    var CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
+    var DICT_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u8BCD\u5178.md";
+    var RANK_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u7EF4\u5EA6/\u7EF4\u5EA6\u6A21\u578B.md";
+    var SYNTAX_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u672F\u5F0F\u8BED\u6CD5.md";
+    var ROOTS_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8BCD\u5E93/\u8BCD\u6839\u8868/";
+    var AXES = ["vis", "diu", "celer", "latus", "altus", "acutus", "densus", "gravis", "levis"];
+    var TYPES = ["METOS", "locus", "siro", "intervallum", "verb", "littera", "forma", "sonus"];
+    var MODIFIERS = ["priv", "tut", "publ", "consta", "om", "tot"];
+    var BUILD = "1.31.0";
+    function escapeWord(w) {
+      return w.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
+    }
+    function wordPattern(words) {
+      const sorted = (Array.isArray(words) ? words.slice() : []).sort(function(a, b) {
+        return b.length - a.length;
+      });
+      return new RegExp("\\b(?:" + sorted.map(escapeWord).join("|") + ")\\b", "i");
+    }
+    function builtinMap(part) {
+      const out = /* @__PURE__ */ new Map();
+      const source = BUILTIN_LEXICON[part] || {};
+      for (const key in source) {
+        const v = source[key];
+        out.set(key, { word: v[0], pos: v[1], meaning: v[2], abbr: v[3] || "" });
+      }
+      return out;
+    }
+    function builtinRanks() {
+      const out = /* @__PURE__ */ new Map();
+      const source = BUILTIN_LEXICON.ranks || {};
+      for (const key in source) out.set(key, source[key]);
+      return out;
+    }
+    function builtinRoots() {
+      const out = /* @__PURE__ */ new Map();
+      const source = BUILTIN_LEXICON.roots || {};
+      for (const key in source) out.set(key, { word: source[key][2] || key, pos: "\u8BCD\u6839\xB7" + source[key][1], meaning: source[key][0], kind: source[key][1] });
+      return out;
+    }
+    function builtinLists(verbRoots) {
+      const bySection = {};
+      const e = BUILTIN_LEXICON.entries || {};
+      for (const key in e) {
+        const pos = e[key][1];
+        (bySection[pos] = bySection[pos] || []).push(e[key][0]);
+      }
+      const units = Object.keys(BUILTIN_LEXICON.units || {});
+      return {
+        keyword: wordsFrom(bySection, SECTIONS.keyword, FALLBACK.keyword),
+        judge: wordsFrom(bySection, SECTIONS.judge, FALLBACK.judge),
+        clause: wordsFrom(bySection, SECTIONS.clause, FALLBACK.clause),
+        degree: wordsFrom(bySection, SECTIONS.degree, FALLBACK.degree),
+        predicate: wordsFrom(bySection, SECTIONS.predicate, FALLBACK.predicate).concat(verbRoots || []),
+        unit: wordsFrom(bySection, SECTIONS.unit, FALLBACK.unit).concat(units)
+      };
+    }
+    function makeGrammar(lists, keys) {
+      const keyList = Array.isArray(keys) ? keys.slice() : [];
+      return {
+        comment: /\/\*[\s\S]*?\*\//,
+        annotation: /^[ \t]*\.[A-Za-z_][\w-]*(?:[ \t]+[^\n]*)?$/m,
+        /* 导入：块首声明要引用的他处术式（第十二章规则 12.6） */
+        importDecl: {
+          pattern: /^[ \t]*impo[ \t]+[^\n;]*/m,
+          inside: {
+            keyword: /\bimpo\b/,
+            spellRef: /[A-Z][A-Za-z0-9_]*/,
+            punctuation: /[,;]/
+          }
+        },
+        /* 频段标签：协议里 frequent: #… 的 # 之后，直到条目结束（, ; } 或换行） */
+        freqTag: /#[^\n,;}]*/,
+        /* 变量名：紧跟「类型:」的那个词（含 [2:变量] 这类位数写法）。
+           必须排在 type / number 之前——否则冒号左边先被它们吃掉，右边这个词就轮不到这里了。 */
+        variable: {
+          pattern: /([([,][ \t]*(?:(?:priv|tut|publ|consta)[ \t]+)*[A-Za-z0-9_]+:[ \t]*(?:(?:priv|tut|publ|consta)[ \t]+)*)([A-Za-z_][A-Za-z0-9_]*)/,
+          lookbehind: true
+        },
+        /* 位数声明组：[2:名] —— 冒号前是位数、冒号后是变量名（列表容器的声明） */
+        indexDecl: {
+          pattern: /\[[ \t]*\d+[ \t]*:[^\]\n]*\]/,
+          inside: {
+            variable: /[A-Za-z_][A-Za-z0-9_]*/,
+            number: /\d+/,
+            punctuation: /:/,
+            bracket: /[\[\]]/
+          }
+        },
+        /* 下标组：[1] / [1..3] —— 里面的数字按「第 n 位／第 n 秩」解释 */
+        indexGroup: {
+          pattern: /\[[ \t]*\d+[ \t]*(?:\.\.[ \t]*\d*)?[ \t]*\]/,
+          inside: {
+            rankRange: /(?:\d+\.\.\d*|\d*\.\.\d+)(?!\.)/,
+            number: /\d+/,
+            operator: /\.\./,
+            bracket: /[\[\]]/
+          }
+        },
+        pretium: /\bpretium\b/i,
+        /* 秩区间：1..3、..10、2..（要求至少一边有数字，且后面不再跟点，避免吃掉省略号 ...） */
+        rankRange: /(?:\d+\.\.\d*|\d*\.\.\d+)(?!\.)/,
+        number: /\b\d+(?:\.\d+)?\b/,
+        /* 筛选键：genus= / intervall( 这类。放在 declTarget 之前 —— 否则行首的 genus= 会被当成赋值目标 */
+        filterKey: { pattern: new RegExp("\\b(?:" + keyList.map(escapeWord).join("|") + ")\\b(?=[ \\t]*[=(])", "i") },
+        /* 筛选值：ordin= 的三个取值（见第五章筛选键表：proxim 近／procul 远／temer 随机） */
+        filterValue: /\b(?:proxim|procul|temer)\b/i,
+        /* 限定词：作用域与可见性（与 C 的 private／protected／public／const 相当）。
+           放在 unit／predicate 之前 —— tut 这类词兼作动词，靠「后面跟着一个名字」区分 */
+        modifier: /\b(?:priv|tut|publ|consta)\b(?=[ \t]+[A-Za-z_])/,
+        unit: wordPattern(lists.unit),
+        element: new RegExp("\\b(?:" + ELEMENTS.join("|") + ")\\b"),
+        type: new RegExp("\\b(?:" + TYPES.join("|") + ")\\b"),
+        /* 参数表里的类型位：紧跟在 ( 或 , 之后、后面是冒号的词（单个小写字母按变量名处理）。
+           用 Prism 的 lookbehind 写法，避免原生 (?<=) 在旧 iOS Safari 上解析即报错。 */
+        typeParam: {
+          pattern: /([(,]\s*)(?![a-z]\s*:)[A-Za-z_][A-Za-z0-9_]*(?=\s*:(?!:))/,
+          lookbehind: true,
+          alias: "type"
+        },
+        axis: wordPattern(AXES),
+        degree: wordPattern(lists.degree),
+        /* 前置否定：ne 紧跟一个词时，等同 !（逻辑非），否定后面那个成分 */
+        negPrefix: /\bne(?=[ \t]+[A-Za-z_&*@?(\[])/i,
+        /* 声明目标：赋值语句左边的那个名字（前面可带限定词） */
+        declTarget: {
+          pattern: /((?:^|[;\n])[ \t]*(?:(?:priv|tut|publ|consta|om|tot)[ \t]+)*)([A-Za-z_][A-Za-z0-9_]*)(?=[ \t]*=(?!=))/,
+          lookbehind: true
+        },
+        /* 判断词（if／elif／else 一族）与术式关键词（块内条款）各自一色 */
+        judge: wordPattern(lists.judge),
+        clause: wordPattern(lists.clause),
+        keyword: wordPattern(lists.keyword),
+        /* 术式名：大写开头且后面紧跟 ( { [ ，或下划线复合名（Gramakipo_Aepaus） */
+        /* 类名：Class::member 里 :: 前那个名字（排在 declaration 之前，否则被当成术式名） */
+        classUse: { pattern: /[A-Z][A-Za-z0-9_]*(?=[ \t]*::)/, alias: "className" },
+        className: { pattern: /(\bclass[ \t]+)([A-Z][A-Za-z0-9_]*)/, lookbehind: true, alias: "className" },
+        declaration: /\b(?:[A-Z][A-Za-z0-9_]*(?=\s*[({\[])|[A-Z][A-Za-z0-9]*_[A-Za-z0-9_]+)/,
+        predicate: wordPattern(lists.predicate),
+        function: /\b[a-z][A-Za-z0-9_]*(?=\s*\()/,
+        pointer: /\*&|&|@[A-Za-z][A-Za-z0-9_]*|@/,
+        /* 坐标串：同一符号连写两个以上才算坐标（~ 世界轴 / ^ 朝向前三轴） */
+        coordRun: {
+          pattern: /(?:~(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)(?:[ \t]+~(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)+|(?:\^(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)(?:[ \t]+\^(?:[ \t]*[-+]?\d+(?:\.\d+)?)?)+/,
+          greedy: true
+        },
+        classOp: { pattern: /::/, alias: "operator" },
+        operator: /(?:\+=|-=|\*=|\/=|<=|>=|==|!=|\.{2,3})|\+|-|\*|%|\/|=|<|>|\^|~|\?|!/,
+        /* 括号分三类：() 分组 · [] 方括号（列表 / 下标 / 秩）· {} 花括号（语块）；其余标点归 punctuation */
+        paren: /[()]/,
+        bracket: /[\[\]]/,
+        brace: /[{}]/,
+        punctuation: /[;:,]/,
+        /* 兜底：其余标识符也切成 token，只为挂悬停释义；CSS 不给它上色 */
+        word: /\b[A-Za-z_][A-Za-z0-9_]*\b/
+      };
+    }
+    var BASE_LISTS = {
+      keyword: FALLBACK.keyword.slice(),
+      judge: FALLBACK.judge.slice(),
+      clause: FALLBACK.clause.slice(),
+      degree: FALLBACK.degree.slice(),
+      predicate: FALLBACK.predicate.slice(),
+      unit: FALLBACK.unit.slice()
+    };
+    var GLOBAL_RE_CACHE = /* @__PURE__ */ new WeakMap();
+    var SPELL_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u9B54\u6CD5";
+    var MAX_HIGHLIGHT_LINES = 50;
+    function asGlobalRe(re) {
+      if (re.global) return re;
+      let g = GLOBAL_RE_CACHE.get(re);
+      if (!g) {
+        g = new RegExp(re.source, re.flags + "g");
+        GLOBAL_RE_CACHE.set(re, g);
+      }
+      return g;
+    }
+    function escHtml(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+    function tokenizeText(text, grammar) {
+      let out = "";
+      let pos = 0;
+      while (pos < text.length) {
+        let best = null;
+        for (const name in grammar) {
+          const rule2 = grammar[name];
+          const pattern = rule2 instanceof RegExp ? rule2 : rule2 && rule2.pattern;
+          if (!(pattern instanceof RegExp)) continue;
+          const re = asGlobalRe(pattern);
+          const lb = !(rule2 instanceof RegExp) && rule2.lookbehind;
+          re.lastIndex = lb ? 0 : pos;
+          let m = re.exec(text);
+          let index = 0;
+          let content = "";
+          if (m) {
+            index = m.index;
+            content = m[0];
+            if (lb && m[1]) {
+              index += m[1].length;
+              content = m[0].slice(m[1].length);
+            }
+            if (lb && index < pos) {
+              let guard = 0;
+              while (m && index < pos && guard < 200) {
+                re.lastIndex = index + content.length;
+                m = re.exec(text);
+                if (!m) break;
+                index = m.index;
+                content = m[0];
+                if (m[1]) {
+                  index += m[1].length;
+                  content = m[0].slice(m[1].length);
+                }
+                guard += 1;
+              }
+            }
+          }
+          if (!m || !content) continue;
+          if (index < pos) continue;
+          if (!best || index < best.index) best = { index, content, name, rule: rule2 };
+        }
+        if (!best) {
+          out += escHtml(text.slice(pos));
+          break;
+        }
+        if (best.index > pos) out += escHtml(text.slice(pos, best.index));
+        const rule = best.rule;
+        const cls = best.name + (!(rule instanceof RegExp) && rule.alias ? " " + rule.alias : "");
+        const inner = !(rule instanceof RegExp) && rule.inside ? tokenizeText(best.content, rule.inside) : escHtml(best.content);
+        out += '<span class="token ' + cls + '">' + inner + "</span>";
+        pos = best.index + best.content.length;
+      }
+      return out;
     }
     var CLASS_ORDER = ["rankRange", "bracket", "paren", "brace", "pointer", "coordRun", "negPrefix", "modifier", "declTarget", "varUse", "judge", "clause", "declaration", "variable", "type", "element", "unit", "predicate", "spellRef", "function", "keyword", "pretium", "degree", "axis", "number", "comment", "annotation", "operator", "punctuation", "word"];
     var CLASS_LABEL = {
@@ -1013,7 +1031,7 @@ var require_plugin = __commonJS({
             const inner = close > 0 ? src.slice(i + 1, close) : "";
             let back = i - 1;
             while (back >= 0 && /[ \t]/.test(src.charAt(back))) back -= 1;
-            kind = src.charAt(back) === "=" ? "\u7B5B\u9009\u503C" : classifySquare(inner);
+            kind = src.charAt(back) === "=" ? "\u7B5B\u9009\u503C" : classifySquare2(inner);
           } else {
             kind = "\u8BED\u5757";
           }
@@ -1055,7 +1073,7 @@ var require_plugin = __commonJS({
       "*&": { label: "\u53D6\u5730\u5740\u540E\u89E3\u5F15\u7528", body: "\u4ECD\u6307\u8BE5\u7269\u672C\u8EAB" },
       "@": { label: "\u76EE\u6807\u7B80\u5199 @", body: "\u5168\u5F62\u4E3A METOS[\u2026]" }
     };
-    function classifySquare(inner) {
+    function classifySquare2(inner) {
       if (/=/.test(inner)) return "\u7B5B\u9009\u952E\u8868";
       if (/^\s*:/.test(inner)) return "\u5217\u8868\u7C7B\u578B";
       if (/^\s*\d+\s*:/.test(inner)) return "\u4F4D\u6570\u58F0\u660E";
@@ -1207,7 +1225,7 @@ var require_plugin = __commonJS({
     }
     var WORLD_AXES = ["X\uFF08\u4E1C\u897F\uFF09", "Y\uFF08\u4E0A\u4E0B\uFF09", "Z\uFF08\u5357\u5317\uFF09"];
     var LOCAL_AXES = ["\u5DE6\uFF08X\uFF09", "\u4E0A\uFF08Y\uFF09", "\u524D\uFF08Z\uFF09"];
-    function parseCoord(text) {
+    function parseCoord2(text) {
       const sign = text.charAt(0) === "~" ? "~" : "^";
       const parts = text.split(/[ \t]+(?=[~^])/);
       const values = [];
@@ -1218,7 +1236,7 @@ var require_plugin = __commonJS({
       return { sign, values };
     }
     function coordTip(text) {
-      const c = parseCoord(text);
+      const c = parseCoord2(text);
       const n = c.values.length;
       if (c.sign === "~") {
         if (n < 2) return { label: "\u76F8\u5BF9\u5750\u6807 ~\uFF08" + n + " \u8F74\uFF09", body: "\u81F3\u5C11\u7ED9 X \u4E0E Z" };

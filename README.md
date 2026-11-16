@@ -119,6 +119,7 @@ npm test          # 围栏别名、CRLF、作用域、tokenizer、括号
 
 - `src/core/`：可独立测试的纯语言模块（围栏提取）；
 - `src/data/parsers.js`：词典 / 词根 / 秩 / 筛选键 / 单位解析；
+- `src/core/spells.js` / `src/core/lint.js`：术式登记与纯 Lint 逻辑；
 - `src/legacy/plugin.js`：当前 Obsidian 适配层（单体，逐步拆分）；
 - `styles.css` / `snippets/EpXsC-Highlight.css` 仍手写维护。
 

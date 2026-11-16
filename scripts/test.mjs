@@ -5,6 +5,8 @@ import { createRequire } from 'node:module';
 const nodeRequire = createRequire(import.meta.url);
 const blockCore = nodeRequire('../src/core/markdown-blocks.js');
 const parserCore = nodeRequire('../src/data/parsers.js');
+const spellsCore = nodeRequire('../src/core/spells.js');
+const lintCore = nodeRequire('../src/core/lint.js');
 
 const source = fs.readFileSync('src/legacy/plugin.js', 'utf8');
 const obsidianStub = {
@@ -16,6 +18,8 @@ const sandbox = {
     if (name === 'obsidian') return obsidianStub;
     if (String(name).includes('markdown-blocks')) return blockCore;
     if (String(name).includes('data/parsers')) return parserCore;
+    if (String(name).includes('core/spells')) return spellsCore;
+    if (String(name).includes('core/lint')) return lintCore;
     return {};
   },
   module: { exports: {} },
@@ -29,7 +33,9 @@ sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox, { filename: 'main.js' });
 
-const { collectSpells, lintText, builtinLists, makeGrammar, tokenizeText } = sandbox;
+const { builtinLists, makeGrammar, tokenizeText } = sandbox;
+const { collectSpells } = spellsCore;
+const { lintText } = lintCore;
 const { parseEntries, parseRoots, parseFilterKeys } = parserCore;
 const { extractEpXsCBlocks } = blockCore;
 
