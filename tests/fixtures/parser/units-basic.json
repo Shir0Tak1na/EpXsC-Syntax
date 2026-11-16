@@ -1,0 +1,25 @@
+{
+  "name": "units-basic",
+  "kind": "units",
+  "input": "## 六、单位\n| MU | 魔力 | MU | 锁存 |\n| m | 米 | m | — |",
+  "expected": [
+    [
+      "m",
+      {
+        "word": "m",
+        "pos": "m",
+        "meaning": "米",
+        "abbr": ""
+      }
+    ],
+    [
+      "mu",
+      {
+        "word": "MU",
+        "pos": "能量单位",
+        "meaning": "魔力；写它即为锁存（触发式术式）",
+        "abbr": ""
+      }
+    ]
+  ]
+}

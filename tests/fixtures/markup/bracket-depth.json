@@ -1,0 +1,11 @@
+{
+  "name": "bracket-depth",
+  "kind": "markBracketDepth",
+  "input": "<span class=\"token paren\">(</span><span class=\"token bracket\">[</span><span class=\"token bracket\">]</span><span class=\"token paren\">)</span>",
+  "kinds": [
+    "分组",
+    "下标 · 秩",
+    "列表"
+  ],
+  "expected": "<span class=\"token paren epx-d1\" data-epx-kind=\"分组\">(</span><span class=\"token bracket epx-d2\" data-epx-kind=\"下标 · 秩\">[</span><span class=\"token bracket epx-d2\" data-epx-kind=\"列表\">]</span><span class=\"token paren epx-d1\">)</span>"
+}

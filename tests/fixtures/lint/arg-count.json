@@ -1,0 +1,32 @@
+{
+  "name": "arg-count",
+  "input": "Foo() {\n\tSecret(1, 2);\n}",
+  "context": {
+    "path": "a.md",
+    "spells": [
+      {
+        "name": "Secret",
+        "visibility": "publ",
+        "file": "a.md",
+        "line": 1,
+        "endLine": 3,
+        "params": [
+          {
+            "name": "a",
+            "type": "locus",
+            "modifiers": [
+              "publ"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expected": [
+    {
+      "level": "warn",
+      "line": 2,
+      "message": "「Secret」形参 1 个，这里给了 2 个"
+    }
+  ]
+}

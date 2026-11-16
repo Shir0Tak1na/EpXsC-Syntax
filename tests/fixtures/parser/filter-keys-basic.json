@@ -1,0 +1,25 @@
+{
+  "name": "filter-keys-basic",
+  "kind": "filterKeys",
+  "input": "## 筛选键\n| genus | 类别 |\n| intervall | 区间 |\n",
+  "expected": [
+    [
+      "genus",
+      {
+        "word": "genus",
+        "pos": "筛选键",
+        "meaning": "类别",
+        "abbr": ""
+      }
+    ],
+    [
+      "intervall",
+      {
+        "word": "intervall",
+        "pos": "筛选键",
+        "meaning": "区间",
+        "abbr": ""
+      }
+    ]
+  ]
+}

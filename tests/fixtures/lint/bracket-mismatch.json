@@ -1,0 +1,19 @@
+{
+  "name": "bracket-mismatch",
+  "input": "Foo() {\n\tbar(1;\n}",
+  "context": {
+    "path": "a.md"
+  },
+  "expected": [
+    {
+      "level": "error",
+      "line": 3,
+      "message": "括号对不上：这里是「}」，但最近未闭合的是「(」（第 2 行）"
+    },
+    {
+      "level": "error",
+      "line": 1,
+      "message": "「{」没有闭合"
+    }
+  ]
+}

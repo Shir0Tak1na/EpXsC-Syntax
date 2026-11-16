@@ -1,0 +1,70 @@
+{
+  "name": "dictionary-basic",
+  "kind": "dictionary",
+  "input": "## 介词\n| de | 在……之内 | dex |\n| in | 在内 | inx |\n## 动词\n| manis | 保持 | man |\n## 单位\n| MU | 魔力 | MU |\n",
+  "expected": [
+    [
+      "de",
+      {
+        "word": "de",
+        "pos": "介词",
+        "meaning": "在……之内",
+        "abbr": "dex"
+      }
+    ],
+    [
+      "dex",
+      {
+        "word": "dex",
+        "pos": "介词·缩写",
+        "meaning": "在……之内",
+        "abbr": "dex"
+      }
+    ],
+    [
+      "in",
+      {
+        "word": "in",
+        "pos": "介词",
+        "meaning": "在内",
+        "abbr": "inx"
+      }
+    ],
+    [
+      "inx",
+      {
+        "word": "inx",
+        "pos": "介词·缩写",
+        "meaning": "在内",
+        "abbr": "inx"
+      }
+    ],
+    [
+      "man",
+      {
+        "word": "man",
+        "pos": "动词·缩写",
+        "meaning": "保持",
+        "abbr": "man"
+      }
+    ],
+    [
+      "manis",
+      {
+        "word": "manis",
+        "pos": "动词",
+        "meaning": "保持",
+        "abbr": "man"
+      }
+    ],
+    [
+      "mu",
+      {
+        "word": "MU",
+        "pos": "单位",
+        "meaning": "魔力",
+        "abbr": "MU"
+      }
+    ]
+  ]
+}

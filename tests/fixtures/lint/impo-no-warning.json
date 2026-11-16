@@ -1,0 +1,8 @@
+{
+  "name": "impo-no-warning",
+  "input": "impo Foo;\nBar() {\n}",
+  "context": {
+    "path": "a.md"
+  },
+  "expected": []
+}

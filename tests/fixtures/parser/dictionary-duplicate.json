@@ -1,0 +1,16 @@
+{
+  "name": "dictionary-duplicate",
+  "kind": "dictionary",
+  "input": "## 介词\n| de | 在内 | a |\n| de | 在……之内 | b |\n",
+  "expected": [
+    [
+      "de",
+      {
+        "word": "de",
+        "pos": "介词",
+        "meaning": "在内",
+        "abbr": "a"
+      }
+    ]
+  ]
+}

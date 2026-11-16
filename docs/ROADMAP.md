@@ -20,7 +20,7 @@
 ### T0 — test baseline (first)
 
 - [x] T0.1 Tokenizer golden fixtures (13 fixtures, scripts/fixture-runner.mjs) (`tests/fixtures/tokenizer/`): keywords, types, modifiers, predicates, elements, units, numbers, rank ranges, nested brackets, comments, annotations, coord runs, negPrefix, empty, very long, unknown words.
-- [ ] T0.2 Parser / Lint / Markup golden fixtures: dictionary normal/empty/missing/duplicate; root merge; ranks/units/filter keys; spells/params/scope/impo/const rewrite; bracket depth/variable analysis/dict keys.
+- [x] T0.2 Parser / Lint / Markup golden fixtures (8 parser + 7 lint + 6 markup): dictionary normal/empty/missing/duplicate; root merge; ranks/units/filter keys; spells/params/scope/impo/const rewrite; bracket depth/variable analysis/dict keys.
 - [ ] T0.3 Historical-bug regression list from CHANGELOG/Git: T/G old grammar, lost hover constants, C border specificity, `SPELL_DIR`/`MAX_HIGHLIGHT_LINES`, `CLASS_ORDER`/`SYMBOL_INFO`.
 - [ ] T0.4 Fixture runner wired into `npm test` + CI; prints fixture name and expected/actual diff.
 
@@ -79,8 +79,8 @@ Do not start T1/T2 migration before T0 is complete.
 | ID | Status | Notes |
 | :-- | :-- | :-- |
 | T0.1 | DONE | 13 tokenizer fixtures + runner |
-| T0.2 | TODO | next action |
-| T0.3 | TODO | |
+| T0.2 | DONE | 21 fixtures + runner sections |
+| T0.3 | TODO | next action |
 | T0.4 | TODO | |
 | T1.1 | TODO | high value, low semantic risk |
 | T1.2 | TODO | |
@@ -118,13 +118,12 @@ Do not start T1/T2 migration before T0 is complete.
 
 ## G. Next single action
 
-**T0.2 — parser / lint / markup golden fixtures.**
+**T0.3 — historical-bug regression list.**
 
-T0.1 is done: `tests/fixtures/tokenizer/` has 13 golden fixtures and `scripts/fixture-runner.mjs` runs in `npm test`.
+T0.1 and T0.2 are done: 13 tokenizer + 8 parser + 7 lint + 6 markup golden fixtures, all run by `scripts/fixture-runner.mjs` in `npm test`.
 
-Deliver:
+T0.3 deliverable:
 
-- `tests/fixtures/parser/*.json`
-- `tests/fixtures/lint/*.json`
-- `tests/fixtures/markup/*.json`
-- runner integration into `npm test`
+- one regression test per historical bug from CHANGELOG/Git history;
+- priority: T/G old grammar, lost hover constants, C border specificity, missing extraction constants, renderer/hover regressions;
+- wire into `npm test`.

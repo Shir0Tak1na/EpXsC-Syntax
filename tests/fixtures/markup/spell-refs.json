@@ -1,0 +1,6 @@
+{
+  "name": "spell-refs",
+  "kind": "markSpellRefs",
+  "input": "<span class=\"token declaration\">Foo</span><span class=\"token paren\">(</span><span class=\"token brace\">{</span>\n<span class=\"token declaration\">Bar</span><span class=\"token paren\">(</span><span class=\"token punctuation\">)</span><span class=\"token punctuation\">;</span>",
+  "expected": "<span class=\"token declaration\">Foo</span><span class=\"token paren\">(</span><span class=\"token brace\">{</span>\n<span class=\"token spellRef\">Bar</span><span class=\"token paren\">(</span><span class=\"token punctuation\">)</span><span class=\"token punctuation\">;</span>"
+}

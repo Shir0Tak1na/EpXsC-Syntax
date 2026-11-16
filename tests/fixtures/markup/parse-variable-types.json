@@ -1,0 +1,33 @@
+{
+  "name": "parse-variable-types",
+  "kind": "parseVarTypes",
+  "input": "Foo(locus: a, priv METOS: b) {\n\tconsta x = &zone;\n}",
+  "expected": [
+    [
+      "a",
+      {
+        "type": "locus"
+      }
+    ],
+    [
+      "b",
+      {
+        "type": "METOS",
+        "modifiers": [
+          "priv"
+        ],
+        "modifier": "priv"
+      }
+    ],
+    [
+      "x",
+      {
+        "kind": "地址",
+        "modifiers": [
+          "consta"
+        ],
+        "modifier": "consta"
+      }
+    ]
+  ]
+}

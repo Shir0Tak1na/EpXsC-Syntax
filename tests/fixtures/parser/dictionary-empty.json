@@ -1,0 +1,6 @@
+{
+  "name": "dictionary-empty",
+  "kind": "dictionary",
+  "input": "",
+  "expected": []
+}

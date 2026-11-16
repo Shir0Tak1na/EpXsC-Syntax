@@ -1,0 +1,8 @@
+{
+  "name": "valid-block",
+  "input": "Foo() {\n\tne navis *&zone\n}",
+  "context": {
+    "path": "a.md"
+  },
+  "expected": []
+}

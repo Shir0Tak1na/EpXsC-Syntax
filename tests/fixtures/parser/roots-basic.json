@@ -1,0 +1,25 @@
+{
+  "name": "roots-basic",
+  "kind": "roots",
+  "input": "| agr | 田地 | agr | 名 | 名 |\n| mov | 移动 | mov | 动 | 动 |\n",
+  "expected": [
+    [
+      "agr",
+      {
+        "word": "agr",
+        "pos": "词根·名",
+        "meaning": "田地",
+        "kind": "名"
+      }
+    ],
+    [
+      "mov",
+      {
+        "word": "mov",
+        "pos": "词根·动",
+        "meaning": "移动",
+        "kind": "动"
+      }
+    ]
+  ]
+}

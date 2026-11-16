@@ -1,0 +1,29 @@
+{
+  "name": "private-cross-file",
+  "input": "Foo() {\n\tSecret(1);\n}",
+  "context": {
+    "path": "b.md",
+    "spells": [
+      {
+        "name": "Secret",
+        "visibility": "priv",
+        "file": "a.md",
+        "line": 1,
+        "endLine": 3,
+        "params": []
+      }
+    ]
+  },
+  "expected": [
+    {
+      "level": "warn",
+      "line": 2,
+      "message": "「Secret」是 priv，只允许在自己文件的语块内引用"
+    },
+    {
+      "level": "warn",
+      "line": 2,
+      "message": "「Secret」形参 0 个，这里给了 1 个"
+    }
+  ]
+}

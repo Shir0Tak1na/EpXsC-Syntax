@@ -1,0 +1,16 @@
+{
+  "name": "dictionary-unicode",
+  "kind": "dictionary",
+  "input": "## 判断词\n| es | 是（系词） | — |\n",
+  "expected": [
+    [
+      "es",
+      {
+        "word": "es",
+        "pos": "判断词",
+        "meaning": "是（系词）",
+        "abbr": "—"
+      }
+    ]
+  ]
+}

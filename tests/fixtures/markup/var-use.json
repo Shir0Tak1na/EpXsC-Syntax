@@ -1,0 +1,14 @@
+{
+  "name": "var-use",
+  "kind": "markVarUse",
+  "input": "<span class=\"token word\">a</span> <span class=\"token predicate\">a</span> <span class=\"token type\">METOS</span>",
+  "vars": [
+    [
+      "a",
+      {
+        "type": "locus"
+      }
+    ]
+  ],
+  "expected": "<span class=\"token varUse\">a</span> <span class=\"token varUse\">a</span> <span class=\"token type\">METOS</span>"
+}

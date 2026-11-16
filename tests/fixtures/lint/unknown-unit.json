@@ -1,0 +1,18 @@
+{
+  "name": "unknown-unit",
+  "input": "Foo() {\n\tluss 1 XU;\n}",
+  "context": {
+    "path": "a.md",
+    "units": [
+      "mu",
+      "m"
+    ]
+  },
+  "expected": [
+    {
+      "level": "warn",
+      "line": 2,
+      "message": "「1 XU」——XU 不是登记过的单位"
+    }
+  ]
+}

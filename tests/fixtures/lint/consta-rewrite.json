@@ -1,0 +1,14 @@
+{
+  "name": "consta-rewrite",
+  "input": "Foo() {\n\tconsta x = 1;\n\tx = 2;\n}",
+  "context": {
+    "path": "a.md"
+  },
+  "expected": [
+    {
+      "level": "error",
+      "line": 3,
+      "message": "常量「x」在第 2 行以 consta 声明，写入后不可再赋值"
+    }
+  ]
+}
