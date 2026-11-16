@@ -148,12 +148,13 @@ npm test          # 围栏、CRLF、作用域、tokenizer、hover、markup
 | `manifest.json` / `versions.json` | 插件元数据与版本映射 |
 | `docs/ARCHITECTURE.md` | Core / Adapter 分层与实际 API |
 | `docs/RELEASING.md` | 发布节奏 |
+| `docs/ROADMAP.md` | 架构审查执行计划与状态板 |
 
 本地调试：把仓库放进 `<库>/.obsidian/plugins/epxsc-syntax/`，改 `src/` 后执行 `npm run build`，再在 Obsidian 里关闭/启用插件。Release 附件只放 `main.js`、`manifest.json`、`styles.css` 三个文件。
 
 ## Release notes
 
-[CHANGELOG.md](CHANGELOG.md) · [GitHub Releases](https://github.com/Shir0Tak1na/EpXsC-Syntax/releases) · [发布节奏](docs/RELEASING.md)：每天最多一个 Release。
+[CHANGELOG.md](CHANGELOG.md) · [ROADMAP.md](docs/ROADMAP.md) · [GitHub Releases](https://github.com/Shir0Tak1na/EpXsC-Syntax/releases) · [发布节奏](docs/RELEASING.md)：每天最多一个 Release。
 
 ## License
 

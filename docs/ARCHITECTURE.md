@@ -147,6 +147,8 @@ These are load-bearing; keep them when changing the adapter:
 
 ### Phase 4 — external package (next)
 
+Execution tracking: [ROADMAP.md](ROADMAP.md).
+
 - publish or expose `@epxsc/core` as a pure ESM/CJS package;
 - adapter imports it; no duplicate language rules;
 - golden fixtures for tokenizer and linter output;
