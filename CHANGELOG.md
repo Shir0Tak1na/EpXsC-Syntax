@@ -3,6 +3,7 @@
 ## Unreleased
 
 - T0.2：新增 8 个 parser、7 个 lint、6 个 markup golden fixtures；fixture-runner 接入 parser / lint / markup 目录。
+- T1.2：内置快照加入 `schemaVersion` / `lexiconVersion` / `generatedAt`，adapter 通过 `src/data/lexicon.js` 做 schema gate；不兼容或缺字段时回退空表，Vault 数据仍可用。
 - T1.1：内置词库从 adapter 迁到 `data/builtin-lexicon.json`；新增 `scripts/generate-lexicon.mjs --check` 保证规范化，`npm test` 覆盖快照结构。
 - T0.3/T0.4：历史 Bug 静态回归（T/G 重渲染、hover 常量、C 框线权重、抽离漏常量）与四类 fixture runner/CI 收口。
 - T0.1：新增 13 个 tokenizer golden fixtures（tests/fixtures/tokenizer/）与 scripts/fixture-runner.mjs，接入 npm test；覆盖关键字、类型、单位、数字、秩区间、括号、注释/注解、坐标串、否定、空输入、CRLF、转义与长输入。

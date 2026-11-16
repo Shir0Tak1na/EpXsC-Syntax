@@ -29,7 +29,7 @@
 ### T1 — data layer
 
 - [x] T1.1 Move `BUILTIN_LEXICON` to `data/builtin-lexicon.json`; add deterministic `scripts/generate-lexicon.mjs`; no local paths.
-- [ ] T1.2 Add `schemaVersion` / `lexiconVersion` / `generatedAt`; loader compatibility check.
+- [x] T1.2 Add `schemaVersion` / `lexiconVersion` / `generatedAt`; loader compatibility check.
 - [ ] T1.3 Tests for Vault priority, missing/empty/malformed/deleted files, duplicate merge, builtin fallback.
 - [ ] T1.4 Centralize data-source paths in one config module.
 
@@ -85,8 +85,8 @@ Do not start T1/T2 migration before T0 is complete.
 | T0.3 | DONE | history-regression in test.mjs |
 | T0.4 | DONE | runner + CI + diff output |
 | T1.1 | DONE | JSON + canonical generator + tests |
-| T1.2 | TODO | next action |
-| T1.3 | TODO | |
+| T1.2 | DONE | schema gate + metadata validation |
+| T1.3 | TODO | next action |
 | T1.4 | TODO | |
 | T2.1 | TODO | |
 | T2.2 | TODO | |
@@ -120,13 +120,12 @@ Do not start T1/T2 migration before T0 is complete.
 
 ## G. Next single action
 
-**T1.2 — data model versioning.**
+**T1.3 — priority / fallback tests.**
 
-T1.1 is done: the built-in lexicon lives in `data/builtin-lexicon.json`, the adapter loads it, `scripts/generate-lexicon.mjs --check` enforces canonical form, and `npm test` covers the snapshot shape.
+T1.2 is done: the snapshot carries `schemaVersion` 1, `lexiconVersion` and `generatedAt`; the adapter rejects incompatible or incomplete snapshots and falls back to empty built-in maps while keeping Vault data usable.
 
-T1.2 deliverable:
+T1.3 deliverable:
 
-- add `schemaVersion` / `lexiconVersion` / `generatedAt`;
-- loader compatibility check;
-- tests for incompatible schema and missing metadata;
-- keep fallback behavior unchanged.
+- tests for Vault priority, missing/empty/malformed/deleted sources;
+- built-in snapshot fallback behavior;
+- document the chosen product semantics for empty vs missing vs malformed.

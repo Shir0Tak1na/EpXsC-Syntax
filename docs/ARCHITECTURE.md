@@ -94,17 +94,19 @@ Priority is preserved:
 2. built-in snapshot when a source is missing or unreadable;
 3. partial failures fall back per source, never silently mix incompatible schemas.
 
-The built-in snapshot lives in `data/builtin-lexicon.json`; the adapter loads it and `scripts/generate-lexicon.mjs --check` enforces canonical form. A future generated
+The built-in snapshot lives in `data/builtin-lexicon.json`; it carries `schemaVersion` / `lexiconVersion` / `generatedAt`, the adapter rejects incompatible or incomplete snapshots, and `scripts/generate-lexicon.mjs --check` enforces canonical form. A future generated
 `snapshot.json` should carry:
 
 ```json
 {
   "schemaVersion": 1,
-  "sourceRevision": "<date or hash>",
+  "lexiconVersion": "1.0.0",
+  "generatedAt": "2026-11-16",
   "entries": {},
   "roots": {},
   "units": {},
-  "ranks": {}
+  "ranks": {},
+  "keys": {}
 }
 ```
 

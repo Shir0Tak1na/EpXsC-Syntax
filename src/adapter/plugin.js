@@ -12,6 +12,7 @@
 
 const { Plugin, TFile, TFolder, Notice, MarkdownView, Modal } = require('obsidian');
 const { extractEpXsCBlocks } = require('../core/markdown-blocks.js');
+const { loadBuiltinLexicon } = require('../data/lexicon.js');
 const { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require('../core/markup.js');
 const { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require('../core/grammar.js');
 const { tokenizeText } = require('../core/tokenizer.js');
@@ -1338,6 +1339,11 @@ class EpXsCSyntaxPlugin extends Plugin {
    段内凡「词 + 冒号」的那个词，一律改标为字典键（键原本可能被当成缩放轴／类型形参／变量）。 */
 /* 内置词库快照：由 述无空语词典 / 术式语法 / 维度模型 / 词根表 生成。
    库内有对应文件时以文件为准，这份只在缺失时兜底。 */
-const BUILTIN_LEXICON = require('../../data/builtin-lexicon.json');
+const BUILTIN_LEXICON_RAW = require('../../data/builtin-lexicon.json');
+const BUILTIN_LEXICON = (function () {
+  const loaded = loadBuiltinLexicon(BUILTIN_LEXICON_RAW);
+  if (!loaded.ok) console.warn('[EpXsC Syntax] 内置词库快照不可用：' + loaded.reason);
+  return loaded.data;
+})();
 
 module.exports = EpXsCSyntaxPlugin;

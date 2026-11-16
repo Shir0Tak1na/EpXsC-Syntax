@@ -12,6 +12,7 @@ const tokenizerCore = nodeRequire('../src/core/tokenizer.js');
 const markupCore = nodeRequire('../src/core/markup.js');
 const coreIndex = nodeRequire('../src/core/index.js');
 const builtinLexicon = nodeRequire('../data/builtin-lexicon.json');
+const lexiconCore = nodeRequire('../src/data/lexicon.js');
 
 const source = fs.readFileSync('src/adapter/plugin.js', 'utf8');
 const obsidianStub = {
@@ -29,6 +30,7 @@ const sandbox = {
     if (String(name).includes('core/tokenizer')) return tokenizerCore;
     if (String(name).includes('core/markup')) return markupCore;
     if (String(name).includes('builtin-lexicon')) return builtinLexicon;
+    if (String(name).includes('data/lexicon')) return lexiconCore;
     return {};
   },
   module: { exports: {} },
@@ -113,10 +115,25 @@ assert.equal(kinds[0], '参数表');
 assert.ok(markBracketDepth('<span class="token paren">(</span>', []).includes('epx-d1'));
 
 // 10a) 内置词库快照独立 JSON
+assert.equal(builtinLexicon.schemaVersion, 1, 'builtin schemaVersion');
 assert.ok(builtinLexicon.entries && Object.keys(builtinLexicon.entries).length > 400, 'builtin entries snapshot');
 assert.ok(builtinLexicon.roots && Object.keys(builtinLexicon.roots).length > 5000, 'builtin roots snapshot');
 assert.ok(builtinLexicon.units && Object.keys(builtinLexicon.units).length > 0, 'builtin units snapshot');
 assert.ok(builtinLexicon.ranks && Object.keys(builtinLexicon.ranks).length > 0, 'builtin ranks snapshot');
+
+// 10b) 快照 schema gate：不兼容版本/缺 section 必须回退为空表，不抛错
+const okSnap = lexiconCore.loadBuiltinLexicon(builtinLexicon);
+assert.equal(okSnap.ok, true, 'valid snapshot should load');
+const badSchema = lexiconCore.loadBuiltinLexicon(Object.assign({}, builtinLexicon, { schemaVersion: 999 }));
+assert.equal(badSchema.ok, false, 'unknown schema must be rejected');
+assert.equal(Object.keys(badSchema.data.entries).length, 0, 'rejected snapshot must fall back to empty maps');
+const missingSection = lexiconCore.loadBuiltinLexicon({ schemaVersion: 1, entries: {}, roots: {}, units: {}, ranks: {} });
+assert.equal(missingSection.ok, false, 'missing section must be rejected');
+const missingMeta = lexiconCore.loadBuiltinLexicon(Object.assign({}, builtinLexicon, { lexiconVersion: '' }));
+assert.equal(missingMeta.ok, false, 'missing lexiconVersion must be rejected');
+const missingDate = lexiconCore.loadBuiltinLexicon(Object.assign({}, builtinLexicon, { generatedAt: '' }));
+assert.equal(missingDate.ok, false, 'missing generatedAt must be rejected');
+assert.ok(source.includes('loadBuiltinLexicon'), 'adapter must use schema gate');
 
 // 10) public core aliases
 assert.equal(typeof coreIndex.extractBlocks, 'function');

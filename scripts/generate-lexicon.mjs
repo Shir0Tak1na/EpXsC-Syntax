@@ -16,7 +16,12 @@ function sort(v) {
 }
 
 const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-const canonical = JSON.stringify(sort(raw)) + '\n';
+const normalized = Object.assign({
+  schemaVersion: 1,
+  lexiconVersion: '1.0.0',
+  generatedAt: '2026-11-16'
+}, raw);
+const canonical = JSON.stringify(sort(normalized)) + '\n';
 if (process.argv.includes('--check')) {
   const current = fs.readFileSync(file, 'utf8');
   if (current !== canonical) {
