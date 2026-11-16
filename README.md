@@ -1,12 +1,12 @@
 # EpXsC Syntax
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 ![GitHub release](https://img.shields.io/github/v/release/Shir0Tak1na/EpXsC-Syntax) ![License](https://img.shields.io/github/license/Shir0Tak1na/EpXsC-Syntax) ![Obsidian](https://img.shields.io/badge/Obsidian-1.4.0%2B-7c3aed) ![Validate](https://github.com/Shir0Tak1na/EpXsC-Syntax/actions/workflows/validate.yml/badge.svg)
 
-*请注意，本插件是应用于虚构小说的虚构语言语法检查。和现实世界无关，为以后的语料库索引类插件做实验，在此仅作代码css片段展示和练习。*
+An Obsidian plugin for **EpXsC (Expaulxsirian Construct)**, a fictional conlang used in a novel. It provides syntax highlighting, hover glosses and linting for EpXsC fenced code blocks.
 
-为 **EpXsC（述无空语构造记号 / Expaulxsirian Construct）** 代码块提供语法高亮、词义悬停与语法检查的 Obsidian 插件。
-
-Syntax highlighting, hover tooltips, and linting for EpXsC fenced code blocks.
+> This plugin is for a fictional language only. It is not related to any real-world language. It is also an experiment for a future corpus/glossary toolchain.
 
 ```EpXsC
 Expaste(METOS: a, METOS: b) {
@@ -15,147 +15,150 @@ Expaste(METOS: a, METOS: b) {
 }
 ```
 
-## Features / 功能
+## Features
 
-- **语法高亮** —— 为 `EpXsC`、`EpXsT`、`EpXsG` 三种代码块着色；语言名大小写不敏感。
-- **词义悬停** —— 停在 token 上显示类别与释义；数据来自库内词典，改词典即改提示。
-- **语法检查** —— 一条命令检查当前笔记：括号配对、条款次序、单位搭配、常量改写、坐标轴数等。
-- **词典即配置** —— 自动读取库内的《述无空语词典》《术式语法》《维度模型》；读不到时退回内置快照。
-- **阅读视图 + 实时预览** —— 两个视图都渲染；点一下渲染块即落回源码继续编辑。
-- **移动端可用** —— 窄屏下外框、译文与词注不会挤成正文。
-- **可选 CSS 片段** —— 不想开插件、只要配色的场合，可单独使用 `snippets/EpXsC-Highlight.css`。
-- **可复用 core** —— 词法、语法构造、解析、Lint 逻辑不依赖 Obsidian，可给 CLI / 编辑器 / 其他翻译工程直接使用。
+- **Syntax highlighting** for `EpXsC`, `EpXsT` and `EpXsG` fenced blocks; language names are case-insensitive.
+- **Hover glosses** on tokens: part of speech, meaning and abbreviation from the vault dictionary.
+- **Linting** with one command: bracket matching, clause order, unit compatibility, `consta` rewrites, axis arity and more.
+- **Vault data first**: reads the dictionary / grammar / rank / root files from the vault; falls back to a built-in snapshot when they are absent.
+- **Reading view + Live Preview**: both render; click a rendered block to go back to source editing.
+- **Mobile friendly**: narrow screens keep the frame, translation and gloss lines readable.
+- **Optional CSS snippet** for users who only want the visual style.
+- **Reusable core**: tokenizer, grammar, parsers and linter are Obsidian-free and can be consumed by CLI or other editors.
 
-## Installation / 安装
+## Installation
 
-### 社区插件市场
+### Community plugins
 
-1. 打开 Obsidian → **设置 → 第三方插件（Community plugins）**，关闭安全模式；
-2. 点 **浏览（Browse）**，搜索 **EpXsC Syntax**；
-3. **安装 → 启用**。`styles.css` 会随插件自动加载，**不需要**再启用 CSS 片段。
+1. Open Obsidian → **Settings → Community plugins**, turn off Restricted mode.
+2. Click **Browse**, search for **EpXsC Syntax**.
+3. **Install → Enable**. `styles.css` loads with the plugin; no extra CSS snippet is required.
 
 ### BRAT
 
-添加仓库 `Shir0Tak1na/EpXsC-Syntax`，然后启用插件。
+Add the repository `Shir0Tak1na/EpXsC-Syntax`, then enable the plugin.
 
-### 手动安装
+### Manual installation
 
-1. 下载 Release 里的 `main.js`、`manifest.json`、`styles.css`；
-2. 放进 `<库>/.obsidian/plugins/epxsc-syntax/`；
-3. 重启 Obsidian → 设置 → 第三方插件 → 启用 **EpXsC Syntax**。
+1. Download `main.js`, `manifest.json` and `styles.css` from a Release.
+2. Put them in `<vault>/.obsidian/plugins/epxsc-syntax/`.
+3. Restart Obsidian → Settings → Community plugins → enable **EpXsC Syntax**.
 
-## Usage / 使用
+## Usage
 
-### 代码块
+### Fenced blocks
 
-| 语言名 | 用途 |
+| Language | Purpose |
 | :-- | :-- |
-| `EpXsC` | 术式正文：着色、词义、语法检查 |
-| `EpXsT` | 句子对译：原文与译文按块排版 |
-| `EpXsG` | 语法标记：词性/成分标注 |
+| `EpXsC` | Spell/technique body: coloring, glosses and linting |
+| `EpXsT` | Sentence pairs: source and translation laid out per block |
+| `EpXsG` | Grammar annotation: part-of-speech/constituent labels under each word |
 
-语言名 `EpXsC` / `epxsc` / `EPXSC` 等效；`EpXsT`、`EpXsG` 同理。
+`EpXsC` / `epxsc` / `EPXSC` are equivalent; the same applies to `EpXsT` and `EpXsG`.
 
-`EpXsT` 的译文必须写在**同一个代码块内**：原文一行、译文一行，译文以 `>` 开头（或直接写含汉字的一行）。它不会读取块外的对照表。
+For `EpXsT`, the translation must be inside the same block: one source line followed by a translation line starting with `>` (or a line containing CJK characters).
 
 ```EpXsT
 Tallse aris agrus nec manis humal.
-> 凡耕田，必须保持湿润。
+> The fields must stay moist when plowing.
 ```
 
-`EpXsG` 则是逐词的语法标记：每个词下面标出词类，再列出译文。
+`EpXsG` annotates each word with its part of speech, followed by the translation.
 
-### 悬停
+### Hover
 
-阅读视图和实时预览里，鼠标停在 token 上会浮出类别与释义。移动端没有鼠标悬停，但是会有触摸悬停，不双击代码块且在阅读模式下可以看到词义。
+In Reading view and Live Preview, hover a token to see its category and meaning. On mobile, touch-hover works without double-clicking the block.
 
-### 命令
+### Commands
 
-命令面板搜索 **EpXsC**：
+Search **EpXsC** in the command palette:
 
-| 命令 | 作用 |
+| Command | Action |
 | :-- | :-- |
-| 检查当前笔记的 EpXsC 代码块 | 打开语法检查面板，点结果跳转到对应行 |
-| 重新载入词表与释义 | 词典/术式语法/维度模型改动后手动刷新 |
-| EpXsC 自检（视图／token／颜色／样式表） | 排查“为什么没颜色/没悬停” |
-| EpXsC 诊断报告 | 在库根目录生成诊断文件，便于贴出排查 |
-| 重载 EpXsC 插件 | 提示到设置里关闭再启用 |
+| 检查当前笔记的 EpXsC 代码块 | Open the lint panel; click a result to jump to the line |
+| 重新载入词表与释义 | Reload dictionary/grammar/rank data after vault edits |
+| EpXsC 自检（视图／token／颜色／样式表） | Diagnose missing colors or hover |
+| EpXsC 诊断报告 | Write a diagnostic report to the vault root |
+| 重载 EpXsC 插件 | Reminder to disable/enable the plugin in settings |
 
-## Dictionaries / 词典
+## Dictionaries
 
-插件启动时读取（存在即优先）：
+At startup the plugin reads these sources when present:
 
-| 文件 | 提供 |
+| Path | Provides |
 | :-- | :-- |
-| `世界设定集/地域文化图鉴/语言/述无空语/述无空语词典.md` | 词性、释义、缩写 |
-| `世界设定集/地域文化图鉴/语言/述无空语/述无空语术式语法.md` | 筛选键、单位表 |
-| `世界设定集/设定概念集合/维度/维度模型.md` | 秩与维度的对应 |
-| `世界设定集/地域文化图鉴/语言/述无空语/词库/词根表/` | 词根分册（整目录读取） |
-| `世界设定集/设定概念集合/魔法/` | 术式声明登记（整目录读取） |
+| `世界设定集/地域文化图鉴/语言/述无空语/述无空语词典.md` | Part of speech, meaning, abbreviation |
+| `世界设定集/地域文化图鉴/语言/述无空语/述无空语术式语法.md` | Filter keys, unit tables |
+| `世界设定集/设定概念集合/维度/维度模型.md` | Rank/ dimension mapping |
+| `世界设定集/地域文化图鉴/语言/述无空语/词库/词根表/` | Root volumes (whole directory) |
+| `世界设定集/设定概念集合/魔法/` | Spell declaration registry (whole directory) |
 
-改这些文件后插件会自动重读；换库或改路径时，修改 `src/adapter/plugin.js` 里的 `DICT_PATH`、`SYNTAX_PATH`、`RANK_PATH`、`ROOTS_DIR`、`SPELL_DIR`，再执行 `npm run build`。读不到文件（例如别人下载的库）时使用 `data/builtin-lexicon.json` 内置快照，开箱即用。
+Edit `DICT_PATH`, `SYNTAX_PATH`, `RANK_PATH`, `ROOTS_DIR` and `SPELL_DIR` in `src/adapter/plugin.js` for a different vault layout, then run `npm run build`.
 
-## Customization / 自定义
+When a source is unavailable, the plugin uses `data/builtin-lexicon.json` (`schemaVersion` 1). The snapshot is canonicalized and validated by `scripts/generate-lexicon.mjs --check`.
 
-配色走 `styles.css` 里的 CSS 变量：`--epx-comment`、`--epx-decl`、`--epx-keyword`、`--epx-type`、`--epx-verb` 等；改变量即可换色，不必动 `main.js`。
+## Customization
 
-只要配色、不要插件功能：把 `snippets/EpXsC-Highlight.css` 放进 `<库>/.obsidian/snippets/`，在外观 → CSS 片段里启用；但没有 token 着色，只有代码块外框与静态样式。
+Colors are CSS variables in `styles.css`: `--epx-comment`, `--epx-decl`, `--epx-keyword`, `--epx-type`, `--epx-verb` and others. Change the variables instead of editing `main.js`.
 
-## Compatibility / 兼容性
+For colors only, put `snippets/EpXsC-Highlight.css` into `<vault>/.obsidian/snippets/` and enable it under Appearance → CSS snippets. The snippet provides the frame/static style, not token coloring.
 
-- 最低 Obsidian **1.4.0**；桌面与移动端都可启用。
-- 阅读视图、实时预览都支持；实时预览中光标进入代码块会暂时显示源码，这是 Obsidian 的默认行为。
-- **超过 50 行**的代码块只保留普通代码块外观，不做 token 着色（性能考虑）。
-- 外框由插件给 `<pre>` 加 `pre.epx-pre` 类，不再依赖 `:has()`；token 着色与外框互不影响。
-- 插件不发起网络请求，不修改笔记内容。
+## Compatibility
 
-## Core API / 复用
+- Minimum Obsidian **1.4.0**; desktop and mobile are supported.
+- Reading view and Live Preview are supported. In Live Preview, placing the cursor inside a block shows the source; this is Obsidian's default behavior.
+- Blocks longer than **50 lines** keep the plain code-block appearance and skip token coloring for performance.
+- The outer frame is added as the `pre.epx-pre` class by the plugin; it no longer depends on `:has()`.
+- The plugin makes no network requests and does not modify notes.
 
-核心模块不依赖 Obsidian、DOM 或 vault：
+## Core API
+
+The pure core does not import Obsidian, DOM or vault APIs:
 
 ```js
 const core = require('./src/core');
 
-const dict = core.parseDictionary(text);       // Map<word, entry>
+const dict = core.parseDictionary(text);
 const grammar = core.buildGrammar(lists, keys);
-const html = core.tokenize(source, grammar);   // escaped HTML tokens
+const html = core.tokenize(source, grammar);
 const spells = core.collectSpells(source, new Map(), 'file.md');
 const issues = core.lint(source, { info, units, keys, spells, path });
 ```
 
-导出别名：`extractBlocks`、`parseDictionary`、`buildGrammar`、`tokenize`、`lint`。
+Stable aliases: `extractBlocks`, `parseDictionary`, `buildGrammar`, `tokenize`, `lint`.
 
-## Development / 开发
+## Development
 
-源码在 `src/`；根目录 `main.js` 是 esbuild 产出的 bundle，不要直接手改。
+Source lives in `src/`; the root `main.js` is an esbuild bundle — do not edit it by hand.
 
 ```bash
-npm install       # 安装 esbuild
+npm install       # install esbuild
 npm run build     # src/main.js -> main.js
-npm run check     # manifest / 语法 / CSS / 片段一致性
-npm test          # 行为测试 + tokenizer/parser/lint/markup fixtures
+npm run check     # manifest / syntax / CSS / lexicon canonical form
+npm test          # behavior tests + tokenizer/parser/lint/markup fixtures
 ```
 
-| 路径 | 作用 |
+| Path | Purpose |
 | :-- | :-- |
-| `src/main.js` | 构建入口，只 require adapter |
-| `src/adapter/plugin.js` | Obsidian 适配层：生命周期、DOM、悬停、命令、代码块处理器 |
-| `src/core/` | 纯语言逻辑：grammar / tokenizer / markup / lint / spells / 围栏提取 |
-| `src/core/index.js` | 稳定 core 入口与别名 |
-| `src/data/parsers.js` | 词典 / 词根 / 秩 / 筛选键 / 单位解析 |
-| `data/builtin-lexicon.json` | 内置词库快照（规范化 JSON） |
-| `styles.css` | token 配色、代码块外框、T/G 版面 |
-| `snippets/EpXsC-Highlight.css` | 独立配色片段 |
-| `manifest.json` / `versions.json` | 插件元数据与版本映射 |
-| `docs/ARCHITECTURE.md` | Core / Adapter 分层与实际 API |
-| `docs/RELEASING.md` | 发布节奏 |
-| `docs/ROADMAP.md` | 架构审查执行计划与状态板 |
+| `src/main.js` | Build entry; requires the adapter only |
+| `src/adapter/plugin.js` | Obsidian adapter: lifecycle, DOM, hover, commands, processors |
+| `src/core/` | Pure language logic: grammar / tokenizer / markup / lint / spells / fences |
+| `src/core/index.js` | Stable core entry and aliases |
+| `src/data/parsers.js` | Dictionary / roots / ranks / filter keys / units parsing |
+| `src/data/lexicon.js` | Built-in snapshot schema gate |
+| `data/builtin-lexicon.json` | Canonical built-in lexicon snapshot |
+| `styles.css` | Token colors, code-block frame, T/G layout |
+| `snippets/EpXsC-Highlight.css` | Standalone color snippet |
+| `manifest.json` / `versions.json` | Plugin metadata and version map |
+| `docs/ARCHITECTURE.md` | Actual Core / Adapter / Data layers |
+| `docs/ROADMAP.md` | Architecture-review execution plan |
+| `docs/RELEASING.md` | Release policy: at most one GitHub Release per day |
 
-本地调试：把仓库放进 `<库>/.obsidian/plugins/epxsc-syntax/`，改 `src/` 后执行 `npm run build`，再在 Obsidian 里关闭/启用插件。Release 附件只放 `main.js`、`manifest.json`、`styles.css` 三个文件。
+Local debugging: put the repository in `<vault>/.obsidian/plugins/epxsc-syntax/`, run `npm run build`, then disable/enable the plugin in Obsidian. A Release contains exactly `main.js`, `manifest.json` and `styles.css`.
 
 ## Release notes
 
-[CHANGELOG.md](CHANGELOG.md) · [ROADMAP.md](docs/ROADMAP.md) · [GitHub Releases](https://github.com/Shir0Tak1na/EpXsC-Syntax/releases) · [发布节奏](docs/RELEASING.md)：每天最多一个 Release。
+[CHANGELOG.md](CHANGELOG.md) · [ROADMAP.md](docs/ROADMAP.md) · [GitHub Releases](https://github.com/Shir0Tak1na/EpXsC-Syntax/releases) · [Release policy](docs/RELEASING.md): at most one Release per day.
 
 ## License
 

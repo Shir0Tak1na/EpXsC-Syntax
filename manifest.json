@@ -3,7 +3,7 @@
   "name": "EpXsC Syntax",
   "version": "1.31.0",
   "minAppVersion": "1.4.0",
-  "description": "为 EpXsC / EpXsT / EpXsG 代码块提供语法高亮、词义悬停与语法检查.",
+  "description": "Syntax highlighting, hover dictionary and linting for the fictional EpXsC conlang. 为 EpXsC 提供语法高亮、悬停词表与语法检查.",
   "author": "Shir0Tak1na",
   "authorUrl": "https://github.com/Shir0Tak1na",
   "isDesktopOnly": false
