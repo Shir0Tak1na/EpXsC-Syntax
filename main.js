@@ -1453,6 +1453,176 @@ var require_lint_modal = __commonJS({
   }
 });
 
+// src/ui/diagnostics.js
+var require_diagnostics = __commonJS({
+  "src/ui/diagnostics.js"(exports2, module2) {
+    "use strict";
+    var { MarkdownView, Notice } = require("obsidian");
+    async function diagnose(plugin, BUILD) {
+      const L = [];
+      const add = function(s) {
+        L.push(s);
+      };
+      add("# EpXsC \u8BCA\u65AD\u62A5\u544A");
+      add("");
+      add("- \u4EE3\u7801\u7248\u672C\uFF08BUILD\uFF09\uFF1A" + BUILD);
+      add("- manifest \u7248\u672C\uFF1A" + (plugin.manifest && plugin.manifest.version || "?"));
+      add("- \u63D2\u4EF6\u76EE\u5F55\uFF1A" + (plugin.manifest && plugin.manifest.dir || "?"));
+      add("- \u751F\u6210\u65F6\u95F4\uFF1A" + (/* @__PURE__ */ new Date()).toLocaleString());
+      let mode = "\u975E\u7B14\u8BB0\u89C6\u56FE";
+      try {
+        const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
+        if (view) mode = view.getMode() === "preview" ? "\u9605\u8BFB\u89C6\u56FE" : "\u5B9E\u65F6\u9884\u89C8\uFF0F\u6E90\u7801";
+      } catch (e) {
+      }
+      add("- \u5F53\u524D\u89C6\u56FE\uFF1A**" + mode + "**");
+      add("- \u8BCD\u8868\uFF1A\u8BCD\u6761 " + plugin.info.size + " \xB7 \u8BCD\u6839 " + (plugin.roots ? plugin.roots.size : "-") + " \xB7 \u79E9 " + plugin.ranks.size + " \xB7 \u8C13\u8BCD " + plugin.grammar.predicate.source.length + " \u5B57\u7B26");
+      add("- \u81EA\u5E26\u5207\u8BCD\u5668\uFF1A\u5DF2\u88C5\uFF08\u4E0D\u4F9D\u8D56 window.Prism\uFF09");
+      add("- Prism\uFF1A" + (window.Prism ? "\u6709" : "**\u6CA1\u6709**") + " \xB7 \u8BED\u6CD5 EpXsC\uFF1A" + (window.Prism && window.Prism.languages && window.Prism.languages.EpXsC ? "\u5DF2\u88C5" : "**\u7F3A\u5931**"));
+      add("");
+      const codes = document.querySelectorAll(':is(code[class*="language-EpXsC" i], .epx-ord)');
+      add("## \u4EE3\u7801\u5757\uFF08" + codes.length + " \u4E2A\uFF09");
+      for (let i = 0; i < codes.length && i < 6; i++) {
+        const el = codes[i];
+        let tokens = 0;
+        let color = "-";
+        try {
+          tokens = el.querySelectorAll("span.token").length;
+          const first = el.querySelector("span.token");
+          if (first && window.getComputedStyle) color = window.getComputedStyle(first).color;
+        } catch (e) {
+          color = "(\u6D4B\u4E0D\u5230)";
+        }
+        add("- \u7B2C " + (i + 1) + ' \u4E2A\uFF1Aclass="' + (el.className || "") + '" \xB7 token ' + tokens + " \u4E2A \xB7 \u9996\u4E2A token \u989C\u8272 " + color);
+      }
+      add("");
+      add("## \u6837\u5F0F\u8868");
+      let ourRules = 0;
+      try {
+        const sheets = document.styleSheets || [];
+        add("- \u5171 " + sheets.length + " \u5F20");
+        for (let i = 0; i < sheets.length; i++) {
+          let n = 0;
+          let ours = 0;
+          let rules = null;
+          try {
+            rules = sheets[i].cssRules;
+          } catch (e) {
+            add("- \u7B2C " + (i + 1) + " \u5F20\uFF1A\u8BFB\u4E0D\u5230\uFF08\u8DE8\u6E90\uFF09" + (sheets[i].href ? " href=" + sheets[i].href : ""));
+            continue;
+          }
+          if (rules) {
+            n = rules.length;
+            for (let j = 0; j < rules.length; j++) {
+              const sel = rules[j].selectorText || "";
+              if (sel.indexOf(".epx-") >= 0 || sel.indexOf(".token.") >= 0) ours += 1;
+            }
+          }
+          ourRules += ours;
+          add("- \u7B2C " + (i + 1) + " \u5F20\uFF1A" + n + " \u6761\u89C4\u5219\uFF0C\u5176\u4E2D\u6211\u4EEC\u7684 " + ours + " \u6761" + (sheets[i].href ? " \xB7 href=" + sheets[i].href : ""));
+        }
+      } catch (e) {
+        add("- \u8BFB\u6837\u5F0F\u8868\u51FA\u9519\uFF1A" + (e && e.message));
+      }
+      add("- \u547D\u4E2D\u6211\u4EEC\u9009\u62E9\u5668\u7684\u89C4\u5219\u5408\u8BA1\uFF1A" + ourRules);
+      add("- \u515C\u5E95\u72B6\u6001\uFF1A" + (plugin._styleState || "(\u8FD8\u6CA1\u8DD1)"));
+      add("");
+      add("## \u63D2\u4EF6\u76EE\u5F55\u91CC\u7684 styles.css");
+      try {
+        const dir = plugin.manifest && plugin.manifest.dir || ".obsidian/plugins/epxsc-syntax";
+        const css = await plugin.app.vault.adapter.read(dir + "/styles.css");
+        const lines = String(css).split("\n");
+        add("- \u8BFB\u5230 " + css.length + " \u5B57\u7B26 \xB7 \u542B .epx-tip\uFF1A" + (css.indexOf(".epx-tip") >= 0 ? "\u662F" : "**\u5426**") + " \xB7 \u542B --epx-modifier\uFF1A" + (css.indexOf("--epx-modifier") >= 0 ? "\u662F" : "\u5426"));
+        add("- \u524D 3 \u884C\uFF1A");
+        for (let i = 0; i < 3 && i < lines.length; i++) add("    " + (i + 1) + ". " + lines[i]);
+      } catch (e) {
+        add("- **\u8BFB\u4E0D\u5230**\uFF1A" + (e && e.message));
+      }
+      add("");
+      add("## \u6837\u4F8B\u4EE3\u7801\u5757\uFF08\u4E0B\u9762\u8FD9\u5757\u5728\u9605\u8BFB\u89C6\u56FE\u91CC\u5E94\u5F53\u6709\u989C\u8272\uFF09");
+      add("");
+      add("```EpXsC");
+      add("Purificatio(priv locus: zone) {");
+      add("	consta lit = 3 MU;");
+      add("	priv x = &zone;");
+      add("	publ consta total = lit;");
+      add("	ne navis *&zone");
+      add("	luss lit;");
+      add("}");
+      add("```");
+      const text = L.join("\n");
+      try {
+        await plugin.app.vault.adapter.write("EpXsC \u8BCA\u65AD\u62A5\u544A.md", text);
+        new Notice("\u8BCA\u65AD\u62A5\u544A\u5DF2\u5199\u5165\u5E93\u6839\u76EE\u5F55\uFF1AEpXsC \u8BCA\u65AD\u62A5\u544A.md\uFF08\u4EE3\u7801\u7248\u672C " + BUILD + "\uFF09", 12e3);
+      } catch (e) {
+        new Notice("\u5199\u62A5\u544A\u5931\u8D25\uFF1A" + (e && e.message));
+      }
+      return text;
+    }
+    function selfCheck(plugin, BUILD) {
+      let mode = "\u975E\u7B14\u8BB0\u89C6\u56FE";
+      try {
+        const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
+        if (view) mode = view.getMode() === "preview" ? "\u9605\u8BFB\u89C6\u56FE" : "\u5B9E\u65F6\u9884\u89C8\uFF0F\u6E90\u7801";
+      } catch (err) {
+      }
+      const codes = document.querySelectorAll(':is(code[class*="language-EpXsC" i], .epx-ord)');
+      let tokened = 0;
+      let ordBlocks = 0;
+      for (let i = 0; i < codes.length; i++) {
+        if (codes[i].classList && codes[i].classList.contains("epx-ord")) ordBlocks += 1;
+        if (codes[i].querySelector("span.token")) tokened += 1;
+      }
+      const lines = document.querySelectorAll(".HyperMD-codeblock").length;
+      let firstClass = "(\u6CA1\u6709\u4EE3\u7801\u5757)";
+      let tokenCount = 0;
+      let color = "(\u672A\u6D4B)";
+      if (codes[0]) {
+        firstClass = codes[0].className || "(\u7A7A)";
+        tokenCount = codes[0].querySelectorAll("span.token").length;
+        const first = codes[0].querySelector("span.token");
+        try {
+          if (first && window.getComputedStyle) color = window.getComputedStyle(first).color;
+        } catch (e) {
+          color = "(\u8BFB\u4E0D\u5230)";
+        }
+      }
+      let styleState = "\u672A\u77E5";
+      try {
+        let n = 0;
+        const sheets = document.styleSheets || [];
+        for (let i = 0; i < sheets.length; i++) {
+          let rules = null;
+          try {
+            rules = sheets[i].cssRules;
+          } catch (e) {
+            continue;
+          }
+          if (!rules) continue;
+          for (let j = 0; j < rules.length; j++) {
+            const sel = rules[j].selectorText || "";
+            if (sel.indexOf(".token.") >= 0 || sel.indexOf(".epx-tip") >= 0) n += 1;
+          }
+        }
+        styleState = n ? "\u5DF2\u8F7D\u5165 " + n + " \u6761\u7740\u8272\u89C4\u5219" : "\u672A\u8F7D\u5165 \u2717\uFF08styles.css \u6CA1\u751F\u6548\uFF09";
+      } catch (e) {
+        styleState = "\u8BFB\u4E0D\u5230";
+      }
+      new Notice([
+        "EpXsC \u81EA\u68C0 \xB7 \u4EE3\u7801\u7248\u672C " + BUILD,
+        "\u8BCD\u6761 " + plugin.info.size + " \xB7 \u79E9 " + plugin.ranks.size + " \xB7 \u8BED\u6CD5" + (plugin.grammar ? "\u5DF2\u88C5" : "\u7F3A\u5931") + " \xB7 \u5207\u8BCD\u5668\uFF1A\u81EA\u5E26\uFF08Prism " + (window.Prism ? "\u6709" : "\u6CA1\u6709") + "\uFF09",
+        "\u5F53\u524D\u89C6\u56FE\uFF1A" + mode,
+        "EpXsC \u4EE3\u7801\u5757 " + (codes.length - ordBlocks) + " \u4E2A \xB7 \u666E\u901A\u53E5\u5757\uFF08G\uFF0FT\uFF09" + ordBlocks + " \u4E2A \xB7 \u5E26 token \u7684 " + tokened + " \u4E2A \xB7 \u5B9E\u65F6\u9884\u89C8\u4EE3\u7801\u884C " + lines + " \u884C",
+        codes.length > 0 && tokened === 0 && mode === "\u9605\u8BFB\u89C6\u56FE" ? "\u26A0 \u9605\u8BFB\u89C6\u56FE\u91CC\u8FD9\u4E9B\u5757\u6CA1\u6709 token \u2014\u2014 \u6E32\u67D3\u6CA1\u8DD1\u8D77\u6765\uFF0C\u8BF7\u628A\u8FD9\u51E0\u884C\u53D1\u6211" : "\u6E32\u67D3\uFF1A" + (tokened > 0 ? "\u6B63\u5E38" : "\u65E0\u4EE3\u7801\u5757"),
+        "\u9996\u4E2A\u5757 class\uFF1A" + firstClass,
+        "\u9996\u4E2A\u5757 token \u6570\uFF1A" + tokenCount + " \xB7 \u9996\u4E2A token \u989C\u8272\uFF1A" + color,
+        "\u6837\u5F0F\u8868\uFF1A" + styleState + (plugin._styleState ? " \xB7 \u515C\u5E95\uFF1A" + plugin._styleState : "")
+      ].join("\n"), 15e3);
+    }
+    module2.exports = { diagnose, selfCheck };
+  }
+});
+
 // src/adapter/config.js
 var require_config = __commonJS({
   "src/adapter/config.js"(exports2, module2) {
@@ -1890,6 +2060,7 @@ var require_plugin = __commonJS({
     var { renderEpXsC } = require_epxsc_renderer();
     var { parseOrdBlocks } = require_ord_renderer();
     var { LintModal } = require_lint_modal();
+    var { diagnose, selfCheck } = require_diagnostics();
     var { FALLBACK, SECTIONS, ELEMENTS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require_parsers();
     var LANG_KEYS = ["EpXsC", "epxsc", "EPXSC"];
     var CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
@@ -2350,105 +2521,7 @@ var require_plugin = __commonJS({
       }
       /* 生成诊断报告，写进库里，便于整段复制出来 */
       async diagnose() {
-        const L = [];
-        const add = function(s) {
-          L.push(s);
-        };
-        add("# EpXsC \u8BCA\u65AD\u62A5\u544A");
-        add("");
-        add("- \u4EE3\u7801\u7248\u672C\uFF08BUILD\uFF09\uFF1A" + BUILD);
-        add("- manifest \u7248\u672C\uFF1A" + (this.manifest && this.manifest.version || "?"));
-        add("- \u63D2\u4EF6\u76EE\u5F55\uFF1A" + (this.manifest && this.manifest.dir || "?"));
-        add("- \u751F\u6210\u65F6\u95F4\uFF1A" + (/* @__PURE__ */ new Date()).toLocaleString());
-        let mode = "\u975E\u7B14\u8BB0\u89C6\u56FE";
-        try {
-          const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-          if (view) mode = view.getMode() === "preview" ? "\u9605\u8BFB\u89C6\u56FE" : "\u5B9E\u65F6\u9884\u89C8\uFF0F\u6E90\u7801";
-        } catch (e) {
-        }
-        add("- \u5F53\u524D\u89C6\u56FE\uFF1A**" + mode + "**");
-        add("- \u8BCD\u8868\uFF1A\u8BCD\u6761 " + this.info.size + " \xB7 \u8BCD\u6839 " + (this.roots ? this.roots.size : "-") + " \xB7 \u79E9 " + this.ranks.size + " \xB7 \u8C13\u8BCD " + this.grammar.predicate.source.length + " \u5B57\u7B26");
-        add("- \u81EA\u5E26\u5207\u8BCD\u5668\uFF1A\u5DF2\u88C5\uFF08\u4E0D\u4F9D\u8D56 window.Prism\uFF09");
-        add("- Prism\uFF1A" + (window.Prism ? "\u6709" : "**\u6CA1\u6709**") + " \xB7 \u8BED\u6CD5 EpXsC\uFF1A" + (window.Prism && window.Prism.languages && window.Prism.languages.EpXsC ? "\u5DF2\u88C5" : "**\u7F3A\u5931**"));
-        add("");
-        const codes = document.querySelectorAll(':is(code[class*="language-EpXsC" i], .epx-ord)');
-        add("## \u4EE3\u7801\u5757\uFF08" + codes.length + " \u4E2A\uFF09");
-        for (let i = 0; i < codes.length && i < 6; i++) {
-          const el = codes[i];
-          let tokens = 0;
-          let color = "-";
-          try {
-            tokens = el.querySelectorAll("span.token").length;
-            const first = el.querySelector("span.token");
-            if (first && window.getComputedStyle) color = window.getComputedStyle(first).color;
-          } catch (e) {
-            color = "(\u6D4B\u4E0D\u5230)";
-          }
-          add("- \u7B2C " + (i + 1) + ' \u4E2A\uFF1Aclass="' + (el.className || "") + '" \xB7 token ' + tokens + " \u4E2A \xB7 \u9996\u4E2A token \u989C\u8272 " + color);
-        }
-        add("");
-        add("## \u6837\u5F0F\u8868");
-        let ourRules = 0;
-        try {
-          const sheets = document.styleSheets || [];
-          add("- \u5171 " + sheets.length + " \u5F20");
-          for (let i = 0; i < sheets.length; i++) {
-            let n = 0;
-            let ours = 0;
-            let rules = null;
-            try {
-              rules = sheets[i].cssRules;
-            } catch (e) {
-              add("- \u7B2C " + (i + 1) + " \u5F20\uFF1A\u8BFB\u4E0D\u5230\uFF08\u8DE8\u6E90\uFF09" + (sheets[i].href ? " href=" + sheets[i].href : ""));
-              continue;
-            }
-            if (rules) {
-              n = rules.length;
-              for (let j = 0; j < rules.length; j++) {
-                const sel = rules[j].selectorText || "";
-                if (sel.indexOf(".epx-") >= 0 || sel.indexOf(".token.") >= 0) ours += 1;
-              }
-            }
-            ourRules += ours;
-            add("- \u7B2C " + (i + 1) + " \u5F20\uFF1A" + n + " \u6761\u89C4\u5219\uFF0C\u5176\u4E2D\u6211\u4EEC\u7684 " + ours + " \u6761" + (sheets[i].href ? " \xB7 href=" + sheets[i].href : ""));
-          }
-        } catch (e) {
-          add("- \u8BFB\u6837\u5F0F\u8868\u51FA\u9519\uFF1A" + (e && e.message));
-        }
-        add("- \u547D\u4E2D\u6211\u4EEC\u9009\u62E9\u5668\u7684\u89C4\u5219\u5408\u8BA1\uFF1A" + ourRules);
-        add("- \u515C\u5E95\u72B6\u6001\uFF1A" + (this._styleState || "(\u8FD8\u6CA1\u8DD1)"));
-        add("");
-        add("## \u63D2\u4EF6\u76EE\u5F55\u91CC\u7684 styles.css");
-        try {
-          const dir = this.manifest && this.manifest.dir || ".obsidian/plugins/epxsc-syntax";
-          const css = await this.app.vault.adapter.read(dir + "/styles.css");
-          const lines = String(css).split("\n");
-          add("- \u8BFB\u5230 " + css.length + " \u5B57\u7B26 \xB7 \u542B .epx-tip\uFF1A" + (css.indexOf(".epx-tip") >= 0 ? "\u662F" : "**\u5426**") + " \xB7 \u542B --epx-modifier\uFF1A" + (css.indexOf("--epx-modifier") >= 0 ? "\u662F" : "\u5426"));
-          add("- \u524D 3 \u884C\uFF1A");
-          for (let i = 0; i < 3 && i < lines.length; i++) add("    " + (i + 1) + ". " + lines[i]);
-        } catch (e) {
-          add("- **\u8BFB\u4E0D\u5230**\uFF1A" + (e && e.message));
-        }
-        add("");
-        add("## \u6837\u4F8B\u4EE3\u7801\u5757\uFF08\u4E0B\u9762\u8FD9\u5757\u5728\u9605\u8BFB\u89C6\u56FE\u91CC\u5E94\u5F53\u6709\u989C\u8272\uFF09");
-        add("");
-        add("```EpXsC");
-        add("Purificatio(priv locus: zone) {");
-        add("	consta lit = 3 MU;");
-        add("	priv x = &zone;");
-        add("	publ consta total = lit;");
-        add("	ne navis *&zone");
-        add("	luss lit;");
-        add("}");
-        add("```");
-        const text = L.join("\n");
-        try {
-          await this.app.vault.adapter.write("EpXsC \u8BCA\u65AD\u62A5\u544A.md", text);
-          new Notice("\u8BCA\u65AD\u62A5\u544A\u5DF2\u5199\u5165\u5E93\u6839\u76EE\u5F55\uFF1AEpXsC \u8BCA\u65AD\u62A5\u544A.md\uFF08\u4EE3\u7801\u7248\u672C " + BUILD + "\uFF09", 12e3);
-        } catch (e) {
-          new Notice("\u5199\u62A5\u544A\u5931\u8D25\uFF1A" + (e && e.message));
-        }
-        return text;
+        return diagnose(this, BUILD);
       }
       /* 检查当前笔记里的 EpXsC 代码块 */
       async lintActiveNote() {
@@ -2502,64 +2575,7 @@ var require_plugin = __commonJS({
       }
       /* 自检：当前视图里到底有没有 token、词表读进来没有 */
       selfCheck() {
-        let mode = "\u975E\u7B14\u8BB0\u89C6\u56FE";
-        try {
-          const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-          if (view) mode = view.getMode() === "preview" ? "\u9605\u8BFB\u89C6\u56FE" : "\u5B9E\u65F6\u9884\u89C8\uFF0F\u6E90\u7801";
-        } catch (err) {
-        }
-        const codes = document.querySelectorAll(':is(code[class*="language-EpXsC" i], .epx-ord)');
-        let tokened = 0;
-        let ordBlocks = 0;
-        for (let i = 0; i < codes.length; i++) {
-          if (codes[i].classList && codes[i].classList.contains("epx-ord")) ordBlocks += 1;
-          if (codes[i].querySelector("span.token")) tokened += 1;
-        }
-        const lines = document.querySelectorAll(".HyperMD-codeblock").length;
-        let firstClass = "(\u6CA1\u6709\u4EE3\u7801\u5757)";
-        let tokenCount = 0;
-        let color = "(\u672A\u6D4B)";
-        if (codes[0]) {
-          firstClass = codes[0].className || "(\u7A7A)";
-          tokenCount = codes[0].querySelectorAll("span.token").length;
-          const first = codes[0].querySelector("span.token");
-          try {
-            if (first && window.getComputedStyle) color = window.getComputedStyle(first).color;
-          } catch (e) {
-            color = "(\u8BFB\u4E0D\u5230)";
-          }
-        }
-        let styleState = "\u672A\u77E5";
-        try {
-          let n = 0;
-          const sheets = document.styleSheets || [];
-          for (let i = 0; i < sheets.length; i++) {
-            let rules = null;
-            try {
-              rules = sheets[i].cssRules;
-            } catch (e) {
-              continue;
-            }
-            if (!rules) continue;
-            for (let j = 0; j < rules.length; j++) {
-              const sel = rules[j].selectorText || "";
-              if (sel.indexOf(".token.") >= 0 || sel.indexOf(".epx-tip") >= 0) n += 1;
-            }
-          }
-          styleState = n ? "\u5DF2\u8F7D\u5165 " + n + " \u6761\u7740\u8272\u89C4\u5219" : "\u672A\u8F7D\u5165 \u2717\uFF08styles.css \u6CA1\u751F\u6548\uFF09";
-        } catch (e) {
-          styleState = "\u8BFB\u4E0D\u5230";
-        }
-        new Notice([
-          "EpXsC \u81EA\u68C0 \xB7 \u4EE3\u7801\u7248\u672C " + BUILD,
-          "\u8BCD\u6761 " + this.info.size + " \xB7 \u79E9 " + this.ranks.size + " \xB7 \u8BED\u6CD5" + (this.grammar ? "\u5DF2\u88C5" : "\u7F3A\u5931") + " \xB7 \u5207\u8BCD\u5668\uFF1A\u81EA\u5E26\uFF08Prism " + (window.Prism ? "\u6709" : "\u6CA1\u6709") + "\uFF09",
-          "\u5F53\u524D\u89C6\u56FE\uFF1A" + mode,
-          "EpXsC \u4EE3\u7801\u5757 " + (codes.length - ordBlocks) + " \u4E2A \xB7 \u666E\u901A\u53E5\u5757\uFF08G\uFF0FT\uFF09" + ordBlocks + " \u4E2A \xB7 \u5E26 token \u7684 " + tokened + " \u4E2A \xB7 \u5B9E\u65F6\u9884\u89C8\u4EE3\u7801\u884C " + lines + " \u884C",
-          codes.length > 0 && tokened === 0 && mode === "\u9605\u8BFB\u89C6\u56FE" ? "\u26A0 \u9605\u8BFB\u89C6\u56FE\u91CC\u8FD9\u4E9B\u5757\u6CA1\u6709 token \u2014\u2014 \u6E32\u67D3\u6CA1\u8DD1\u8D77\u6765\uFF0C\u8BF7\u628A\u8FD9\u51E0\u884C\u53D1\u6211" : "\u6E32\u67D3\uFF1A" + (tokened > 0 ? "\u6B63\u5E38" : "\u65E0\u4EE3\u7801\u5757"),
-          "\u9996\u4E2A\u5757 class\uFF1A" + firstClass,
-          "\u9996\u4E2A\u5757 token \u6570\uFF1A" + tokenCount + " \xB7 \u9996\u4E2A token \u989C\u8272\uFF1A" + color,
-          "\u6837\u5F0F\u8868\uFF1A" + styleState + (this._styleState ? " \xB7 \u515C\u5E95\uFF1A" + this._styleState : "")
-        ].join("\n"), 15e3);
+        return selfCheck(this, BUILD);
       }
       rehighlight() {
         this.highlightIn(document);

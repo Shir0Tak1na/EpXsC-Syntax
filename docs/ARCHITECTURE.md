@@ -54,6 +54,7 @@ src/adapter/plugin.js       Obsidian lifecycle, DOM, hover, commands, processors
 | `src/renderers/ord-dom.js` | EpXsT/EpXsG DOM mount |
 | `src/ui/lint-modal.js` | lint result panel |
 | `src/ui/tooltip.js` | pure tooltip data builders (symbols, brackets, coords, ranks, variables) |
+| `src/ui/diagnostics.js` | diagnose / self-check formatters |
 | `src/data/parsers.js` | dictionary / roots / ranks / filter keys / units |
 
 Rules:

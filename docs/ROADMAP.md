@@ -90,11 +90,11 @@ Do not start T1/T2 migration before T0 is complete.
 | T1.4 | DONE | adapter config module |
 | T2.1 | DONE | RefreshScheduler + fake-timer tests |
 | T2.2 | DONE | lexicon/spell/lint services + fake-vault tests |
-| T2.3 | IN_PROGRESS | adapter ~40k; diagnostics still local |
+| T2.3 | DONE | adapter ~34k; services/renderers/ui own the logic |
 | T3.1 | DONE | EpXsC + T/G data + DOM renderers |
-| T3.2 | IN_PROGRESS | lint modal + tooltip data + T/G DOM extracted; diagnostics still local |
+| T3.2 | DONE | lint modal / tooltip / diagnostics extracted |
 | T3.3 | DONE | C/T/G data renderer tests |
-| T3.4 | TODO | |
+| T3.4 | DONE | T/G refresh re-render invariant asserted |
 | T4.1 | DONE | `npm run bench` |
 | T5.1 | DONE | CI now checks bundle freshness after build |
 | T6.1 | TODO | |
@@ -120,6 +120,6 @@ Do not start T1/T2 migration before T0 is complete.
 
 ## G. Next single action
 
-**T3.2 continuation — diagnostics formatter.**
+**T1.3–T5 architecture optimization is complete.**
 
-`LintModal` and tooltip data now live in `src/ui/`. Remaining: move diagnose/self-check formatting out of the adapter if it can stay behavior-identical; otherwise document why it stays.
+Evidence: services, renderers, UI modules, adapter reduced from ~72KB to ~34KB; all tests, fixture runner, lexicon canonical check, bundle freshness and release asset validator pass. Optional next work is T6 (external core package), which is outside the current objective.
