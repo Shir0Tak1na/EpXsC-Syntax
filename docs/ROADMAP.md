@@ -118,6 +118,10 @@ Do not start T1/T2 migration before T0 is complete.
 - **Release assets drift** — docs/metadata edits after release. Mitigation: rebuild all three assets before upload.
 - **One release/day** — no new release if today already has one.
 
+## H. Next release
+
+Checklist: [NEXT_RELEASE.md](NEXT_RELEASE.md) — candidate 1.32.0, do not publish on 2026-11-16 (1.31.0 already exists).
+
 ## G. Next single action
 
 **T1.3–T5 architecture optimization is complete.**
