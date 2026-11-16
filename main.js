@@ -1556,36 +1556,37 @@ function renderOrdBlockInner(el, source, mode, grammar, info) {
   let pending = null;
   const flush = function (pair) {
     if (!pair) return;
-    html += '<span class="epx-oline" style="display:block;margin:.18em 0">';
+    html += '<div class="epx-oline">';
     if (mode === 'G') {
       const toks = ordTokens(pair.src, grammar);
-      html += '<span class="epx-gs" style="display:block">';
+      html += '<div class="epx-gs">';
       for (let i = 0; i < toks.length; i++) {
         const tok = toks[i];
         const gl = ordGlossOf(tok, info);
-        html += '<span class="epx-gw"><span class="epx-gsrc token ' + tok.cls + '" style="display:block;line-height:1.3">' + tok.text + '</span>' +
+        html += '<span class="epx-gw" style="display:inline-block;text-align:center;margin:0 .16em;vertical-align:top"><span class="epx-gsrc token ' + tok.cls + '" style="display:block;line-height:1.3">' + tok.text + '</span>' +
                 (gl ? '<span class="epx-ggl" style="display:block;font-size:.74em;line-height:1.2;opacity:.7">' + gl + '</span>' : '') + '</span>';
       }
-      html += '</span>';
+      html += '</div>';
     } else {
-      html += '<span class="epx-tsrc" style="display:block">' + tokenizeText(pair.src, grammar) + '</span>';
+      html += '<div class="epx-tsrc">' + tokenizeText(pair.src, grammar) + '</div>';
     }
-    if (pair.zh) html += '<span class="epx-tzh" style="display:block">' + pair.zh + '</span>';
-    html += '</span>';
+    if (pair.zh) html += '<div class="epx-tzh">' + pair.zh + '</div>';
+    html += '</div>';
   };
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
     const t = raw.trim();
-    if (!t) { flush(pending); pending = null; html += '<span class="epx-gap" style="display:block;height:.45em"></span>'; continue; }
-    if (t.charAt(0) === '>') { if (pending) pending.zh = t.slice(1).trim(); else html += '<span class="epx-oline" style="display:block;margin:.18em 0"><span class="epx-tzh" style="display:block">' + t.slice(1).trim() + '</span></span>'; continue; }
+    if (!t) { flush(pending); pending = null; html += '<div class="epx-gap"></div>'; continue; }
+    if (t.charAt(0) === '>') { if (pending) pending.zh = t.slice(1).trim(); else html += '<div class="epx-oline"><div class="epx-tzh">' + t.slice(1).trim() + '</div></div>'; continue; }
     /* 没写 > 时：紧跟原文行、含汉字的一行，当作上一句的译文 */
     if (pending && !pending.zh && /[\u3400-\u9fff]/.test(t)) { pending.zh = t; continue; }
     flush(pending);
     pending = { src: t, zh: '' };
   }
   flush(pending);
-  /* 块级结构自己带（div + inline style），不依赖样式表；code 沿用 token 配色与悬停。 */
-  el.innerHTML = '<div class="epx-ord-wrap" style="display:block"><code class="' + ORD_CLASS + ' epx-ord epx-ord-' + mode + '" style="display:block;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word">' + html + '</code></div>';
+  /* 用 div 而不是 span + inline display：阅读视图会剥掉部分 inline style，
+     div 的块级行为不依赖样式表，译文行与原文行因此不会挤成一段。 */
+  el.innerHTML = '<div class="epx-ord-wrap"><code class="' + ORD_CLASS + ' epx-ord epx-ord-' + mode + '">' + html + '</code></div>';
 }
 /* 包一层：普通句渲染出错时退化成普通代码块，不要变成 Obsidian 的「代码块渲染错误」。 */
 function renderOrdBlock(el, source, mode, grammar, info) {

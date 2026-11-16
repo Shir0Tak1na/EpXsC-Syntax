@@ -1,7 +1,7 @@
 {
   "id": "epxsc-syntax",
   "name": "EpXsC Syntax",
-  "version": "1.28.6",
+  "version": "1.28.7",
   "minAppVersion": "1.4.0",
   "description": "为述无空语构造记号 EpXsC 提供 Prism 语法高亮与悬停词表。Prism syntax highlighting and hover dictionary for the EpXsC conlang.",
   "author": "Shir0Tak1na",
