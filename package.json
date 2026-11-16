@@ -6,7 +6,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check": "node scripts/validate.mjs && node scripts/generate-lexicon.mjs --check",
-    "test": "node scripts/test.mjs && node scripts/fixture-runner.mjs"
+    "test": "node scripts/test.mjs && node scripts/fixture-runner.mjs",
+    "bench": "node scripts/bench.mjs"
   },
   "license": "Apache-2.0",
   "devDependencies": {

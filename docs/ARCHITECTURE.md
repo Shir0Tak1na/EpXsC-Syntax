@@ -173,7 +173,13 @@ Execution tracking: [ROADMAP.md](ROADMAP.md).
 - golden fixtures for tokenizer and linter output;
 - acceptance: a CLI sample and the Obsidian plugin consume the same core version.
 
-## 7. Non-goals
+## 7. Performance and CI
+
+- `npm run bench` measures tokenizer/parser costs; current manual numbers: tokenize sample ~0.14ms, synthetic 1000-row dictionary ~0.47ms, 150-token block ~1.62ms per call (Node 20, this machine).
+- Watchdog keeps event-driven `layout-change` / `active-leaf-change` plus a 2.5s fallback; `ensureRendered()` skips hidden documents and only processes blocks without tokens.
+- CI builds in a clean checkout and runs `git diff --exit-code main.js` to catch a stale committed bundle, then validates manifest/CSS/lexicon and tests.
+
+## 8. Non-goals
 
 - No language semantic changes during refactor work.
 - No removal of built-in fallback or diagnostics commands.

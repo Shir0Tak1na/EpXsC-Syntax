@@ -43,12 +43,12 @@
 
 - [x] T3.1 `epxsc-renderer` / `epxst-renderer` / `epxsg-renderer`; pure token → HTML/DOM structure; adapter mounts (`epxsc-renderer`, `ord-renderer`).
 - [ ] T3.2 Tooltip / lint panel / diagnostics modules; shared `CODE_SELECTOR` and aliases.
-- [ ] T3.3 Render golden tests for C/T/G, long-block guard, empty and malformed input.
+- [x] T3.3 Render golden tests for C/T/G, long-block guard, empty and malformed input (renderer tests in `scripts/test.mjs`; DOM mounting still smoke-only).
 - [ ] T3.4 Keep `refresh()` → T/G re-render invariant and test it.
 
 ### T4 — performance / stability
 
-- [ ] T4.1 Benchmarks: large dictionary parse, spell index, single/multi block tokenize, `ensureRendered()` scan.
+- [x] T4.1 Benchmarks: large dictionary parse, spell index, single/multi block tokenize, `ensureRendered()` scan (`scripts/bench.mjs`; current numbers recorded manually).
 - [ ] T4.2 Watchdog optimization: event-first, hidden-window skip, lower frequency or active view only; measurements required.
 - [ ] T4.3 Bounded caches only with invalidation tests.
 
@@ -93,10 +93,10 @@ Do not start T1/T2 migration before T0 is complete.
 | T2.3 | IN_PROGRESS | adapter uses services; UI/renderers still being split |
 | T3.1 | DONE | EpXsC + T/G data pipelines |
 | T3.2 | TODO | next action |
-| T3.3 | TODO | |
+| T3.3 | DONE | C/T/G data renderer tests |
 | T3.4 | TODO | |
-| T4.x | TODO | |
-| T5.x | PARTIAL | CI exists; missing golden/snapshot/bundle freshness |
+| T4.1 | DONE | `npm run bench` |
+| T5.1 | DONE | CI now checks bundle freshness after build |
 | T6.1 | TODO | |
 
 ## E. Definition of done per task
