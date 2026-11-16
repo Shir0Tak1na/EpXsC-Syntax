@@ -1,5 +1,5 @@
 'use strict';
 
-const Plugin = require('./legacy/plugin.js');
+const Plugin = require('./adapter/plugin.js');
 
 module.exports = Plugin;

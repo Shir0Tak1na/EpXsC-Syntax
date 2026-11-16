@@ -1,6 +1,6 @@
 # EpXsC Core Architecture
 
-> Status: Phase 3 started — `src/main.js` + esbuild is the build boundary; the Obsidian adapter is still the legacy monolith being split.
+> Status: Phase 3 complete enough for review — `src/main.js` + esbuild is the build boundary; `src/core/index.js` is the reusable API; `src/adapter/plugin.js` is the Obsidian adapter.
 > Current release ships the generated `main.js` bundle.
 
 ## 1. Why a core

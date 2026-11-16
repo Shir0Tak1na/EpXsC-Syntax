@@ -1047,9 +1047,9 @@ var require_lint = __commonJS({
   }
 });
 
-// src/legacy/plugin.js
+// src/adapter/plugin.js
 var require_plugin = __commonJS({
-  "src/legacy/plugin.js"(exports2, module2) {
+  "src/adapter/plugin.js"(exports2, module2) {
     "use strict";
     var { Plugin: Plugin2, TFile, TFolder, Notice, MarkdownView, Modal } = require("obsidian");
     var { extractEpXsCBlocks } = require_markdown_blocks();
@@ -1746,11 +1746,6 @@ var require_plugin = __commonJS({
       } catch (err) {
         console.warn("[EpXsC Syntax] \u666E\u901A\u53E5\u6E32\u67D3\u5931\u8D25\uFF1A", err);
         try {
-          if (window.__epxscApp) window.__epxscApp.vault.adapter.write("epxsc-runtime-error.txt", "ord: " + (err && err.stack || err)).catch(function() {
-          });
-        } catch (e) {
-        }
-        try {
           if (el && el.empty) el.empty();
           if (el && el.createEl) el.createEl("pre", { text: String(source || "") });
         } catch (e) {
@@ -1776,50 +1771,28 @@ var require_plugin = __commonJS({
     var EpXsCSyntaxPlugin = class extends Plugin2 {
       onload() {
         const self = this;
-        const diag = function(name, text) {
-          try {
-            self.app.vault.adapter.write("epxsc-" + name + ".txt", String(text)).catch(function() {
-            });
-          } catch (e) {
-          }
-        };
-        diag("runtime-loaded", BUILD + " " + (/* @__PURE__ */ new Date()).toISOString());
-        window.__epxscApp = this.app;
-        try {
-          window.addEventListener("error", function(ev) {
-            diag("runtime-error", "window.error: " + (ev.error && ev.error.stack || ev.message));
-          });
-          window.addEventListener("unhandledrejection", function(ev) {
-            diag("runtime-error", "unhandledrejection: " + (ev.reason && ev.reason.stack || ev.reason));
-          });
-        } catch (e) {
-        }
         this.grammar = makeGrammar(BASE_LISTS);
         this.info = /* @__PURE__ */ new Map();
         this.ranks = /* @__PURE__ */ new Map();
         for (const w in EXTRA_WORDS) this.info.set(w, EXTRA_WORDS[w]);
         this.install();
         this.registerDomEvent(document, "mouseover", function(ev) {
-          try {
-            hideTip();
-            const el = ev.target;
-            if (!el || !el.closest) return;
-            const token = el.closest("span.token");
-            if (token && el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)')) {
-              const tip2 = tipForElement(token, self.info, self.ranks);
-              if (tip2) {
-                showTipAt(ev.clientX, ev.clientY, tip2);
-                return;
-              }
+          hideTip();
+          const el = ev.target;
+          if (!el || !el.closest) return;
+          const token = el.closest("span.token");
+          if (token && el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)')) {
+            const tip2 = tipForElement(token, self.info, self.ranks);
+            if (tip2) {
+              showTipAt(ev.clientX, ev.clientY, tip2);
+              return;
             }
-            if (!inCodeContext(el)) return;
-            const word = wordAtPoint(ev.clientX, ev.clientY);
-            if (!word) return;
-            const tip = buildTip("word", word, self.info, self.ranks);
-            if (tip) showTipAt(ev.clientX, ev.clientY, tip);
-          } catch (err) {
-            diag("runtime-error", "hover: " + (err && err.stack || err));
           }
+          if (!inCodeContext(el)) return;
+          const word = wordAtPoint(ev.clientX, ev.clientY);
+          if (!word) return;
+          const tip = buildTip("word", word, self.info, self.ranks);
+          if (tip) showTipAt(ev.clientX, ev.clientY, tip);
         });
         this.registerDomEvent(document, "mouseout", hideTip);
         this.registerDomEvent(document, "scroll", hideTip, true);
@@ -1873,11 +1846,6 @@ var require_plugin = __commonJS({
             bindClickToSource(pre, self.app, el, ctx);
           } catch (err) {
             console.warn("[EpXsC Syntax] \u4EE3\u7801\u5757\u6E32\u67D3\u5931\u8D25\uFF1A", err);
-            try {
-              if (window.__epxscApp) window.__epxscApp.vault.adapter.write("epxsc-runtime-error.txt", "block: " + (err && err.stack || err)).catch(function() {
-              });
-            } catch (e) {
-            }
             if (el && el.createEl) el.createEl("pre", { text: source });
           }
         };
@@ -2393,11 +2361,6 @@ var require_plugin = __commonJS({
           this.markNegation(code);
         } catch (err) {
           console.warn("[EpXsC Syntax]", err);
-          try {
-            this.app.vault.adapter.write("epxsc-runtime-error.txt", "highlight: " + (err && err.stack || err)).catch(function() {
-            });
-          } catch (e) {
-          }
         }
       }
     };

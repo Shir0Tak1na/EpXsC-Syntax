@@ -744,7 +744,6 @@ function renderOrdBlock(el, source, mode, grammar, info) {
     renderOrdBlockInner(el, source, mode, grammar, info);
   } catch (err) {
     console.warn('[EpXsC Syntax] 普通句渲染失败：', err);
-    try { if (window.__epxscApp) window.__epxscApp.vault.adapter.write('epxsc-runtime-error.txt', 'ord: ' + (err && err.stack || err)).catch(function () {}); } catch (e) {}
     try {
       if (el && el.empty) el.empty();
       if (el && el.createEl) el.createEl('pre', { text: String(source || '') });
@@ -773,38 +772,25 @@ function bindClickToSource(target, app, el, ctx) {
 class EpXsCSyntaxPlugin extends Plugin {
   onload() {
     const self = this;
-    const diag = function (name, text) {
-      try { self.app.vault.adapter.write('epxsc-' + name + '.txt', String(text)).catch(function () {}); } catch (e) {}
-    };
-    diag('runtime-loaded', BUILD + ' ' + new Date().toISOString());
-    window.__epxscApp = this.app;
-    try {
-      window.addEventListener('error', function (ev) { diag('runtime-error', 'window.error: ' + (ev.error && ev.error.stack || ev.message)); });
-      window.addEventListener('unhandledrejection', function (ev) { diag('runtime-error', 'unhandledrejection: ' + (ev.reason && ev.reason.stack || ev.reason)); });
-    } catch (e) {}
     this.grammar = makeGrammar(BASE_LISTS);
     this.info = new Map();
     this.ranks = new Map();
     for (const w in EXTRA_WORDS) this.info.set(w, EXTRA_WORDS[w]);
     this.install();
     this.registerDomEvent(document, 'mouseover', function (ev) {
-      try {
-        hideTip();
-        const el = ev.target;
-        if (!el || !el.closest) return;
-        const token = el.closest('span.token');
-        if (token && el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)')) {
-          const tip = tipForElement(token, self.info, self.ranks);
-          if (tip) { showTipAt(ev.clientX, ev.clientY, tip); return; }
-        }
-        if (!inCodeContext(el)) return;
-        const word = wordAtPoint(ev.clientX, ev.clientY);
-        if (!word) return;
-        const tip = buildTip('word', word, self.info, self.ranks);
-        if (tip) showTipAt(ev.clientX, ev.clientY, tip);
-      } catch (err) {
-        diag('runtime-error', 'hover: ' + (err && err.stack || err));
+      hideTip();
+      const el = ev.target;
+      if (!el || !el.closest) return;
+      const token = el.closest('span.token');
+      if (token && el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)')) {
+        const tip = tipForElement(token, self.info, self.ranks);
+        if (tip) { showTipAt(ev.clientX, ev.clientY, tip); return; }
       }
+      if (!inCodeContext(el)) return;
+      const word = wordAtPoint(ev.clientX, ev.clientY);
+      if (!word) return;
+      const tip = buildTip('word', word, self.info, self.ranks);
+      if (tip) showTipAt(ev.clientX, ev.clientY, tip);
     });
     this.registerDomEvent(document, 'mouseout', hideTip);
     this.registerDomEvent(document, 'scroll', hideTip, true);
@@ -853,7 +839,6 @@ class EpXsCSyntaxPlugin extends Plugin {
         bindClickToSource(pre, self.app, el, ctx);
       } catch (err) {
         console.warn('[EpXsC Syntax] 代码块渲染失败：', err);
-        try { if (window.__epxscApp) window.__epxscApp.vault.adapter.write('epxsc-runtime-error.txt', 'block: ' + (err && err.stack || err)).catch(function () {}); } catch (e) {}
         if (el && el.createEl) el.createEl('pre', { text: source });
       }
     };
@@ -1329,7 +1314,6 @@ class EpXsCSyntaxPlugin extends Plugin {
       this.markNegation(code);
     } catch (err) {
       console.warn('[EpXsC Syntax]', err);
-      try { this.app.vault.adapter.write('epxsc-runtime-error.txt', 'highlight: ' + (err && err.stack || err)).catch(function () {}); } catch (e) {}
     }
   }
 }

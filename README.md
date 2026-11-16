@@ -122,7 +122,8 @@ npm test          # 围栏别名、CRLF、作用域、tokenizer、括号
 - `src/core/spells.js` / `src/core/lint.js`：术式登记与纯 Lint 逻辑；
 - `src/core/grammar.js` / `src/core/tokenizer.js`：语法规则与纯 HTML tokenizer；
 - `src/core/markup.js`：括号深度、变量分析、字典键等 token 后处理；
-- `src/legacy/plugin.js`：当前 Obsidian 适配层（单体，逐步拆分）；
+- `src/core/index.js`：可直接给其他工具使用的 core 入口；
+- `src/adapter/plugin.js`：Obsidian 适配层（生命周期、DOM、命令、处理器）；
 - `styles.css` / `snippets/EpXsC-Highlight.css` 仍手写维护。
 
 | 文件 | 作用 |

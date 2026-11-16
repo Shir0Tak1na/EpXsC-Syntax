@@ -11,7 +11,7 @@ const grammarCore = nodeRequire('../src/core/grammar.js');
 const tokenizerCore = nodeRequire('../src/core/tokenizer.js');
 const markupCore = nodeRequire('../src/core/markup.js');
 
-const source = fs.readFileSync('src/legacy/plugin.js', 'utf8');
+const source = fs.readFileSync('src/adapter/plugin.js', 'utf8');
 const obsidianStub = {
   Plugin: class {}, TFile: class {}, TFolder: class {}, MarkdownView: class {},
   Notice: class {}, Modal: class {}

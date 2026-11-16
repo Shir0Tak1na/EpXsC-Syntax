@@ -10,6 +10,7 @@
 - 括号深度、变量分析、字典键等 token 后处理抽到 `src/core/markup.js`。
 - CI 增加 `npm ci` / `npm run build`；测试覆盖 CLI 构建链。
 - 运行时行为不变。
+- `src/legacy/plugin.js` 更名为 `src/adapter/plugin.js`；新增 `src/core/index.js` 聚合导出；运行时诊断写入已移除。
 
 ## 1.30.0
 
