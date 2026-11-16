@@ -1409,6 +1409,50 @@ var require_ord_renderer = __commonJS({
   }
 });
 
+// src/ui/lint-modal.js
+var require_lint_modal = __commonJS({
+  "src/ui/lint-modal.js"(exports2, module2) {
+    "use strict";
+    var { Modal } = require("obsidian");
+    var LintModal = class extends Modal {
+      constructor(app, file, issues, blocks) {
+        super(app);
+        this.file = file;
+        this.issues = issues;
+        this.blocks = blocks;
+      }
+      onOpen() {
+        const el = this.contentEl;
+        el.addClass("epx-lint");
+        el.createEl("h4", { text: "EpXsC \u8BED\u6CD5\u68C0\u67E5 \xB7 " + this.file.basename });
+        if (!this.issues.length) {
+          el.createEl("div", { class: "epx-lint-summary", text: this.blocks + " \u4E2A\u4EE3\u7801\u5757 \xB7 \u6CA1\u6709\u53D1\u73B0\u95EE\u9898" });
+          return;
+        }
+        let errs = 0;
+        for (let i = 0; i < this.issues.length; i++) if (this.issues[i].level === "error") errs += 1;
+        el.createEl("div", { class: "epx-lint-summary", text: this.blocks + " \u4E2A\u4EE3\u7801\u5757 \xB7 " + this.issues.length + " \u5904\uFF08" + errs + " \u9519\u8BEF / " + (this.issues.length - errs) + " \u8B66\u544A\uFF09\xB7 \u70B9\u4E00\u884C\u8DF3\u5230\u8BE5\u5904" });
+        const list = el.createEl("div", { class: "epx-lint-list" });
+        const self = this;
+        for (let i = 0; i < this.issues.length; i++) {
+          const it = this.issues[i];
+          const row = list.createEl("div", { class: "epx-lint-row epx-lint-" + it.level });
+          row.createEl("span", { class: "epx-lint-line", text: "\u7B2C " + it.line + " \u884C" });
+          row.createEl("span", { class: "epx-lint-msg", text: it.message });
+          row.addEventListener("click", function() {
+            self.app.workspace.getLeaf(false).openFile(self.file, { eState: { line: Math.max(0, it.line - 1), ch: 0 } });
+            self.close();
+          });
+        }
+      }
+      onClose() {
+        this.contentEl.empty();
+      }
+    };
+    module2.exports = { LintModal };
+  }
+});
+
 // src/adapter/config.js
 var require_config = __commonJS({
   "src/adapter/config.js"(exports2, module2) {
@@ -1434,7 +1478,7 @@ var require_builtin_lexicon = __commonJS({
 var require_plugin = __commonJS({
   "src/adapter/plugin.js"(exports2, module2) {
     "use strict";
-    var { Plugin: Plugin2, TFile, TFolder, Notice, MarkdownView, Modal } = require("obsidian");
+    var { Plugin: Plugin2, TFile, TFolder, Notice, MarkdownView } = require("obsidian");
     var { extractEpXsCBlocks } = require_markdown_blocks();
     var { loadBuiltinLexicon } = require_lexicon();
     var { RefreshScheduler } = require_refresh_scheduler();
@@ -1446,6 +1490,7 @@ var require_plugin = __commonJS({
     var { lintSource } = require_lint_service();
     var { renderEpXsC } = require_epxsc_renderer();
     var { parseOrdBlocks } = require_ord_renderer();
+    var { LintModal } = require_lint_modal();
     var { FALLBACK, SECTIONS, ELEMENTS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require_parsers();
     var LANG_KEYS = ["EpXsC", "epxsc", "EPXSC"];
     var CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
@@ -1936,41 +1981,6 @@ var require_plugin = __commonJS({
       const lang = liveCodeLang(el);
       return lang === "epxsc" || lang === "epxst" || lang === "epxsg";
     }
-    var LintModal = class extends Modal {
-      constructor(app, file, issues, blocks) {
-        super(app);
-        this.file = file;
-        this.issues = issues;
-        this.blocks = blocks;
-      }
-      onOpen() {
-        const el = this.contentEl;
-        el.addClass("epx-lint");
-        el.createEl("h4", { text: "EpXsC \u8BED\u6CD5\u68C0\u67E5 \xB7 " + this.file.basename });
-        if (!this.issues.length) {
-          el.createEl("div", { class: "epx-lint-summary", text: this.blocks + " \u4E2A\u4EE3\u7801\u5757 \xB7 \u6CA1\u6709\u53D1\u73B0\u95EE\u9898" });
-          return;
-        }
-        let errs = 0;
-        for (let i = 0; i < this.issues.length; i++) if (this.issues[i].level === "error") errs += 1;
-        el.createEl("div", { class: "epx-lint-summary", text: this.blocks + " \u4E2A\u4EE3\u7801\u5757 \xB7 " + this.issues.length + " \u5904\uFF08" + errs + " \u9519\u8BEF / " + (this.issues.length - errs) + " \u8B66\u544A\uFF09\xB7 \u70B9\u4E00\u884C\u8DF3\u5230\u8BE5\u5904" });
-        const list = el.createEl("div", { class: "epx-lint-list" });
-        const self = this;
-        for (let i = 0; i < this.issues.length; i++) {
-          const it = this.issues[i];
-          const row = list.createEl("div", { class: "epx-lint-row epx-lint-" + it.level });
-          row.createEl("span", { class: "epx-lint-line", text: "\u7B2C " + it.line + " \u884C" });
-          row.createEl("span", { class: "epx-lint-msg", text: it.message });
-          row.addEventListener("click", function() {
-            self.app.workspace.getLeaf(false).openFile(self.file, { eState: { line: Math.max(0, it.line - 1), ch: 0 } });
-            self.close();
-          });
-        }
-      }
-      onClose() {
-        this.contentEl.empty();
-      }
-    };
     function renderOrdBlockInner(el, source, mode, grammar, info) {
       const records = parseOrdBlocks(source, mode, grammar, info, SECTION_POS);
       const wrap = document.createElement("div");

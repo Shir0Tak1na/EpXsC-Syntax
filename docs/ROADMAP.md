@@ -90,9 +90,9 @@ Do not start T1/T2 migration before T0 is complete.
 | T1.4 | DONE | adapter config module |
 | T2.1 | DONE | RefreshScheduler + fake-timer tests |
 | T2.2 | DONE | lexicon/spell/lint services + fake-vault tests |
-| T2.3 | IN_PROGRESS | adapter uses services; UI/renderers still being split |
+| T2.3 | IN_PROGRESS | adapter uses services; lint modal extracted, tooltip still local |
 | T3.1 | DONE | EpXsC + T/G data pipelines |
-| T3.2 | TODO | next action |
+| T3.2 | IN_PROGRESS | lint modal extracted; tooltip data still in adapter |
 | T3.3 | DONE | C/T/G data renderer tests |
 | T3.4 | TODO | |
 | T4.1 | DONE | `npm run bench` |
@@ -120,13 +120,6 @@ Do not start T1/T2 migration before T0 is complete.
 
 ## G. Next single action
 
-**T3.2 — tooltip / lint panel / diagnostics modules.**
+**T3.2 continuation — tooltip data module.**
 
-T2.2 and the renderer data pipelines are done: services are Node-testable; EpXsC and T/G block rendering now receive pure data from `src/renderers/`.
-
-T3.2 deliverable:
-
-- move tooltip data builders to `src/ui/tooltip.js`;
-- move lint modal / diagnostics formatters out of the adapter where feasible;
-- share `CODE_SELECTOR` and language aliases;
-- keep DOM mounting in the adapter; tests for pure formatters.
+LintModal now lives in `src/ui/lint-modal.js`. Remaining adapter UI work: move pure tooltip data builders (class order/labels, symbol info, bracket/coord/rank/variable tips) into `src/ui/tooltip.js`, keep DOM show/hide in the adapter, and add known-word + rank/coord tests.

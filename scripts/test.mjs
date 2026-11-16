@@ -40,6 +40,7 @@ const sandbox = {
     if (String(name).includes('builtin-lexicon')) return builtinLexicon;
     if (String(name).includes('data/lexicon')) return lexiconCore;
     if (String(name).includes('services/lexicon-service')) return nodeRequire('../src/services/lexicon-service.js');
+    if (String(name).includes('ui/lint-modal')) return { LintModal: class {} };
     return {};
   },
   module: { exports: {} },

@@ -51,6 +51,7 @@ src/adapter/plugin.js       Obsidian lifecycle, DOM, hover, commands, processors
 | `src/services/lint-service.js` | lint a block against a snapshot |
 | `src/renderers/epxsc-renderer.js` | EpXsC token pipeline (HTML + var map) |
 | `src/renderers/ord-renderer.js` | EpXsT/EpXsG line records + glosses |
+| `src/ui/lint-modal.js` | lint result panel |
 | `src/data/parsers.js` | dictionary / roots / ranks / filter keys / units |
 
 Rules:

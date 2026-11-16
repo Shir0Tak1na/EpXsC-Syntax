@@ -10,7 +10,7 @@
  *           词典一改、颜色跟着改；读不到就退回下面的内置词表（两者取并集，内置的不会被顶掉）。
  */
 
-const { Plugin, TFile, TFolder, Notice, MarkdownView, Modal } = require('obsidian');
+const { Plugin, TFile, TFolder, Notice, MarkdownView } = require('obsidian');
 const { extractEpXsCBlocks } = require('../core/markdown-blocks.js');
 const { loadBuiltinLexicon } = require('../data/lexicon.js');
 const { RefreshScheduler } = require('../services/refresh-scheduler.js');
@@ -22,6 +22,7 @@ const { collectSpells } = require('../core/spells.js');
 const { lintSource } = require('../services/lint-service.js');
 const { renderEpXsC } = require('../renderers/epxsc-renderer.js');
 const { parseOrdBlocks } = require('../renderers/ord-renderer.js');
+const { LintModal } = require('../ui/lint-modal.js');
 const { FALLBACK, SECTIONS, ELEMENTS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require('../data/parsers.js');
 
 const LANG_KEYS = ['EpXsC', 'epxsc', 'EPXSC'];
@@ -533,43 +534,6 @@ function inCodeContext(el) {
   const lang = liveCodeLang(el);
   return lang === 'epxsc' || lang === 'epxst' || lang === 'epxsg';
 }
-/* 检查结果面板：点一行跳到那一处 */
-class LintModal extends Modal {
-  constructor(app, file, issues, blocks) {
-    super(app);
-    this.file = file;
-    this.issues = issues;
-    this.blocks = blocks;
-  }
-
-  onOpen() {
-    const el = this.contentEl;
-    el.addClass('epx-lint');
-    el.createEl('h4', { text: 'EpXsC 语法检查 · ' + this.file.basename });
-    if (!this.issues.length) {
-      el.createEl('div', { class: 'epx-lint-summary', text: this.blocks + ' 个代码块 · 没有发现问题' });
-      return;
-    }
-    let errs = 0;
-    for (let i = 0; i < this.issues.length; i++) if (this.issues[i].level === 'error') errs += 1;
-    el.createEl('div', { class: 'epx-lint-summary', text: this.blocks + ' 个代码块 · ' + this.issues.length + ' 处（' + errs + ' 错误 / ' + (this.issues.length - errs) + ' 警告）· 点一行跳到该处' });
-    const list = el.createEl('div', { class: 'epx-lint-list' });
-    const self = this;
-    for (let i = 0; i < this.issues.length; i++) {
-      const it = this.issues[i];
-      const row = list.createEl('div', { class: 'epx-lint-row epx-lint-' + it.level });
-      row.createEl('span', { class: 'epx-lint-line', text: '第 ' + it.line + ' 行' });
-      row.createEl('span', { class: 'epx-lint-msg', text: it.message });
-      row.addEventListener('click', function () {
-        self.app.workspace.getLeaf(false).openFile(self.file, { eState: { line: Math.max(0, it.line - 1), ch: 0 } });
-        self.close();
-      });
-    }
-  }
-
-  onClose() { this.contentEl.empty(); }
-}
-
 /* ── 普通句：EpXsG（语法标记）与 EpXsT（句子对译）──────────────────────
    两种都用同一套着色与悬停，但不做术式检查（不是术式）。
    写法：原文一行一句；译文紧接它所译的那句，两种写法都认——
