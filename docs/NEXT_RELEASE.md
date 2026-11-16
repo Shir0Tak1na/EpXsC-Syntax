@@ -1,40 +1,27 @@
 # Next release checklist
 
-> Do **not** publish while today's release exists. Current day rule: one public GitHub
-> Release per Asia/Shanghai calendar day.
+> Current release: **2.0.0**（2026-11-16，架构稳定版）.
+> 2.0.0 was an explicitly authorized exception to the normal one-release-per-day rule.
+> From now on: at most one public GitHub Release per Asia/Shanghai calendar day.
 
 ## Candidate
 
-- Version: **1.32.0** (minor: architecture refactor + CLI + docs)
-- Base: current `main` after `e57c32c`
-- Previous release: 1.31.0 (already published; do not create another today)
+- Next version: **2.0.1** or **2.1.0** depending on whether the next batch is fix-only or includes new behavior.
+- Base: current `main` after 2.0.0.
 
-## Included since 1.31.0
+## Steps
 
-- Core/Data/Services/Renderers/UI split:
-  - `src/services/` (lexicon, spells, lint, refresh scheduler)
-  - `src/renderers/` (EpXsC + T/G data and DOM)
-  - `src/ui/` (tooltip, lint modal, diagnostics)
-  - `src/adapter/config.js`
-- Built-in lexicon in `data/builtin-lexicon.json` with schema gate.
-- T1.3–T5 tests/CI: golden fixtures, history regression, bundle freshness, release asset check, benchmark.
-- English README primary + `README.zh-CN.md`; bilingual manifest description.
-- CLI: `bin/epxsc.mjs`, package exports, `docs/CLI.md`.
+1. Decide patch vs minor and bump `manifest.json`, `package.json`, `package-lock.json`, `versions.json`, and `src/adapter/plugin.js` `BUILD` together.
+2. Update CHANGELOG from `Unreleased`.
+3. `npm run build && npm run check && npm test && npm run release:check && npm run bench`.
+4. Sync `main.js` / `manifest.json` / `styles.css` to the vault and manually test C/T/G, hover and lint.
+5. Commit/push; wait for CI success.
+6. Verify today has no other Release.
+7. Create the Release with exactly those three assets.
+8. Verify attestation and asset names.
 
-## Steps (next calendar day)
+## Release policy
 
-1. Bump `manifest.json`, `package.json`, and `src/adapter/plugin.js` `BUILD` to **1.32.0**.
-2. Add `versions.json` entry `"1.32.0": "1.4.0"`.
-3. Update CHANGELOG: move Unreleased to `## 1.32.0` with date.
-4. `npm run build && npm run check && npm test && npm run release:check && npm run bench`.
-5. Sync `main.js` / `manifest.json` / `styles.css` to the vault and run a manual C/T/G/hover/lint check.
-6. Commit and push; wait for CI success.
-7. Verify today has no other Release.
-8. Create GitHub Release 1.32.0 with exactly `main.js`, `manifest.json`, `styles.css`.
-9. Verify attestation workflow success and release asset names.
-
-## Not included
-
-- No new language semantics.
-- No new runtime dependencies.
-- T6 external package publication beyond the repo-local CLI/exports remains optional.
+- At most one Release per calendar day.
+- Missing assets or metadata after publishing: update the same Release's assets rather than creating another.
+- No language semantic changes without an explicit decision.

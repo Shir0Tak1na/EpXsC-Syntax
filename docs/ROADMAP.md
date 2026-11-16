@@ -120,7 +120,7 @@ Do not start T1/T2 migration before T0 is complete.
 
 ## H. Next release
 
-Checklist: [NEXT_RELEASE.md](NEXT_RELEASE.md) — candidate 1.32.0, do not publish on 2026-11-16 (1.31.0 already exists).
+Current: **2.0.0** released 2026-11-16 as an authorized exception. Next checklist: [NEXT_RELEASE.md](NEXT_RELEASE.md).
 
 ## G. Next single action
 
