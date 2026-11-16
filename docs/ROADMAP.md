@@ -90,9 +90,9 @@ Do not start T1/T2 migration before T0 is complete.
 | T1.4 | DONE | adapter config module |
 | T2.1 | DONE | RefreshScheduler + fake-timer tests |
 | T2.2 | DONE | lexicon/spell/lint services + fake-vault tests |
-| T2.3 | IN_PROGRESS | adapter uses services; lint modal extracted, tooltip still local |
+| T2.3 | IN_PROGRESS | adapter 43k; UI diagnostics still local |
 | T3.1 | DONE | EpXsC + T/G data pipelines |
-| T3.2 | IN_PROGRESS | lint modal extracted; tooltip data still in adapter |
+| T3.2 | IN_PROGRESS | lint modal + tooltip data extracted; diagnostics still local |
 | T3.3 | DONE | C/T/G data renderer tests |
 | T3.4 | TODO | |
 | T4.1 | DONE | `npm run bench` |
@@ -120,6 +120,6 @@ Do not start T1/T2 migration before T0 is complete.
 
 ## G. Next single action
 
-**T3.2 continuation — tooltip data module.**
+**T3.2 continuation — diagnostics formatter.**
 
-LintModal now lives in `src/ui/lint-modal.js`. Remaining adapter UI work: move pure tooltip data builders (class order/labels, symbol info, bracket/coord/rank/variable tips) into `src/ui/tooltip.js`, keep DOM show/hide in the adapter, and add known-word + rank/coord tests.
+`LintModal` and tooltip data now live in `src/ui/`. Remaining: move diagnose/self-check formatting out of the adapter if it can stay behavior-identical; otherwise document why it stays.

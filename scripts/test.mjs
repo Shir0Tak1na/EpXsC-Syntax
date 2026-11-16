@@ -18,6 +18,7 @@ const { buildLexiconSnapshot, builtinLists: serviceBuiltinLists } = nodeRequire(
 const { buildSpellRegistry } = nodeRequire('../src/services/spell-registry.js');
 const { lintSource } = nodeRequire('../src/services/lint-service.js');
 const { renderEpXsC } = nodeRequire('../src/renderers/epxsc-renderer.js');
+const tooltipCore = nodeRequire('../src/ui/tooltip.js');
 const { parseOrdBlocks } = nodeRequire('../src/renderers/ord-renderer.js');
 
 const source = fs.readFileSync('src/adapter/plugin.js', 'utf8');
@@ -41,6 +42,7 @@ const sandbox = {
     if (String(name).includes('data/lexicon')) return lexiconCore;
     if (String(name).includes('services/lexicon-service')) return nodeRequire('../src/services/lexicon-service.js');
     if (String(name).includes('ui/lint-modal')) return { LintModal: class {} };
+    if (String(name).includes('ui/tooltip')) return tooltipCore;
     return {};
   },
   module: { exports: {} },
@@ -171,11 +173,12 @@ assert.ok(css.includes('pre.epx-pre'), 'C border regression: epx-pre selector mu
 assert.ok(!/pre:has\(/.test(css), 'C border regression: do not reintroduce pre:has');
 assert.ok(css.includes('border-left: 3px solid var(--text-accent)'), 'C border regression: left accent border must exist');
 assert.equal(css, snippetCss, 'styles.css and snippet must stay byte-identical');
-assert.ok(source.includes('const CLASS_ORDER'), 'hover regression: CLASS_ORDER must stay in adapter');
-assert.ok(source.includes('const EXTRA_WORDS'), 'onload regression: EXTRA_WORDS must stay in adapter');
-assert.ok(source.includes('const SECTION_POS'), 'hover regression: SECTION_POS must stay in adapter');
-assert.ok(source.includes('const TYPE_NOTES'), 'hover regression: TYPE_NOTES must stay in adapter');
-assert.ok(source.includes('const SYMBOL_INFO'), 'hover regression: SYMBOL_INFO must stay in adapter');
+const tooltipSrc = fs.readFileSync('src/ui/tooltip.js', 'utf8');
+assert.ok(tooltipSrc.includes('const CLASS_ORDER'), 'hover regression: CLASS_ORDER must stay in tooltip module');
+assert.ok(tooltipSrc.includes('const EXTRA_WORDS'), 'onload regression: EXTRA_WORDS must stay in tooltip data module');
+assert.ok(tooltipSrc.includes('const SECTION_POS'), 'hover regression: SECTION_POS must stay in tooltip module');
+assert.ok(tooltipSrc.includes('const TYPE_NOTES'), 'hover regression: TYPE_NOTES must stay in tooltip module');
+assert.ok(tooltipSrc.includes('const SYMBOL_INFO'), 'hover regression: SYMBOL_INFO must stay in tooltip module');
 assert.ok(adapterConfig.includes('const SPELL_DIR'), 'extraction regression: SPELL_DIR must stay in adapter config');
 assert.ok(adapterConfig.includes('const MAX_HIGHLIGHT_LINES'), 'extraction regression: MAX_HIGHLIGHT_LINES must stay in adapter config');
 assert.equal(adapterConfigModule.SPELL_DIR, '世界设定集/设定概念集合/魔法');
@@ -277,4 +280,12 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   assert.ok(source.includes('parseOrdBlocks'), 'adapter must use ord renderer');
 }
 
-console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers, hover, markup, core-api, history-regression, scheduler, lexicon-service, lint-service, renderer, ord-renderer');
+// 17) tooltip data module
+{
+  assert.equal(tooltipCore.pickClass({ contains: (c) => c === 'keyword' }), 'keyword');
+  const tip = tooltipCore.buildTip('word', 'siro', new Map([['siro', { pos: '名词', meaning: '虚空', abbr: '' }]]), new Map(), { spells: new Map(), sectionPos: {} });
+  assert.ok(tip && tip.label, 'buildTip known word');
+  assert.ok(tooltipCore.coordTip('~ 1 ~ 2').label.indexOf('相对坐标') >= 0);
+}
+
+console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers, hover, markup, core-api, history-regression, scheduler, lexicon-service, lint-service, renderer, ord-renderer, tooltip');
