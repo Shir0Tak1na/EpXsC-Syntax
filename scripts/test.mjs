@@ -14,6 +14,11 @@ const coreIndex = nodeRequire('../src/core/index.js');
 const builtinLexicon = nodeRequire('../data/builtin-lexicon.json');
 const lexiconCore = nodeRequire('../src/data/lexicon.js');
 const { RefreshScheduler } = nodeRequire('../src/services/refresh-scheduler.js');
+const { buildLexiconSnapshot, builtinLists: serviceBuiltinLists } = nodeRequire('../src/services/lexicon-service.js');
+const { buildSpellRegistry } = nodeRequire('../src/services/spell-registry.js');
+const { lintSource } = nodeRequire('../src/services/lint-service.js');
+const { renderEpXsC } = nodeRequire('../src/renderers/epxsc-renderer.js');
+const { parseOrdBlocks } = nodeRequire('../src/renderers/ord-renderer.js');
 
 const source = fs.readFileSync('src/adapter/plugin.js', 'utf8');
 const adapterConfig = fs.readFileSync('src/adapter/config.js', 'utf8');
@@ -34,6 +39,7 @@ const sandbox = {
     if (String(name).includes('core/markup')) return markupCore;
     if (String(name).includes('builtin-lexicon')) return builtinLexicon;
     if (String(name).includes('data/lexicon')) return lexiconCore;
+    if (String(name).includes('services/lexicon-service')) return nodeRequire('../src/services/lexicon-service.js');
     return {};
   },
   module: { exports: {} },
@@ -47,7 +53,8 @@ sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox, { filename: 'main.js' });
 
-const { builtinLists, tipForElement } = sandbox;
+const { tipForElement } = sandbox;
+const builtinLists = (verbRoots) => serviceBuiltinLists(builtinLexicon, verbRoots);
 const { makeGrammar } = grammarCore;
 const { tokenizeText } = tokenizerCore;
 const { parseVarTypes, bracketKinds, markBracketDepth } = markupCore;
@@ -189,4 +196,74 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   assert.ok(source.includes('RefreshScheduler'), 'adapter must use RefreshScheduler');
 }
 
-console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers, hover, markup, core-api, history-regression, scheduler');
+// 13) LexiconService：完整来源 + 全缺回退
+{
+  const cfg = { DICT_PATH: 'dict.md', SYNTAX_PATH: 'syntax.md', RANK_PATH: 'rank.md', ROOTS_DIR: 'roots/', SPELL_DIR: 'spells/' };
+  const files = {
+    'dict.md': '## 介词\n| de | 在……之内 | dex |\n## 单位\n| MU | 魔力 | MU |\n',
+    'syntax.md': '## 筛选键\n| genus | 类别 |\n## 六、单位\n| MU | 魔力 | MU | 锁存 |\n',
+    'rank.md': '## 九个秩与维度的对应\n| 1 | 存在 | 位置 |\n',
+    'roots/a.md': '| agr | 田地 | agr | 名 | 名 |\n',
+    'spells/a.md': 'PublA(publ locus: a) {\n}\n'
+  };
+  const io = {
+    readFile: async (p) => Object.prototype.hasOwnProperty.call(files, p) ? files[p] : null,
+    listMarkdown: async (dir) => Object.keys(files).filter((p) => p.indexOf(dir) === 0)
+  };
+  const snap = await buildLexiconSnapshot(io, cfg, builtinLexicon, {});
+  assert.equal(snap.info.get('de').meaning, '在……之内');
+  assert.ok(snap.keys.has('genus'));
+  assert.ok(snap.units.has('mu'));
+  assert.equal(snap.ranks.size, 1);
+  assert.ok(snap.roots.has('agr'));
+  assert.ok(snap.spells.has('PublA'));
+  assert.ok(snap.lists.keyword.includes('de'));
+
+  const missing = await buildLexiconSnapshot({
+    readFile: async () => null,
+    listMarkdown: async () => []
+  }, cfg, builtinLexicon, {});
+  assert.ok(missing.info.size > 400, 'missing sources must use builtin snapshot');
+  assert.ok(missing.roots.size > 5000, 'missing roots must use builtin snapshot');
+  assert.ok(missing.lists.unit.length > 0, 'missing units must use builtin lists');
+}
+
+// 14) SpellRegistry / LintService 薄服务
+{
+  const registry = buildSpellRegistry([
+    { path: 'a.md', text: 'PrivA(locus: a) {\n}\n' }
+  ]);
+  assert.ok(registry.has('PrivA'), 'spell registry must collect declarations');
+  const issues = lintSource('PrivA(1, 2);', { info: new Map(), units: new Set(), keys: new Set(), spells: registry }, 'a.md');
+  assert.ok(Array.isArray(issues), 'lint service must return issues');
+  assert.ok(source.includes('lintSource'), 'adapter must use lint service');
+}
+
+// 15) EpXsC renderer pipeline
+{
+  const rendered = renderEpXsC('Foo(locus: a) {\n\tluss 1 MU;\n}', makeGrammar(builtinLists([]), []), new Map(), 50);
+  assert.equal(rendered.skip, false);
+  assert.ok(rendered.html.includes('token declaration'));
+  assert.ok(rendered.vars.has('a'));
+  const long = renderEpXsC(Array.from({ length: 60 }, () => 'a').join('\n'), makeGrammar(builtinLists([]), []), new Map(), 50);
+  assert.equal(long.skip, true, 'long blocks must skip tokenization');
+  assert.ok(source.includes('renderEpXsC'), 'adapter must use renderer');
+}
+
+// 16) T/G renderer data parser
+{
+  const g = makeGrammar(builtinLists([]), []);
+  const tRecs = parseOrdBlocks('A\n> B\n\nC', 'T', g, new Map(), {});
+  const tLines = tRecs.filter((x) => x.kind === 'line');
+  assert.equal(tLines.length, 2);
+  assert.equal(tLines[0].zh, 'B');
+  assert.equal(tLines[1].src, 'C');
+  assert.ok(tLines[0].html.includes('token word'));
+  assert.ok(tRecs.some((x) => x.kind === 'gap'));
+  const info = new Map([['de', { pos: '介词', meaning: '在……之内' }]]);
+  const gRecs = parseOrdBlocks('de', 'G', g, info, {});
+  assert.equal(gRecs[0].tokens[0].gloss, '介词');
+  assert.ok(source.includes('parseOrdBlocks'), 'adapter must use ord renderer');
+}
+
+console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers, hover, markup, core-api, history-regression, scheduler, lexicon-service, lint-service, renderer, ord-renderer');

@@ -45,6 +45,12 @@ src/adapter/plugin.js       Obsidian lifecycle, DOM, hover, commands, processors
 | `src/core/index.js` | public aggregate + stable aliases |
 | `data/builtin-lexicon.json` | built-in snapshot (entries/roots/units/ranks/keys) |
 | `src/adapter/config.js` | vault data paths and 50-line highlight limit |
+| `src/services/refresh-scheduler.js` | debounce/cancel/generation for data refresh |
+| `src/services/lexicon-service.js` | vault read + parse + merge + fallback snapshot |
+| `src/services/spell-registry.js` | spell declaration collection |
+| `src/services/lint-service.js` | lint a block against a snapshot |
+| `src/renderers/epxsc-renderer.js` | EpXsC token pipeline (HTML + var map) |
+| `src/renderers/ord-renderer.js` | EpXsT/EpXsG line records + glosses |
 | `src/data/parsers.js` | dictionary / roots / ranks / filter keys / units |
 
 Rules:

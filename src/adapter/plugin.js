@@ -14,11 +14,14 @@ const { Plugin, TFile, TFolder, Notice, MarkdownView, Modal } = require('obsidia
 const { extractEpXsCBlocks } = require('../core/markdown-blocks.js');
 const { loadBuiltinLexicon } = require('../data/lexicon.js');
 const { RefreshScheduler } = require('../services/refresh-scheduler.js');
+const { buildLexiconSnapshot } = require('../services/lexicon-service.js');
 const { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require('../core/markup.js');
 const { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require('../core/grammar.js');
 const { tokenizeText } = require('../core/tokenizer.js');
 const { collectSpells } = require('../core/spells.js');
-const { lintText } = require('../core/lint.js');
+const { lintSource } = require('../services/lint-service.js');
+const { renderEpXsC } = require('../renderers/epxsc-renderer.js');
+const { parseOrdBlocks } = require('../renderers/ord-renderer.js');
 const { FALLBACK, SECTIONS, ELEMENTS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require('../data/parsers.js');
 
 const LANG_KEYS = ['EpXsC', 'epxsc', 'EPXSC'];
@@ -59,76 +62,6 @@ const CLASS_LABEL = {
 
 
 
-
-function builtinMap(part) {
-  const out = new Map();
-  const source = (BUILTIN_LEXICON[part] || {});
-  for (const key in source) {
-    const v = source[key];
-    out.set(key, { word: v[0], pos: v[1], meaning: v[2], abbr: v[3] || '' });
-  }
-  return out;
-}
-
-function builtinRanks() {
-  const out = new Map();
-  const source = (BUILTIN_LEXICON.ranks || {});
-  for (const key in source) out.set(key, source[key]);
-  return out;
-}
-
-function builtinRoots() {
-  const out = new Map();
-  const source = (BUILTIN_LEXICON.roots || {});
-  for (const key in source) out.set(key, { word: source[key][2] || key, pos: '词根·' + source[key][1], meaning: source[key][0], kind: source[key][1] });
-  return out;
-}
-
-function builtinLists(verbRoots) {
-  const bySection = {};
-  const e = (BUILTIN_LEXICON.entries || {});
-  for (const key in e) {
-    const pos = e[key][1];
-    (bySection[pos] = bySection[pos] || []).push(e[key][0]);
-  }
-  const units = Object.keys(BUILTIN_LEXICON.units || {});
-  return {
-    keyword: wordsFrom(bySection, SECTIONS.keyword, FALLBACK.keyword),
-    judge: wordsFrom(bySection, SECTIONS.judge, FALLBACK.judge),
-    clause: wordsFrom(bySection, SECTIONS.clause, FALLBACK.clause),
-    degree: wordsFrom(bySection, SECTIONS.degree, FALLBACK.degree),
-    predicate: wordsFrom(bySection, SECTIONS.predicate, FALLBACK.predicate).concat(verbRoots || []),
-    unit: wordsFrom(bySection, SECTIONS.unit, FALLBACK.unit).concat(units)
-  };
-}
-
-
-
-const EXTRA_WORDS = {
-  in: { word: 'in', pos: '介词', meaning: '在……里（词典暂未收录，按术式用法补）', abbr: '' },
-  /* 第五章筛选键表：ordin= 的三个取值（词典未收，按表补） */
-  proxim: { word: 'proxim', pos: '筛选值', meaning: '近（ordin= 的取值）', abbr: '' },
-  procul: { word: 'procul', pos: '筛选值', meaning: '远（ordin= 的取值）', abbr: '' },
-  temer: { word: 'temer', pos: '筛选值', meaning: '随机（ordin= 的取值）', abbr: '' }
-};
-
-/* 个别类型词要补一句（词典释义只说词义，说不清它在类型里的职务） */
-const TYPE_NOTES = {
-  siro: 'void：无目标／无载体，可声明变量或直接占位'
-};
-
-/* 词典小节 → 真正的词性／类别；没有对应项时原样用小节名 */
-const SECTION_POS = {
-  '名词': '名词', '动词': '动词', '数词': '数词', '形容词': '形容词', '副词': '副词',
-  '介词': '介词', '助动词': '助动词', '判断词': '判断词', '限定词': '限定词',
-  '时间限定': '限定词', '数量与范围限定': '限定词', '指称限定': '限定词',
-  '顺序限定': '限定词', '程度限定': '副词',
-  '代词（人称）': '代词', '疑问词': '疑问词', '量词': '量词', '连接词与从句标记': '连接词',
-  '族名': '名词', '动物名': '名词', '族、血统与分类': '名词',
-  '地名与势力名': '专名', '地理 · 神宫 · 货币专名': '专名',
-  '根词': '词根', '后缀': '后缀', '复合词': '复合词', '高频补充词': '补充词',
-  '元素固定缩写': '元素', '术式关键词': '术式关键词', '单位': '单位'
-};
 
 function pickClass(classList) {
   for (let i = 0; i < CLASS_ORDER.length; i++) {
@@ -619,31 +552,8 @@ class LintModal extends Modal {
    EpXsT：只做对译——原文一行、译文一行。
    ─────────────────────────────────────────────────────────────── */
 const ORD_CLASS = 'language-EpXsC';          /* 沿用同一套 token 类，悬停与配色自动生效 */
-function ordTokens(line, grammar) {
-  const html = tokenizeText(line, grammar);
-  const out = [];
-  const re = /<span class="token ([a-zA-Z ]+)">([\s\S]*?)<\/span>/g;
-  let m;
-  while ((m = re.exec(html))) out.push({ cls: m[1], text: m[2].replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>') });
-  return out;
-}
-function ordGlossOf(tok, info) {
-  const t = tok.text.trim();
-  if (!t || /^[\p{P}]$/u.test(t)) return '';
-  const e = info && (info.get(t) || info.get(t.toLowerCase()));
-  if (e) {
-    const raw = String(e.pos || '').replace('·缩写', '');
-    const pos = SECTION_POS[raw] || raw;
-    const num = String(e.meaning || '').replace(/[^\u4e00-\u9fa5]/g, '');
-    if (pos) return pos;
-    if (num) return num.slice(0, 4);
-  }
-  const map = { judge: '判断词', keyword: '功能词', modifier: '限定词', degree: '程度词', unit: '单位', predicate: '谓词', element: '元素码', type: '类型名', number: '数' };
-  for (const k in map) if (tok.cls.indexOf(k) >= 0) return map[k];
-  return '';
-}
 function renderOrdBlockInner(el, source, mode, grammar, info) {
-  const lines = String(source || '').replace(/\r/g, '').split('\n');
+  const records = parseOrdBlocks(source, mode, grammar, info, SECTION_POS);
   const wrap = document.createElement('div');
   wrap.className = 'epx-ord-wrap';
   const code = document.createElement('div');
@@ -659,76 +569,50 @@ function renderOrdBlockInner(el, source, mode, grammar, info) {
     d.className = 'epx-oline';
     return d;
   };
-  let pending = null;
-  const flush = function (pair) {
-    if (!pair) return;
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i];
+    if (record.kind === 'gap') {
+      const gap = document.createElement('div');
+      gap.className = 'epx-gap';
+      code.appendChild(gap);
+      continue;
+    }
     const line = lineEl();
     if (mode === 'G') {
       const gs = document.createElement('div');
       gs.className = 'epx-gs';
-      const toks = ordTokens(pair.src, grammar);
-      for (let i = 0; i < toks.length; i++) {
-        const tok = toks[i];
-        const gl = ordGlossOf(tok, info);
+      const toks = record.tokens || [];
+      for (let j = 0; j < toks.length; j++) {
+        const tok = toks[j];
         const gw = document.createElement('span');
         gw.className = 'epx-gw';
         const srcEl = document.createElement('span');
         srcEl.className = 'epx-gsrc token ' + tok.cls;
         srcEl.textContent = tok.text;
         gw.appendChild(srcEl);
-        if (gl) {
+        if (tok.gloss) {
           const gg = document.createElement('span');
           gg.className = 'epx-ggl';
-          gg.textContent = gl;
+          gg.textContent = tok.gloss;
           gw.appendChild(gg);
         }
         gs.appendChild(gw);
       }
       line.appendChild(gs);
-    } else {
+    } else if (record.src) {
       const srcEl = document.createElement('div');
       srcEl.className = 'epx-tsrc';
-      appendHTML(srcEl, tokenizeText(pair.src, grammar));
+      appendHTML(srcEl, record.html || '');
       line.appendChild(srcEl);
     }
-    if (pair.zh) {
+    if (record.zh) {
       const zh = document.createElement('div');
       zh.className = 'epx-tzh';
-      zh.textContent = pair.zh;
+      zh.textContent = record.zh;
       line.appendChild(zh);
     }
     code.appendChild(line);
-  };
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i];
-    const t = raw.trim();
-    if (!t) {
-      flush(pending); pending = null;
-      const gap = document.createElement('div');
-      gap.className = 'epx-gap';
-      code.appendChild(gap);
-      continue;
-    }
-    if (t.charAt(0) === '>') {
-      if (pending) pending.zh = t.slice(1).trim();
-      else {
-        const line = lineEl();
-        const zh = document.createElement('div');
-        zh.className = 'epx-tzh';
-        zh.textContent = t.slice(1).trim();
-        line.appendChild(zh);
-        code.appendChild(line);
-      }
-      continue;
-    }
-    /* 没写 > 时：紧跟原文行、含汉字的一行，当作上一句的译文 */
-    if (pending && !pending.zh && /[\u3400-\u9fff]/.test(t)) { pending.zh = t; continue; }
-    flush(pending);
-    pending = { src: t, zh: '' };
   }
-  flush(pending);
-  /* 用 DOM 节点而不是 el.innerHTML：阅读视图会把插件写入的 HTML 字符串清成纯文本，
-     但不会拆掉已经 append 的节点。 */
   el.textContent = '';
   el.appendChild(wrap);
 }
@@ -912,116 +796,26 @@ class EpXsCSyntaxPlugin extends Plugin {
      库内文件永远优先，所以词典一改，着色与释义就跟着改。 */
   async refresh() {
     const gen = (this._refreshGen = (this._refreshGen || 0) + 1);
-    const info = new Map();
-    for (const w in EXTRA_WORDS) info.set(w, EXTRA_WORDS[w]);
-    const roots = new Map();
-    const extraUnits = [];
-    const keyWords = new Set();
-    let lists = null;
-    let ranks = new Map();
-
-    const mergeInto = function (target, map) {
-      map.forEach(function (value, key) { if (!target.has(key)) target.set(key, value); });
-    };
-
-    try {
-      /* 1) 词典 → 词条 + 四类词表 */
-      const dictFile = this.app.vault.getAbstractFileByPath(DICT_PATH);
-      if (dictFile instanceof TFile) {
-        const text = await this.app.vault.cachedRead(dictFile);
-        mergeInto(info, parseEntries(text));
-        const map = splitSections(text);
-        lists = {
-          keyword: wordsFrom(map, SECTIONS.keyword, FALLBACK.keyword),
-          judge: wordsFrom(map, SECTIONS.judge, FALLBACK.judge),
-          clause: wordsFrom(map, SECTIONS.clause, FALLBACK.clause),
-          degree: wordsFrom(map, SECTIONS.degree, FALLBACK.degree),
-          predicate: wordsFrom(map, SECTIONS.predicate, FALLBACK.predicate),
-          unit: wordsFrom(map, SECTIONS.unit, FALLBACK.unit)
-        };
-      } else {
-        mergeInto(info, builtinMap('entries'));
-      }
-
-      /* 2) 术式语法 → 筛选键 + 单位表 */
-      const syntaxFile = this.app.vault.getAbstractFileByPath(SYNTAX_PATH);
-      if (syntaxFile instanceof TFile) {
-        const syntaxText = await this.app.vault.cachedRead(syntaxFile);
-        const keyMap = parseFilterKeys(syntaxText);
-        mergeInto(info, keyMap);
-        keyMap.forEach(function (v, k) { keyWords.add(String(k).toLowerCase()); });
-        const unitMap = parseUnits(syntaxText);
-        mergeInto(info, unitMap);
-        unitMap.forEach(function (v) { extraUnits.push(v.word); });
-      } else {
-        const keyMap = builtinMap('keys');
-        mergeInto(info, keyMap);
-        keyMap.forEach(function (v, k) { keyWords.add(String(k).toLowerCase()); });
-        mergeInto(info, builtinMap('units'));
-      }
-
-      /* 3) 维度模型 → 秩表 */
-      const rankFile = this.app.vault.getAbstractFileByPath(RANK_PATH);
-      ranks = rankFile instanceof TFile ? parseRanks(await this.app.vault.cachedRead(rankFile)) : builtinRanks();
-
-      /* 4) 词根表分册 → 词根释义；动-根同时进谓词表 */
-      const rootFiles = this.mdFilesUnder(ROOTS_DIR);
-      if (rootFiles.length) {
-        for (let i = 0; i < rootFiles.length; i++) {
-          mergeInto(roots, parseRoots(await this.app.vault.cachedRead(rootFiles[i])));
-        }
-      } else {
-        mergeInto(roots, builtinRoots());
-      }
-      roots.forEach(function (v, k) { if (v.kind === '动' || !info.has(k)) info.set(k, v); });
-    } catch (err) {
-      console.warn('[EpXsC Syntax] 读取库内词库失败，改用内置快照：', err);
-      mergeInto(info, builtinMap('entries'));
-      mergeInto(info, builtinMap('keys'));
-      mergeInto(info, builtinMap('units'));
-      mergeInto(roots, builtinRoots());
-      roots.forEach(function (v, k) { if (v.kind === '动' || !info.has(k)) info.set(k, v); });
-      if (!ranks.size) ranks = builtinRanks();
-    }
-
-    const verbRoots = [];
-    roots.forEach(function (v) { if (v.kind === '动') verbRoots.push(v.word); });
-    if (lists) {
-      lists.predicate = lists.predicate.concat(verbRoots);
-      lists.unit = lists.unit.concat(extraUnits);
-    } else {
-      lists = builtinLists(verbRoots);
-    }
-
-    /* 术式登记表：《魔法》目录 ＋ 术式语法里的声明（读不到就是空表，检查相应放宽） */
-    const spells = new Map();
-    try {
-      const spellFiles = this.mdFilesUnder(SPELL_DIR);
-      const syntaxFile = this.app.vault.getAbstractFileByPath(SYNTAX_PATH);
-      if (syntaxFile instanceof TFile) spellFiles.push(syntaxFile);
-      for (let i = 0; i < spellFiles.length; i++) {
-        collectSpells(await this.app.vault.cachedRead(spellFiles[i]), spells, spellFiles[i].path);
-      }
-    } catch (err) { /* 保持空表 */ }
+    const snapshot = await buildLexiconSnapshot({
+      readFile: async (path) => {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        return file instanceof TFile ? await this.app.vault.cachedRead(file) : null;
+      },
+      listMarkdown: (dir) => this.mdFilesUnder(dir).map(function (file) { return file.path; }),
+      warn: function (err) { console.warn('[EpXsC Syntax] 读取库内词库失败，改用内置快照：', err); }
+    }, { DICT_PATH, RANK_PATH, SYNTAX_PATH, ROOTS_DIR, SPELL_DIR }, BUILTIN_LEXICON, EXTRA_WORDS);
     if (gen !== this._refreshGen) return;
-    this.spells = spells;
-    spellRegistry = spells;
 
-    this.info = info;
-    this.ranks = ranks;
-    this.roots = roots;
-    this.units = new Set();
-    for (let i = 0; i < lists.unit.length; i++) this.units.add(String(lists.unit[i]).toLowerCase());
-    this.keys = new Set();
-    const keySet = this.keys;
-    /* 以《术式语法》的筛选键表为准：同一个词也可能另有词性（如 limit 兼作术式关键词），
-       只按词性反推会漏掉它 */
-    keyWords.forEach(function (k) { keySet.add(String(k).toLowerCase()); });
-    info.forEach(function (v, k) { if (v.pos === '筛选键') keySet.add(String(k).toLowerCase()); });
-    this.grammar = makeGrammar(lists, Array.from(keyWords));
-    /* 语法层用词（class／hered／campus／protocol／clav／frequent／eRk）另立名目，别一律叫「条款」 */
+    this.spells = snapshot.spells;
+    spellRegistry = snapshot.spells;
+    this.info = snapshot.info;
+    this.ranks = snapshot.ranks;
+    this.roots = snapshot.roots;
+    this.units = snapshot.units;
+    this.keys = snapshot.keys;
+    this.grammar = makeGrammar(snapshot.lists, Array.from(snapshot.keyWords));
     this.install();
-    if (window.__epxscDebug) console.log('[EpXsC Syntax] 词条 ' + info.size + ' · 词根 ' + roots.size + ' · 秩 ' + ranks.size + '（' + (lists.predicate.length) + ' 个谓词）');
+    if (window.__epxscDebug) console.log('[EpXsC Syntax] 词条 ' + this.info.size + ' · 词根 ' + this.roots.size + ' · 秩 ' + this.ranks.size + '（' + snapshot.lists.predicate.length + ' 个谓词）');
     await Promise.race([
       this.ensureStyles(),
       new Promise(function (resolve) { window.setTimeout(function () { resolve('样式步骤超时，跳过'); }, 2000); })
@@ -1156,12 +950,12 @@ class EpXsCSyntaxPlugin extends Plugin {
     const file = view.file;
     const text = await this.app.vault.cachedRead(file);
     /* 带上术式登记表与当前笔记路径：越权检查要按「同一文件且同一行范围」判定 */
-    const ctx = { info: this.info, units: this.units, keys: this.keys, spells: this.spells, path: file.path };
+    const snapshot = { info: this.info, units: this.units, keys: this.keys, spells: this.spells };
     const blocksFound = extractEpXsCBlocks(text);
     const blocks = blocksFound.length;
     const issues = [];
     for (let b = 0; b < blocksFound.length; b++) {
-      const found = lintText(blocksFound[b].source, ctx);
+      const found = lintSource(blocksFound[b].source, snapshot, file.path);
       for (let i = 0; i < found.length; i++) {
         issues.push({ level: found[i].level, line: blocksFound[b].line + found[i].line, message: found[i].message });
       }
@@ -1295,24 +1089,14 @@ class EpXsCSyntaxPlugin extends Plugin {
     if (code && code.classList && code.classList.contains('epx-ord')) return;
     try {
       const text = code.textContent || '';
-      /* 50 行以上不着色：再长也看不清，还会拖慢输入 */
-      if ((text.match(/\n/g) || []).length >= MAX_HIGHLIGHT_LINES) {
-        if (code.classList) code.classList.add('language-EpXsC');
-        return;
-      }
       const found = /language-(\w+)/.exec(code.className || '');
       /* 样式选的是 language-EpXsC：万一 Obsidian 没给这个 class，token 会出来但不上色。
          补一个，让着色不悬在外部 class 上。 */
       if (!found && code.classList) code.classList.add('language-EpXsC');
-      const grammar = this.grammar;
-      if (!grammar) return;
-      let html = markBracketDepth(tokenizeText(text, grammar), bracketKinds(text));
-      const vars = parseVarTypes(text, this.info);
-      varTypesOf.set(code, vars);
-      html = markVarUse(html, vars);
-      html = markDictKeys(html);
-      html = markSpellRefs(html);
-      code.innerHTML = html;
+      const rendered = renderEpXsC(text, this.grammar, this.info, MAX_HIGHLIGHT_LINES);
+      if (rendered.skip) return;
+      varTypesOf.set(code, rendered.vars);
+      code.innerHTML = rendered.html;
       this.markUnknown(code);
       this.markNegation(code);
     } catch (err) {

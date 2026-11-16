@@ -309,6 +309,262 @@ var require_parsers = __commonJS({
   }
 });
 
+// src/core/spells.js
+var require_spells = __commonJS({
+  "src/core/spells.js"(exports2, module2) {
+    "use strict";
+    var MOD_WORDS = "priv|tut|publ|consta";
+    function parseParamList(text) {
+      const out = [];
+      const s = String(text || "");
+      const parts = [];
+      let depth = 0, cur = "";
+      for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (ch === "[" || ch === "(" || ch === "{") depth += 1;
+        else if (ch === "]" || ch === ")" || ch === "}") depth -= 1;
+        if (ch === "," && depth === 0) {
+          parts.push(cur);
+          cur = "";
+          continue;
+        }
+        cur += ch;
+      }
+      if (cur.trim()) parts.push(cur);
+      const mods = "(?:(?:" + MOD_WORDS + ")[ \\t]+)*";
+      const simple = new RegExp("^(" + mods + ")([A-Za-z_][A-Za-z0-9_]*)[ \\t]*:[ \\t]*(" + mods + ")([A-Za-z_][A-Za-z0-9_]*)$");
+      const boxed = new RegExp("^(" + mods + ")([A-Za-z_][A-Za-z0-9_]*)[ \\t]*:[ \\t]*\\[[^\\]]*?([A-Za-z_][A-Za-z0-9_]*)[ \\t]*\\]$");
+      const bare = new RegExp("^(" + mods + ")([A-Za-z_][A-Za-z0-9_]*)$");
+      for (let i = 0; i < parts.length; i++) {
+        const p = parts[i].trim();
+        if (!p) continue;
+        let m = simple.exec(p);
+        if (m) {
+          const list = ((m[1] || "") + " " + (m[3] || "")).trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
+          out.push({ type: m[2], name: m[4], modifiers: list });
+          continue;
+        }
+        m = boxed.exec(p);
+        if (m) {
+          const list = (m[1] || "").trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
+          out.push({ type: m[2], name: m[3], container: true, modifiers: list });
+          continue;
+        }
+        m = bare.exec(p);
+        if (m) out.push({ name: m[2], modifiers: (m[1] || "").trim().toLowerCase().split(/[ \t]+/).filter(Boolean) });
+        else out.push({ name: p, modifiers: [] });
+      }
+      return out;
+    }
+    function collectSpells(text, out, file) {
+      const lines = String(text || "").split("\n");
+      const decl = new RegExp("^(?:De\\b[^{;]*?)?\\s*((?:(?:" + MOD_WORDS + ")[ \\t]+)*)([A-Z][A-Za-z0-9_]*)\\s*\\(([^)]*)\\)[ \\t]*\\{");
+      for (let i = 0; i < lines.length; i++) {
+        const m = decl.exec(lines[i]);
+        if (!m) continue;
+        let depth = 0, end = i, opened = false;
+        for (let j = i; j < lines.length; j++) {
+          const t = lines[j];
+          for (let k = 0; k < t.length; k++) {
+            if (t[k] === "{") {
+              depth += 1;
+              opened = true;
+            } else if (t[k] === "}") depth -= 1;
+          }
+          if (opened && depth <= 0) {
+            end = j;
+            break;
+          }
+        }
+        const mods = (m[1] || "").trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
+        const name = m[2];
+        const rec = { name, visibility: mods.length ? mods[mods.length - 1] : "", modifiers: mods, params: parseParamList(m[3]), file, line: i + 1, endLine: end + 1 };
+        if (out.has(name)) {
+          const old = out.get(name);
+          if (!old.duplicates) old.duplicates = [];
+          old.duplicates.push(rec);
+        } else out.set(name, rec);
+      }
+      return out;
+    }
+    module2.exports = { MOD_WORDS, parseParamList, collectSpells };
+  }
+});
+
+// src/services/spell-registry.js
+var require_spell_registry = __commonJS({
+  "src/services/spell-registry.js"(exports2, module2) {
+    "use strict";
+    var { collectSpells } = require_spells();
+    function buildSpellRegistry(sources) {
+      const spells = /* @__PURE__ */ new Map();
+      const list = Array.isArray(sources) ? sources : [];
+      for (let i = 0; i < list.length; i++) {
+        const item = list[i];
+        if (!item || typeof item.text !== "string") continue;
+        collectSpells(item.text, spells, item.path || "");
+      }
+      return spells;
+    }
+    module2.exports = { buildSpellRegistry };
+  }
+});
+
+// src/services/lexicon-service.js
+var require_lexicon_service = __commonJS({
+  "src/services/lexicon-service.js"(exports2, module2) {
+    "use strict";
+    var { FALLBACK, SECTIONS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require_parsers();
+    var { buildSpellRegistry } = require_spell_registry();
+    function builtinMap(builtin, part) {
+      const out = /* @__PURE__ */ new Map();
+      const source = builtin[part] || {};
+      for (const key in source) {
+        const v = source[key];
+        out.set(key, { word: v[0], pos: v[1], meaning: v[2], abbr: v[3] || "" });
+      }
+      return out;
+    }
+    function builtinRanks(builtin) {
+      const out = /* @__PURE__ */ new Map();
+      const source = builtin.ranks || {};
+      for (const key in source) out.set(key, source[key]);
+      return out;
+    }
+    function builtinRoots(builtin) {
+      const out = /* @__PURE__ */ new Map();
+      const source = builtin.roots || {};
+      for (const key in source) out.set(key, { word: source[key][2] || key, pos: "\u8BCD\u6839\xB7" + source[key][1], meaning: source[key][0], kind: source[key][1] });
+      return out;
+    }
+    function builtinLists(builtin, verbRoots) {
+      const bySection = {};
+      const e = builtin.entries || {};
+      for (const key in e) {
+        const pos = e[key][1];
+        (bySection[pos] = bySection[pos] || []).push(e[key][0]);
+      }
+      const units = Object.keys(builtin.units || {});
+      return {
+        keyword: wordsFrom(bySection, SECTIONS.keyword, FALLBACK.keyword),
+        judge: wordsFrom(bySection, SECTIONS.judge, FALLBACK.judge),
+        clause: wordsFrom(bySection, SECTIONS.clause, FALLBACK.clause),
+        degree: wordsFrom(bySection, SECTIONS.degree, FALLBACK.degree),
+        predicate: wordsFrom(bySection, SECTIONS.predicate, FALLBACK.predicate).concat(verbRoots || []),
+        unit: wordsFrom(bySection, SECTIONS.unit, FALLBACK.unit).concat(units)
+      };
+    }
+    function mergeInto(target, map) {
+      map.forEach(function(value, key) {
+        if (!target.has(key)) target.set(key, value);
+      });
+    }
+    async function buildLexiconSnapshot(io, config, builtin, extraWords) {
+      const info = /* @__PURE__ */ new Map();
+      for (const w in extraWords) info.set(w, extraWords[w]);
+      const roots = /* @__PURE__ */ new Map();
+      const extraUnits = [];
+      const keyWords = /* @__PURE__ */ new Set();
+      let lists = null;
+      let ranks = /* @__PURE__ */ new Map();
+      try {
+        const dictText = await io.readFile(config.DICT_PATH);
+        if (dictText !== null && dictText !== void 0) {
+          mergeInto(info, parseEntries(dictText));
+          const map = splitSections(dictText);
+          lists = {
+            keyword: wordsFrom(map, SECTIONS.keyword, FALLBACK.keyword),
+            judge: wordsFrom(map, SECTIONS.judge, FALLBACK.judge),
+            clause: wordsFrom(map, SECTIONS.clause, FALLBACK.clause),
+            degree: wordsFrom(map, SECTIONS.degree, FALLBACK.degree),
+            predicate: wordsFrom(map, SECTIONS.predicate, FALLBACK.predicate),
+            unit: wordsFrom(map, SECTIONS.unit, FALLBACK.unit)
+          };
+        } else {
+          mergeInto(info, builtinMap(builtin, "entries"));
+        }
+        const syntaxText = await io.readFile(config.SYNTAX_PATH);
+        if (syntaxText !== null && syntaxText !== void 0) {
+          const keyMap = parseFilterKeys(syntaxText);
+          mergeInto(info, keyMap);
+          keyMap.forEach(function(v, k) {
+            keyWords.add(String(k).toLowerCase());
+          });
+          const unitMap = parseUnits(syntaxText);
+          mergeInto(info, unitMap);
+          unitMap.forEach(function(v) {
+            extraUnits.push(v.word);
+          });
+        } else {
+          const keyMap = builtinMap(builtin, "keys");
+          mergeInto(info, keyMap);
+          keyMap.forEach(function(v, k) {
+            keyWords.add(String(k).toLowerCase());
+          });
+          mergeInto(info, builtinMap(builtin, "units"));
+        }
+        const rankText = await io.readFile(config.RANK_PATH);
+        ranks = rankText !== null && rankText !== void 0 ? parseRanks(rankText) : builtinRanks(builtin);
+        const rootFiles = await io.listMarkdown(config.ROOTS_DIR);
+        if (rootFiles && rootFiles.length) {
+          for (let i = 0; i < rootFiles.length; i++) {
+            mergeInto(roots, parseRoots(await io.readFile(rootFiles[i])));
+          }
+        } else {
+          mergeInto(roots, builtinRoots(builtin));
+        }
+        roots.forEach(function(v, k) {
+          if (v.kind === "\u52A8" || !info.has(k)) info.set(k, v);
+        });
+      } catch (err) {
+        if (io.warn) io.warn(err);
+        mergeInto(info, builtinMap(builtin, "entries"));
+        mergeInto(info, builtinMap(builtin, "keys"));
+        mergeInto(info, builtinMap(builtin, "units"));
+        mergeInto(roots, builtinRoots(builtin));
+        roots.forEach(function(v, k) {
+          if (v.kind === "\u52A8" || !info.has(k)) info.set(k, v);
+        });
+        if (!ranks.size) ranks = builtinRanks(builtin);
+      }
+      const verbRoots = [];
+      roots.forEach(function(v) {
+        if (v.kind === "\u52A8") verbRoots.push(v.word);
+      });
+      if (lists) {
+        lists.predicate = lists.predicate.concat(verbRoots);
+        lists.unit = lists.unit.concat(extraUnits);
+      } else {
+        lists = builtinLists(builtin, verbRoots);
+      }
+      let spells = /* @__PURE__ */ new Map();
+      try {
+        const spellFiles = await io.listMarkdown(config.SPELL_DIR) || [];
+        const syntaxText = await io.readFile(config.SYNTAX_PATH);
+        if (syntaxText !== null && syntaxText !== void 0) spellFiles.push(config.SYNTAX_PATH);
+        const sources = [];
+        for (let i = 0; i < spellFiles.length; i++) {
+          sources.push({ path: spellFiles[i], text: await io.readFile(spellFiles[i]) });
+        }
+        spells = buildSpellRegistry(sources);
+      } catch (err) {
+        if (io.warn) io.warn(err);
+      }
+      const units = /* @__PURE__ */ new Set();
+      for (let i = 0; i < lists.unit.length; i++) units.add(String(lists.unit[i]).toLowerCase());
+      const keys = /* @__PURE__ */ new Set();
+      keyWords.forEach(function(k) {
+        keys.add(String(k).toLowerCase());
+      });
+      info.forEach(function(v, k) {
+        if (v.pos === "\u7B5B\u9009\u952E") keys.add(String(k).toLowerCase());
+      });
+      return { info, roots, ranks, units, keys, lists, spells, keyWords };
+    }
+    module2.exports = { buildLexiconSnapshot, builtinLists };
+  }
+});
+
 // src/core/grammar.js
 var require_grammar = __commonJS({
   "src/core/grammar.js"(exports2, module2) {
@@ -679,88 +935,6 @@ var require_tokenizer = __commonJS({
   }
 });
 
-// src/core/spells.js
-var require_spells = __commonJS({
-  "src/core/spells.js"(exports2, module2) {
-    "use strict";
-    var MOD_WORDS = "priv|tut|publ|consta";
-    function parseParamList(text) {
-      const out = [];
-      const s = String(text || "");
-      const parts = [];
-      let depth = 0, cur = "";
-      for (let i = 0; i < s.length; i++) {
-        const ch = s[i];
-        if (ch === "[" || ch === "(" || ch === "{") depth += 1;
-        else if (ch === "]" || ch === ")" || ch === "}") depth -= 1;
-        if (ch === "," && depth === 0) {
-          parts.push(cur);
-          cur = "";
-          continue;
-        }
-        cur += ch;
-      }
-      if (cur.trim()) parts.push(cur);
-      const mods = "(?:(?:" + MOD_WORDS + ")[ \\t]+)*";
-      const simple = new RegExp("^(" + mods + ")([A-Za-z_][A-Za-z0-9_]*)[ \\t]*:[ \\t]*(" + mods + ")([A-Za-z_][A-Za-z0-9_]*)$");
-      const boxed = new RegExp("^(" + mods + ")([A-Za-z_][A-Za-z0-9_]*)[ \\t]*:[ \\t]*\\[[^\\]]*?([A-Za-z_][A-Za-z0-9_]*)[ \\t]*\\]$");
-      const bare = new RegExp("^(" + mods + ")([A-Za-z_][A-Za-z0-9_]*)$");
-      for (let i = 0; i < parts.length; i++) {
-        const p = parts[i].trim();
-        if (!p) continue;
-        let m = simple.exec(p);
-        if (m) {
-          const list = ((m[1] || "") + " " + (m[3] || "")).trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
-          out.push({ type: m[2], name: m[4], modifiers: list });
-          continue;
-        }
-        m = boxed.exec(p);
-        if (m) {
-          const list = (m[1] || "").trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
-          out.push({ type: m[2], name: m[3], container: true, modifiers: list });
-          continue;
-        }
-        m = bare.exec(p);
-        if (m) out.push({ name: m[2], modifiers: (m[1] || "").trim().toLowerCase().split(/[ \t]+/).filter(Boolean) });
-        else out.push({ name: p, modifiers: [] });
-      }
-      return out;
-    }
-    function collectSpells(text, out, file) {
-      const lines = String(text || "").split("\n");
-      const decl = new RegExp("^(?:De\\b[^{;]*?)?\\s*((?:(?:" + MOD_WORDS + ")[ \\t]+)*)([A-Z][A-Za-z0-9_]*)\\s*\\(([^)]*)\\)[ \\t]*\\{");
-      for (let i = 0; i < lines.length; i++) {
-        const m = decl.exec(lines[i]);
-        if (!m) continue;
-        let depth = 0, end = i, opened = false;
-        for (let j = i; j < lines.length; j++) {
-          const t = lines[j];
-          for (let k = 0; k < t.length; k++) {
-            if (t[k] === "{") {
-              depth += 1;
-              opened = true;
-            } else if (t[k] === "}") depth -= 1;
-          }
-          if (opened && depth <= 0) {
-            end = j;
-            break;
-          }
-        }
-        const mods = (m[1] || "").trim().toLowerCase().split(/[ \t]+/).filter(Boolean);
-        const name = m[2];
-        const rec = { name, visibility: mods.length ? mods[mods.length - 1] : "", modifiers: mods, params: parseParamList(m[3]), file, line: i + 1, endLine: end + 1 };
-        if (out.has(name)) {
-          const old = out.get(name);
-          if (!old.duplicates) old.duplicates = [];
-          old.duplicates.push(rec);
-        } else out.set(name, rec);
-      }
-      return out;
-    }
-    module2.exports = { MOD_WORDS, parseParamList, collectSpells };
-  }
-});
-
 // src/core/lint.js
 var require_lint = __commonJS({
   "src/core/lint.js"(exports2, module2) {
@@ -1122,6 +1296,119 @@ var require_lint = __commonJS({
   }
 });
 
+// src/services/lint-service.js
+var require_lint_service = __commonJS({
+  "src/services/lint-service.js"(exports2, module2) {
+    "use strict";
+    var { lintText } = require_lint();
+    function lintSource(source, snapshot, path) {
+      const s = snapshot || {};
+      return lintText(source, {
+        info: s.info || /* @__PURE__ */ new Map(),
+        units: s.units || /* @__PURE__ */ new Set(),
+        keys: s.keys || /* @__PURE__ */ new Set(),
+        spells: s.spells || /* @__PURE__ */ new Map(),
+        path: path || ""
+      });
+    }
+    module2.exports = { lintSource };
+  }
+});
+
+// src/renderers/epxsc-renderer.js
+var require_epxsc_renderer = __commonJS({
+  "src/renderers/epxsc-renderer.js"(exports2, module2) {
+    "use strict";
+    var { tokenizeText } = require_tokenizer();
+    var { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require_markup();
+    function renderEpXsC(text, grammar, info, maxLines) {
+      const source = String(text || "");
+      const limit = typeof maxLines === "number" ? maxLines : 50;
+      if ((source.match(/\n/g) || []).length >= limit) return { skip: true, html: "", vars: /* @__PURE__ */ new Map() };
+      if (!grammar) return { skip: false, html: "", vars: /* @__PURE__ */ new Map() };
+      let html = markBracketDepth(tokenizeText(source, grammar), bracketKinds(source));
+      const vars = parseVarTypes(source, info || /* @__PURE__ */ new Map());
+      html = markVarUse(html, vars);
+      html = markDictKeys(html);
+      html = markSpellRefs(html);
+      return { skip: false, html, vars };
+    }
+    module2.exports = { renderEpXsC };
+  }
+});
+
+// src/renderers/ord-renderer.js
+var require_ord_renderer = __commonJS({
+  "src/renderers/ord-renderer.js"(exports2, module2) {
+    "use strict";
+    var { tokenizeText } = require_tokenizer();
+    function ordTokens(line, grammar) {
+      const html = tokenizeText(line, grammar);
+      const out = [];
+      const re = /<span class="token ([a-zA-Z ]+)">([\s\S]*?)<\/span>/g;
+      let m;
+      while (m = re.exec(html)) out.push({ cls: m[1], text: m[2].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">") });
+      return out;
+    }
+    function ordGlossOf(tok, info, posMap) {
+      const t = tok.text.trim();
+      if (!t || /^[\p{P}]$/u.test(t)) return "";
+      const e = info && (info.get(t) || info.get(t.toLowerCase()));
+      if (e) {
+        const raw = String(e.pos || "").replace("\xB7\u7F29\u5199", "");
+        const pos = posMap && posMap[raw] || raw;
+        const num = String(e.meaning || "").replace(/[^\u4e00-\u9fa5]/g, "");
+        if (pos) return pos;
+        if (num) return num.slice(0, 4);
+      }
+      const map = { judge: "\u5224\u65AD\u8BCD", keyword: "\u529F\u80FD\u8BCD", modifier: "\u9650\u5B9A\u8BCD", degree: "\u7A0B\u5EA6\u8BCD", unit: "\u5355\u4F4D", predicate: "\u8C13\u8BCD", element: "\u5143\u7D20\u7801", type: "\u7C7B\u578B\u540D", number: "\u6570" };
+      for (const k in map) if (tok.cls.indexOf(k) >= 0) return map[k];
+      return "";
+    }
+    function parseOrdBlocks(source, mode, grammar, info, posMap) {
+      const lines = String(source || "").replace(/\r/g, "").split("\n");
+      const out = [];
+      let pending = null;
+      const flush = function(pair) {
+        if (!pair) return;
+        if (mode === "G") {
+          const toks = ordTokens(pair.src, grammar);
+          const tokens = toks.map(function(tok) {
+            return { cls: tok.cls, text: tok.text, gloss: ordGlossOf(tok, info, posMap) };
+          });
+          out.push({ kind: "line", src: pair.src, zh: pair.zh, tokens });
+        } else {
+          out.push({ kind: "line", src: pair.src, zh: pair.zh, html: tokenizeText(pair.src, grammar) });
+        }
+      };
+      for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        const t = raw.trim();
+        if (!t) {
+          flush(pending);
+          pending = null;
+          out.push({ kind: "gap" });
+          continue;
+        }
+        if (t.charAt(0) === ">") {
+          if (pending) pending.zh = t.slice(1).trim();
+          else out.push({ kind: "line", src: "", zh: t.slice(1).trim() });
+          continue;
+        }
+        if (pending && !pending.zh && /[\u3400-\u9fff]/.test(t)) {
+          pending.zh = t;
+          continue;
+        }
+        flush(pending);
+        pending = { src: t, zh: "" };
+      }
+      flush(pending);
+      return out;
+    }
+    module2.exports = { ordTokens, ordGlossOf, parseOrdBlocks };
+  }
+});
+
 // src/adapter/config.js
 var require_config = __commonJS({
   "src/adapter/config.js"(exports2, module2) {
@@ -1151,11 +1438,14 @@ var require_plugin = __commonJS({
     var { extractEpXsCBlocks } = require_markdown_blocks();
     var { loadBuiltinLexicon } = require_lexicon();
     var { RefreshScheduler } = require_refresh_scheduler();
+    var { buildLexiconSnapshot } = require_lexicon_service();
     var { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require_markup();
     var { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require_grammar();
     var { tokenizeText } = require_tokenizer();
     var { collectSpells } = require_spells();
-    var { lintText } = require_lint();
+    var { lintSource } = require_lint_service();
+    var { renderEpXsC } = require_epxsc_renderer();
+    var { parseOrdBlocks } = require_ord_renderer();
     var { FALLBACK, SECTIONS, ELEMENTS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require_parsers();
     var LANG_KEYS = ["EpXsC", "epxsc", "EPXSC"];
     var CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
@@ -1185,86 +1475,6 @@ var require_plugin = __commonJS({
       degree: "\u7A0B\u5EA6\u8BCD",
       axis: "\u7F29\u653E\u8F74",
       pretium: "\u4EE3\u4EF7"
-    };
-    function builtinMap(part) {
-      const out = /* @__PURE__ */ new Map();
-      const source = BUILTIN_LEXICON[part] || {};
-      for (const key in source) {
-        const v = source[key];
-        out.set(key, { word: v[0], pos: v[1], meaning: v[2], abbr: v[3] || "" });
-      }
-      return out;
-    }
-    function builtinRanks() {
-      const out = /* @__PURE__ */ new Map();
-      const source = BUILTIN_LEXICON.ranks || {};
-      for (const key in source) out.set(key, source[key]);
-      return out;
-    }
-    function builtinRoots() {
-      const out = /* @__PURE__ */ new Map();
-      const source = BUILTIN_LEXICON.roots || {};
-      for (const key in source) out.set(key, { word: source[key][2] || key, pos: "\u8BCD\u6839\xB7" + source[key][1], meaning: source[key][0], kind: source[key][1] });
-      return out;
-    }
-    function builtinLists(verbRoots) {
-      const bySection = {};
-      const e = BUILTIN_LEXICON.entries || {};
-      for (const key in e) {
-        const pos = e[key][1];
-        (bySection[pos] = bySection[pos] || []).push(e[key][0]);
-      }
-      const units = Object.keys(BUILTIN_LEXICON.units || {});
-      return {
-        keyword: wordsFrom(bySection, SECTIONS.keyword, FALLBACK.keyword),
-        judge: wordsFrom(bySection, SECTIONS.judge, FALLBACK.judge),
-        clause: wordsFrom(bySection, SECTIONS.clause, FALLBACK.clause),
-        degree: wordsFrom(bySection, SECTIONS.degree, FALLBACK.degree),
-        predicate: wordsFrom(bySection, SECTIONS.predicate, FALLBACK.predicate).concat(verbRoots || []),
-        unit: wordsFrom(bySection, SECTIONS.unit, FALLBACK.unit).concat(units)
-      };
-    }
-    var EXTRA_WORDS = {
-      in: { word: "in", pos: "\u4ECB\u8BCD", meaning: "\u5728\u2026\u2026\u91CC\uFF08\u8BCD\u5178\u6682\u672A\u6536\u5F55\uFF0C\u6309\u672F\u5F0F\u7528\u6CD5\u8865\uFF09", abbr: "" },
-      /* 第五章筛选键表：ordin= 的三个取值（词典未收，按表补） */
-      proxim: { word: "proxim", pos: "\u7B5B\u9009\u503C", meaning: "\u8FD1\uFF08ordin= \u7684\u53D6\u503C\uFF09", abbr: "" },
-      procul: { word: "procul", pos: "\u7B5B\u9009\u503C", meaning: "\u8FDC\uFF08ordin= \u7684\u53D6\u503C\uFF09", abbr: "" },
-      temer: { word: "temer", pos: "\u7B5B\u9009\u503C", meaning: "\u968F\u673A\uFF08ordin= \u7684\u53D6\u503C\uFF09", abbr: "" }
-    };
-    var TYPE_NOTES = {
-      siro: "void\uFF1A\u65E0\u76EE\u6807\uFF0F\u65E0\u8F7D\u4F53\uFF0C\u53EF\u58F0\u660E\u53D8\u91CF\u6216\u76F4\u63A5\u5360\u4F4D"
-    };
-    var SECTION_POS = {
-      "\u540D\u8BCD": "\u540D\u8BCD",
-      "\u52A8\u8BCD": "\u52A8\u8BCD",
-      "\u6570\u8BCD": "\u6570\u8BCD",
-      "\u5F62\u5BB9\u8BCD": "\u5F62\u5BB9\u8BCD",
-      "\u526F\u8BCD": "\u526F\u8BCD",
-      "\u4ECB\u8BCD": "\u4ECB\u8BCD",
-      "\u52A9\u52A8\u8BCD": "\u52A9\u52A8\u8BCD",
-      "\u5224\u65AD\u8BCD": "\u5224\u65AD\u8BCD",
-      "\u9650\u5B9A\u8BCD": "\u9650\u5B9A\u8BCD",
-      "\u65F6\u95F4\u9650\u5B9A": "\u9650\u5B9A\u8BCD",
-      "\u6570\u91CF\u4E0E\u8303\u56F4\u9650\u5B9A": "\u9650\u5B9A\u8BCD",
-      "\u6307\u79F0\u9650\u5B9A": "\u9650\u5B9A\u8BCD",
-      "\u987A\u5E8F\u9650\u5B9A": "\u9650\u5B9A\u8BCD",
-      "\u7A0B\u5EA6\u9650\u5B9A": "\u526F\u8BCD",
-      "\u4EE3\u8BCD\uFF08\u4EBA\u79F0\uFF09": "\u4EE3\u8BCD",
-      "\u7591\u95EE\u8BCD": "\u7591\u95EE\u8BCD",
-      "\u91CF\u8BCD": "\u91CF\u8BCD",
-      "\u8FDE\u63A5\u8BCD\u4E0E\u4ECE\u53E5\u6807\u8BB0": "\u8FDE\u63A5\u8BCD",
-      "\u65CF\u540D": "\u540D\u8BCD",
-      "\u52A8\u7269\u540D": "\u540D\u8BCD",
-      "\u65CF\u3001\u8840\u7EDF\u4E0E\u5206\u7C7B": "\u540D\u8BCD",
-      "\u5730\u540D\u4E0E\u52BF\u529B\u540D": "\u4E13\u540D",
-      "\u5730\u7406 \xB7 \u795E\u5BAB \xB7 \u8D27\u5E01\u4E13\u540D": "\u4E13\u540D",
-      "\u6839\u8BCD": "\u8BCD\u6839",
-      "\u540E\u7F00": "\u540E\u7F00",
-      "\u590D\u5408\u8BCD": "\u590D\u5408\u8BCD",
-      "\u9AD8\u9891\u8865\u5145\u8BCD": "\u8865\u5145\u8BCD",
-      "\u5143\u7D20\u56FA\u5B9A\u7F29\u5199": "\u5143\u7D20",
-      "\u672F\u5F0F\u5173\u952E\u8BCD": "\u672F\u5F0F\u5173\u952E\u8BCD",
-      "\u5355\u4F4D": "\u5355\u4F4D"
     };
     function pickClass(classList) {
       for (let i = 0; i < CLASS_ORDER.length; i++) {
@@ -1719,31 +1929,8 @@ var require_plugin = __commonJS({
         this.contentEl.empty();
       }
     };
-    function ordTokens(line, grammar) {
-      const html = tokenizeText(line, grammar);
-      const out = [];
-      const re = /<span class="token ([a-zA-Z ]+)">([\s\S]*?)<\/span>/g;
-      let m;
-      while (m = re.exec(html)) out.push({ cls: m[1], text: m[2].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">") });
-      return out;
-    }
-    function ordGlossOf(tok, info) {
-      const t = tok.text.trim();
-      if (!t || /^[\p{P}]$/u.test(t)) return "";
-      const e = info && (info.get(t) || info.get(t.toLowerCase()));
-      if (e) {
-        const raw = String(e.pos || "").replace("\xB7\u7F29\u5199", "");
-        const pos = SECTION_POS[raw] || raw;
-        const num = String(e.meaning || "").replace(/[^\u4e00-\u9fa5]/g, "");
-        if (pos) return pos;
-        if (num) return num.slice(0, 4);
-      }
-      const map = { judge: "\u5224\u65AD\u8BCD", keyword: "\u529F\u80FD\u8BCD", modifier: "\u9650\u5B9A\u8BCD", degree: "\u7A0B\u5EA6\u8BCD", unit: "\u5355\u4F4D", predicate: "\u8C13\u8BCD", element: "\u5143\u7D20\u7801", type: "\u7C7B\u578B\u540D", number: "\u6570" };
-      for (const k in map) if (tok.cls.indexOf(k) >= 0) return map[k];
-      return "";
-    }
     function renderOrdBlockInner(el, source, mode, grammar, info) {
-      const lines = String(source || "").replace(/\r/g, "").split("\n");
+      const records = parseOrdBlocks(source, mode, grammar, info, SECTION_POS);
       const wrap = document.createElement("div");
       wrap.className = "epx-ord-wrap";
       const code = document.createElement("div");
@@ -1759,77 +1946,50 @@ var require_plugin = __commonJS({
         d.className = "epx-oline";
         return d;
       };
-      let pending = null;
-      const flush = function(pair) {
-        if (!pair) return;
+      for (let i = 0; i < records.length; i++) {
+        const record = records[i];
+        if (record.kind === "gap") {
+          const gap = document.createElement("div");
+          gap.className = "epx-gap";
+          code.appendChild(gap);
+          continue;
+        }
         const line = lineEl();
         if (mode === "G") {
           const gs = document.createElement("div");
           gs.className = "epx-gs";
-          const toks = ordTokens(pair.src, grammar);
-          for (let i = 0; i < toks.length; i++) {
-            const tok = toks[i];
-            const gl = ordGlossOf(tok, info);
+          const toks = record.tokens || [];
+          for (let j = 0; j < toks.length; j++) {
+            const tok = toks[j];
             const gw = document.createElement("span");
             gw.className = "epx-gw";
             const srcEl = document.createElement("span");
             srcEl.className = "epx-gsrc token " + tok.cls;
             srcEl.textContent = tok.text;
             gw.appendChild(srcEl);
-            if (gl) {
+            if (tok.gloss) {
               const gg = document.createElement("span");
               gg.className = "epx-ggl";
-              gg.textContent = gl;
+              gg.textContent = tok.gloss;
               gw.appendChild(gg);
             }
             gs.appendChild(gw);
           }
           line.appendChild(gs);
-        } else {
+        } else if (record.src) {
           const srcEl = document.createElement("div");
           srcEl.className = "epx-tsrc";
-          appendHTML(srcEl, tokenizeText(pair.src, grammar));
+          appendHTML(srcEl, record.html || "");
           line.appendChild(srcEl);
         }
-        if (pair.zh) {
+        if (record.zh) {
           const zh = document.createElement("div");
           zh.className = "epx-tzh";
-          zh.textContent = pair.zh;
+          zh.textContent = record.zh;
           line.appendChild(zh);
         }
         code.appendChild(line);
-      };
-      for (let i = 0; i < lines.length; i++) {
-        const raw = lines[i];
-        const t = raw.trim();
-        if (!t) {
-          flush(pending);
-          pending = null;
-          const gap = document.createElement("div");
-          gap.className = "epx-gap";
-          code.appendChild(gap);
-          continue;
-        }
-        if (t.charAt(0) === ">") {
-          if (pending) pending.zh = t.slice(1).trim();
-          else {
-            const line = lineEl();
-            const zh = document.createElement("div");
-            zh.className = "epx-tzh";
-            zh.textContent = t.slice(1).trim();
-            line.appendChild(zh);
-            code.appendChild(line);
-          }
-          continue;
-        }
-        if (pending && !pending.zh && /[\u3400-\u9fff]/.test(t)) {
-          pending.zh = t;
-          continue;
-        }
-        flush(pending);
-        pending = { src: t, zh: "" };
       }
-      flush(pending);
       el.textContent = "";
       el.appendChild(wrap);
     }
@@ -2031,119 +2191,29 @@ var require_plugin = __commonJS({
          库内文件永远优先，所以词典一改，着色与释义就跟着改。 */
       async refresh() {
         const gen = this._refreshGen = (this._refreshGen || 0) + 1;
-        const info = /* @__PURE__ */ new Map();
-        for (const w in EXTRA_WORDS) info.set(w, EXTRA_WORDS[w]);
-        const roots = /* @__PURE__ */ new Map();
-        const extraUnits = [];
-        const keyWords = /* @__PURE__ */ new Set();
-        let lists = null;
-        let ranks = /* @__PURE__ */ new Map();
-        const mergeInto = function(target, map) {
-          map.forEach(function(value, key) {
-            if (!target.has(key)) target.set(key, value);
-          });
-        };
-        try {
-          const dictFile = this.app.vault.getAbstractFileByPath(DICT_PATH);
-          if (dictFile instanceof TFile) {
-            const text = await this.app.vault.cachedRead(dictFile);
-            mergeInto(info, parseEntries(text));
-            const map = splitSections(text);
-            lists = {
-              keyword: wordsFrom(map, SECTIONS.keyword, FALLBACK.keyword),
-              judge: wordsFrom(map, SECTIONS.judge, FALLBACK.judge),
-              clause: wordsFrom(map, SECTIONS.clause, FALLBACK.clause),
-              degree: wordsFrom(map, SECTIONS.degree, FALLBACK.degree),
-              predicate: wordsFrom(map, SECTIONS.predicate, FALLBACK.predicate),
-              unit: wordsFrom(map, SECTIONS.unit, FALLBACK.unit)
-            };
-          } else {
-            mergeInto(info, builtinMap("entries"));
+        const snapshot = await buildLexiconSnapshot({
+          readFile: async (path) => {
+            const file = this.app.vault.getAbstractFileByPath(path);
+            return file instanceof TFile ? await this.app.vault.cachedRead(file) : null;
+          },
+          listMarkdown: (dir) => this.mdFilesUnder(dir).map(function(file) {
+            return file.path;
+          }),
+          warn: function(err) {
+            console.warn("[EpXsC Syntax] \u8BFB\u53D6\u5E93\u5185\u8BCD\u5E93\u5931\u8D25\uFF0C\u6539\u7528\u5185\u7F6E\u5FEB\u7167\uFF1A", err);
           }
-          const syntaxFile = this.app.vault.getAbstractFileByPath(SYNTAX_PATH);
-          if (syntaxFile instanceof TFile) {
-            const syntaxText = await this.app.vault.cachedRead(syntaxFile);
-            const keyMap = parseFilterKeys(syntaxText);
-            mergeInto(info, keyMap);
-            keyMap.forEach(function(v, k) {
-              keyWords.add(String(k).toLowerCase());
-            });
-            const unitMap = parseUnits(syntaxText);
-            mergeInto(info, unitMap);
-            unitMap.forEach(function(v) {
-              extraUnits.push(v.word);
-            });
-          } else {
-            const keyMap = builtinMap("keys");
-            mergeInto(info, keyMap);
-            keyMap.forEach(function(v, k) {
-              keyWords.add(String(k).toLowerCase());
-            });
-            mergeInto(info, builtinMap("units"));
-          }
-          const rankFile = this.app.vault.getAbstractFileByPath(RANK_PATH);
-          ranks = rankFile instanceof TFile ? parseRanks(await this.app.vault.cachedRead(rankFile)) : builtinRanks();
-          const rootFiles = this.mdFilesUnder(ROOTS_DIR);
-          if (rootFiles.length) {
-            for (let i = 0; i < rootFiles.length; i++) {
-              mergeInto(roots, parseRoots(await this.app.vault.cachedRead(rootFiles[i])));
-            }
-          } else {
-            mergeInto(roots, builtinRoots());
-          }
-          roots.forEach(function(v, k) {
-            if (v.kind === "\u52A8" || !info.has(k)) info.set(k, v);
-          });
-        } catch (err) {
-          console.warn("[EpXsC Syntax] \u8BFB\u53D6\u5E93\u5185\u8BCD\u5E93\u5931\u8D25\uFF0C\u6539\u7528\u5185\u7F6E\u5FEB\u7167\uFF1A", err);
-          mergeInto(info, builtinMap("entries"));
-          mergeInto(info, builtinMap("keys"));
-          mergeInto(info, builtinMap("units"));
-          mergeInto(roots, builtinRoots());
-          roots.forEach(function(v, k) {
-            if (v.kind === "\u52A8" || !info.has(k)) info.set(k, v);
-          });
-          if (!ranks.size) ranks = builtinRanks();
-        }
-        const verbRoots = [];
-        roots.forEach(function(v) {
-          if (v.kind === "\u52A8") verbRoots.push(v.word);
-        });
-        if (lists) {
-          lists.predicate = lists.predicate.concat(verbRoots);
-          lists.unit = lists.unit.concat(extraUnits);
-        } else {
-          lists = builtinLists(verbRoots);
-        }
-        const spells = /* @__PURE__ */ new Map();
-        try {
-          const spellFiles = this.mdFilesUnder(SPELL_DIR);
-          const syntaxFile = this.app.vault.getAbstractFileByPath(SYNTAX_PATH);
-          if (syntaxFile instanceof TFile) spellFiles.push(syntaxFile);
-          for (let i = 0; i < spellFiles.length; i++) {
-            collectSpells(await this.app.vault.cachedRead(spellFiles[i]), spells, spellFiles[i].path);
-          }
-        } catch (err) {
-        }
+        }, { DICT_PATH, RANK_PATH, SYNTAX_PATH, ROOTS_DIR, SPELL_DIR }, BUILTIN_LEXICON, EXTRA_WORDS);
         if (gen !== this._refreshGen) return;
-        this.spells = spells;
-        spellRegistry = spells;
-        this.info = info;
-        this.ranks = ranks;
-        this.roots = roots;
-        this.units = /* @__PURE__ */ new Set();
-        for (let i = 0; i < lists.unit.length; i++) this.units.add(String(lists.unit[i]).toLowerCase());
-        this.keys = /* @__PURE__ */ new Set();
-        const keySet = this.keys;
-        keyWords.forEach(function(k) {
-          keySet.add(String(k).toLowerCase());
-        });
-        info.forEach(function(v, k) {
-          if (v.pos === "\u7B5B\u9009\u952E") keySet.add(String(k).toLowerCase());
-        });
-        this.grammar = makeGrammar(lists, Array.from(keyWords));
+        this.spells = snapshot.spells;
+        spellRegistry = snapshot.spells;
+        this.info = snapshot.info;
+        this.ranks = snapshot.ranks;
+        this.roots = snapshot.roots;
+        this.units = snapshot.units;
+        this.keys = snapshot.keys;
+        this.grammar = makeGrammar(snapshot.lists, Array.from(snapshot.keyWords));
         this.install();
-        if (window.__epxscDebug) console.log("[EpXsC Syntax] \u8BCD\u6761 " + info.size + " \xB7 \u8BCD\u6839 " + roots.size + " \xB7 \u79E9 " + ranks.size + "\uFF08" + lists.predicate.length + " \u4E2A\u8C13\u8BCD\uFF09");
+        if (window.__epxscDebug) console.log("[EpXsC Syntax] \u8BCD\u6761 " + this.info.size + " \xB7 \u8BCD\u6839 " + this.roots.size + " \xB7 \u79E9 " + this.ranks.size + "\uFF08" + snapshot.lists.predicate.length + " \u4E2A\u8C13\u8BCD\uFF09");
         await Promise.race([
           this.ensureStyles(),
           new Promise(function(resolve) {
@@ -2301,12 +2371,12 @@ var require_plugin = __commonJS({
         }
         const file = view.file;
         const text = await this.app.vault.cachedRead(file);
-        const ctx = { info: this.info, units: this.units, keys: this.keys, spells: this.spells, path: file.path };
+        const snapshot = { info: this.info, units: this.units, keys: this.keys, spells: this.spells };
         const blocksFound = extractEpXsCBlocks(text);
         const blocks = blocksFound.length;
         const issues = [];
         for (let b = 0; b < blocksFound.length; b++) {
-          const found = lintText(blocksFound[b].source, ctx);
+          const found = lintSource(blocksFound[b].source, snapshot, file.path);
           for (let i = 0; i < found.length; i++) {
             issues.push({ level: found[i].level, line: blocksFound[b].line + found[i].line, message: found[i].message });
           }
@@ -2446,21 +2516,12 @@ var require_plugin = __commonJS({
         if (code && code.classList && code.classList.contains("epx-ord")) return;
         try {
           const text = code.textContent || "";
-          if ((text.match(/\n/g) || []).length >= MAX_HIGHLIGHT_LINES) {
-            if (code.classList) code.classList.add("language-EpXsC");
-            return;
-          }
           const found = /language-(\w+)/.exec(code.className || "");
           if (!found && code.classList) code.classList.add("language-EpXsC");
-          const grammar = this.grammar;
-          if (!grammar) return;
-          let html = markBracketDepth(tokenizeText(text, grammar), bracketKinds(text));
-          const vars = parseVarTypes(text, this.info);
-          varTypesOf.set(code, vars);
-          html = markVarUse(html, vars);
-          html = markDictKeys(html);
-          html = markSpellRefs(html);
-          code.innerHTML = html;
+          const rendered = renderEpXsC(text, this.grammar, this.info, MAX_HIGHLIGHT_LINES);
+          if (rendered.skip) return;
+          varTypesOf.set(code, rendered.vars);
+          code.innerHTML = rendered.html;
           this.markUnknown(code);
           this.markNegation(code);
         } catch (err) {

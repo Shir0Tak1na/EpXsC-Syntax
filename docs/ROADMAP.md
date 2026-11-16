@@ -36,12 +36,12 @@
 ### T2 — services / adapter
 
 - [x] T2.1 `RefreshScheduler`: requestRefresh / cancelPending / execute; keep debounce, dedupe, generation guard (implemented as `src/services/refresh-scheduler.js`).
-- [ ] T2.2 `LexiconService` / `SpellRegistry` / `LintService`: Vault read + parse + merge + snapshot; Node-testable.
+- [x] T2.2 `LexiconService` / `SpellRegistry` / `LintService`: Vault read + parse + merge + snapshot; Node-testable (`src/services/`).
 - [ ] T2.3 Adapter only lifecycle, Vault events, commands, processors; no tokenize/lint/render rules.
 
 ### T3 — renderer / UI
 
-- [ ] T3.1 `epxsc-renderer` / `epxst-renderer` / `epxsg-renderer`; pure token → HTML/DOM structure; adapter mounts.
+- [x] T3.1 `epxsc-renderer` / `epxst-renderer` / `epxsg-renderer`; pure token → HTML/DOM structure; adapter mounts (`epxsc-renderer`, `ord-renderer`).
 - [ ] T3.2 Tooltip / lint panel / diagnostics modules; shared `CODE_SELECTOR` and aliases.
 - [ ] T3.3 Render golden tests for C/T/G, long-block guard, empty and malformed input.
 - [ ] T3.4 Keep `refresh()` → T/G re-render invariant and test it.
@@ -89,10 +89,10 @@ Do not start T1/T2 migration before T0 is complete.
 | T1.3 | DONE | parser/loader fallback tests + semantics doc |
 | T1.4 | DONE | adapter config module |
 | T2.1 | DONE | RefreshScheduler + fake-timer tests |
-| T2.2 | TODO | next action |
-| T2.3 | TODO | |
-| T3.1 | TODO | |
-| T3.2 | TODO | |
+| T2.2 | DONE | lexicon/spell/lint services + fake-vault tests |
+| T2.3 | IN_PROGRESS | adapter uses services; UI/renderers still being split |
+| T3.1 | DONE | EpXsC + T/G data pipelines |
+| T3.2 | TODO | next action |
 | T3.3 | TODO | |
 | T3.4 | TODO | |
 | T4.x | TODO | |
@@ -120,13 +120,13 @@ Do not start T1/T2 migration before T0 is complete.
 
 ## G. Next single action
 
-**T2.2 — LexiconService / SpellRegistry / LintService.**
+**T3.2 — tooltip / lint panel / diagnostics modules.**
 
-T2.1 is done: debounce/cancel/generation are in `src/services/refresh-scheduler.js`, covered by fake-timer tests.
+T2.2 and the renderer data pipelines are done: services are Node-testable; EpXsC and T/G block rendering now receive pure data from `src/renderers/`.
 
-T2.2 deliverable:
+T3.2 deliverable:
 
-- extract Vault reading + parse + merge + snapshot building into a Node-testable service;
-- adapter supplies file-read/list callbacks only;
-- tests with a fake vault covering dictionary/syntax/rank/roots/spells and fallback;
-- no behavior change.
+- move tooltip data builders to `src/ui/tooltip.js`;
+- move lint modal / diagnostics formatters out of the adapter where feasible;
+- share `CODE_SELECTOR` and language aliases;
+- keep DOM mounting in the adapter; tests for pure formatters.
