@@ -7,6 +7,8 @@ const blockCore = nodeRequire('../src/core/markdown-blocks.js');
 const parserCore = nodeRequire('../src/data/parsers.js');
 const spellsCore = nodeRequire('../src/core/spells.js');
 const lintCore = nodeRequire('../src/core/lint.js');
+const grammarCore = nodeRequire('../src/core/grammar.js');
+const tokenizerCore = nodeRequire('../src/core/tokenizer.js');
 
 const source = fs.readFileSync('src/legacy/plugin.js', 'utf8');
 const obsidianStub = {
@@ -20,6 +22,8 @@ const sandbox = {
     if (String(name).includes('data/parsers')) return parserCore;
     if (String(name).includes('core/spells')) return spellsCore;
     if (String(name).includes('core/lint')) return lintCore;
+    if (String(name).includes('core/grammar')) return grammarCore;
+    if (String(name).includes('core/tokenizer')) return tokenizerCore;
     return {};
   },
   module: { exports: {} },
@@ -33,7 +37,9 @@ sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(source, sandbox, { filename: 'main.js' });
 
-const { builtinLists, makeGrammar, tokenizeText } = sandbox;
+const { builtinLists } = sandbox;
+const { makeGrammar } = grammarCore;
+const { tokenizeText } = tokenizerCore;
 const { collectSpells } = spellsCore;
 const { lintText } = lintCore;
 const { parseEntries, parseRoots, parseFilterKeys } = parserCore;
