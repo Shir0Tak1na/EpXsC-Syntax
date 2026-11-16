@@ -288,6 +288,9 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
 .epx-tzh { display: block; font-family: var(--font-text); opacity: .78; font-size: .92em; }
 .epx-gap { display: block; height: .45em; }
 .epx-ord-wrap { display: block; }
+/* 有些主题会给块级元素继承首行缩进；T/G 是代码块，首行必须贴左 */
+.epx-ord, .epx-ord .epx-oline, .epx-ord .epx-tsrc, .epx-ord .epx-tzh { text-indent: 0; }
+.epx-ord > .epx-oline:first-child { margin-top: 0; }
 .epx-ord { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 /* --------------------------------------------------------------------------
    7. 窄屏（移动端阅读模式）：语言签改为通栏抬头，正文一律换行
