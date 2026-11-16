@@ -1,6 +1,6 @@
 # EpXsC Syntax
 
-![GitHub release](https://img.shields.io/github/v/release/Shir0Tak1na/EpXsC-Syntax-Highlight) ![License](https://img.shields.io/github/license/Shir0Tak1na/EpXsC-Syntax-Highlight) ![Obsidian](https://img.shields.io/badge/Obsidian-1.4.0%2B-7c3aed) ![Validate](https://github.com/Shir0Tak1na/EpXsC-Syntax-Highlight/actions/workflows/validate.yml/badge.svg)
+![GitHub release](https://img.shields.io/github/v/release/Shir0Tak1na/EpXsC-Syntax) ![License](https://img.shields.io/github/license/Shir0Tak1na/EpXsC-Syntax) ![Obsidian](https://img.shields.io/badge/Obsidian-1.4.0%2B-7c3aed) ![Validate](https://github.com/Shir0Tak1na/EpXsC-Syntax/actions/workflows/validate.yml/badge.svg)
 
 *请注意，本插件是应用于虚构小说的虚构语言语法检查。和现实世界无关，为以后的语料库索引类插件做实验，在此仅作代码css片段展示和练习。*
 
@@ -35,7 +35,7 @@ Expaste(METOS: a, METOS: b) {
 
 ### BRAT
 
-添加仓库 `Shir0Tak1na/EpXsC-Syntax-Highlight`，然后启用插件。
+添加仓库 `Shir0Tak1na/EpXsC-Syntax`，然后启用插件。
 
 ### 手动安装
 
@@ -134,7 +134,7 @@ npm test          # 围栏别名、CRLF、作用域、tokenizer、括号
 
 ## Release notes
 
-[CHANGELOG.md](CHANGELOG.md) · [GitHub Releases](https://github.com/Shir0Tak1na/EpXsC-Syntax-Highlight/releases)
+[CHANGELOG.md](CHANGELOG.md) · [GitHub Releases](https://github.com/Shir0Tak1na/EpXsC-Syntax/releases)
 
 ## License
 
