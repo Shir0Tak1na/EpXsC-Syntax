@@ -325,3 +325,6 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
   .epx-ggl { line-height: 1.25; }
   .epx-tzh { margin-top: 0.15em; }
 }
+
+/* T/G 与术式块保持同样的内边距（覆盖阅读视图里 div 被重置的 padding） */
+.epx-ord { padding: 1.1em 1.15em 1.15em !important; }
