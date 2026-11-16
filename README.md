@@ -112,6 +112,7 @@ Tallse aris agrus nec manis humal.
 
 ```bash
 npm run check   # 校验 manifest / 语法 / CSS 括号 / 片段一致性
+npm test        # 代码围栏别名、CRLF、术式作用域回归测试
 ```
 
 | 文件 | 作用 |

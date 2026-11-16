@@ -55,7 +55,7 @@ const TYPES = ['METOS', 'locus', 'siro', 'intervallum', 'verb', 'littera', 'form
 const MODIFIERS = ['priv', 'tut', 'publ', 'consta', 'om', 'tot'];
 
 /* 代码版本：诊断报告里会写出来，用来分辨「文件换了但插件没重载」 */
-const BUILD = '1.29.1';
+const BUILD = '1.30.0';
 
 function escapeWord(w) {
   return w.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&');
@@ -530,6 +530,15 @@ function tokenizeText(text, grammar) {
 const BRANCH_WORDS = ['keal', 'keol', 'tam', 'dum', 'nisi', 'quan'];
 
 /* 逐块检查；返回 [{ level, line, message }]。ctx 需要 info / units / keys */
+function extractEpXsCBlocks(text) {
+  const re = /^[ \t]*\x60{3}[ \t]*(?:EpXsC|epxsc|EPXSC)[ \t]*\r?\n([\s\S]*?)^[ \t]*\x60{3}[ \t]*\r?$/gm;
+  const out = [];
+  let m;
+  while ((m = re.exec(text))) {
+    out.push({ source: m[1].replace(/\r/g, ''), line: text.slice(0, m.index).split('\n').length });
+  }
+  return out;
+}
 function lintText(text, ctx) {
   const issues = [];
   const lines = text.split('\n');
@@ -811,8 +820,9 @@ function lintText(text, ctx) {
           continue;
         }
         if (rec.visibility === 'priv' || rec.visibility === 'tut') {
-          const inside = i + 1 >= rec.line && i + 1 <= rec.endLine;
-          if (!inside) push('warn', i + 1, '「' + name + '」是 ' + rec.visibility + '，只允许在自己的语块内引用');
+          const sameFile = !ctx || !ctx.path || !rec.file || ctx.path === rec.file;
+          const inside = sameFile && i + 1 >= rec.line && i + 1 <= rec.endLine;
+          if (!inside) push('warn', i + 1, '「' + name + '」是 ' + rec.visibility + '，只允许在自己文件的语块内引用');
         }
         /* 取这次调用的实参 */
         const open = m.index + m[0].length - 1;
@@ -1759,10 +1769,24 @@ class EpXsCSyntaxPlugin extends Plugin {
     const ordT = (source, el, ctx) => ord(source, el, ctx, 'T');
     for (const lang of ['EpXsG', 'epxsg', 'EPXSG']) this.registerMarkdownCodeBlockProcessor(lang, ordG);
     for (const lang of ['EpXsT', 'epxst', 'EPXST']) this.registerMarkdownCodeBlockProcessor(lang, ordT);
-    this.registerEvent(this.app.vault.on('modify', function (file) {
-      if (!file) return;
-      if (file.path === DICT_PATH || file.path === SYNTAX_PATH || file.path === RANK_PATH || file.path.indexOf(SPELL_DIR) === 0) self.refresh();
+    const isDataFile = function (file) {
+      if (!file || !file.path) return false;
+      return file.path === DICT_PATH || file.path === SYNTAX_PATH || file.path === RANK_PATH ||
+        file.path.indexOf(ROOTS_DIR) === 0 || file.path.indexOf(SPELL_DIR) === 0;
+    };
+    let refreshTimer = null;
+    const scheduleRefresh = function () {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(function () { refreshTimer = null; self.refresh(); }, 300);
+    };
+    const onDataEvent = function (file) { if (isDataFile(file)) scheduleRefresh(); };
+    this.registerEvent(this.app.vault.on('modify', onDataEvent));
+    this.registerEvent(this.app.vault.on('create', onDataEvent));
+    this.registerEvent(this.app.vault.on('delete', onDataEvent));
+    this.registerEvent(this.app.vault.on('rename', function (file, oldPath) {
+      if (isDataFile(file) || (oldPath && isDataFile({ path: oldPath }))) scheduleRefresh();
     }));
+    this.register(function () { if (refreshTimer) window.clearTimeout(refreshTimer); });
     this.addCommand({
       id: 'reload-lexicon',
       name: '重新载入词表与释义',
@@ -1807,6 +1831,7 @@ class EpXsCSyntaxPlugin extends Plugin {
   /* 读库内文件；哪一份读不到（别人下载的库）就用内置快照兜底。
      库内文件永远优先，所以词典一改，着色与释义就跟着改。 */
   async refresh() {
+    const gen = (this._refreshGen = (this._refreshGen || 0) + 1);
     const info = new Map();
     for (const w in EXTRA_WORDS) info.set(w, EXTRA_WORDS[w]);
     const roots = new Map();
@@ -1898,6 +1923,7 @@ class EpXsCSyntaxPlugin extends Plugin {
         collectSpells(await this.app.vault.cachedRead(spellFiles[i]), spells, spellFiles[i].path);
       }
     } catch (err) { /* 保持空表 */ }
+    if (gen !== this._refreshGen) return;
     this.spells = spells;
     spellRegistry = spells;
 
@@ -2049,18 +2075,15 @@ class EpXsCSyntaxPlugin extends Plugin {
     if (!view || !view.file) { new Notice('先打开一篇笔记再检查。'); return; }
     const file = view.file;
     const text = await this.app.vault.cachedRead(file);
-    const re = /^[ \t]*\x60\x60\x60EpXsC[ \t]*\r?\n([\s\S]*?)^[ \t]*\x60\x60\x60[ \t]*$/gm;
     /* 带上术式登记表与当前笔记路径：越权检查要按「同一文件且同一行范围」判定 */
     const ctx = { info: this.info, units: this.units, keys: this.keys, spells: this.spells, path: file.path };
-    let m;
-    let blocks = 0;
+    const blocksFound = extractEpXsCBlocks(text);
+    const blocks = blocksFound.length;
     const issues = [];
-    while ((m = re.exec(text))) {
-      blocks += 1;
-      const start = text.slice(0, m.index).split('\n').length;
-      const found = lintText(m[1], ctx);
+    for (let b = 0; b < blocksFound.length; b++) {
+      const found = lintText(blocksFound[b].source, ctx);
       for (let i = 0; i < found.length; i++) {
-        issues.push({ level: found[i].level, line: start + 1 + found[i].line, message: found[i].message });
+        issues.push({ level: found[i].level, line: blocksFound[b].line + found[i].line, message: found[i].message });
       }
     }
     if (!blocks) { new Notice('这一页没有 EpXsC 代码块。'); return; }
@@ -2160,6 +2183,7 @@ class EpXsCSyntaxPlugin extends Plugin {
      也可能被 Obsidian 的 Prism 初始化覆盖掉注册的语法。
      这里确认两件事：语法还在不在、该上色的块有没有 token。 */
   ensureRendered() {
+    if (document.hidden) return;
     /* 自带切词器，不需要 window.Prism；若 Obsidian 恰好有 Prism，顺手把语法也注册上去 */
     if (window.Prism && window.Prism.languages && window.Prism.languages.EpXsC !== this.grammar) this.install();
     const nodes = document.querySelectorAll(CODE_SELECTOR);

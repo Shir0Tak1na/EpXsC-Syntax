@@ -25,6 +25,9 @@ for (const forbidden of ['app.plugins', 'dump-epx-dom', 'epxsc-render-', 'PLUGIN
 }
 if (main.includes('pre:has(')) fail('main.js still contains pre:has() fallback selector');
 if (main.includes('getFiles(')) fail('main.js still enumerates the whole vault with getFiles()');
+for (const ev of ["vault.on('create'", "vault.on('delete'", "vault.on('rename'"]) { if (!main.includes(ev)) fail('data change event not registered: ' + ev); }
+if (!main.includes('_refreshGen')) fail('refresh generation guard missing');
+if (!main.includes('extractEpXsCBlocks')) fail('shared EpXsC block extractor missing');
 
 if (manifest.id !== 'epxsc-syntax') fail('unexpected plugin id');
 if (!manifest.minAppVersion) fail('manifest.minAppVersion missing');

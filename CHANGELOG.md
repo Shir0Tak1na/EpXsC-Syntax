@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.30.0
+
+- 数据源监听覆盖 `create` / `delete` / `rename`，并纳入 `ROOTS_DIR`；300ms debounce 合并连续保存。
+- `refresh()` 增加 generation guard，慢任务不再覆盖新数据。
+- Linter 代码块提取抽成 `extractEpXsCBlocks`，统一 `EpXsC` 大小写别名，并修正围栏行号映射。
+- `priv` / `tut` 越权检查同时比较文件路径与行范围。
+- 看门狗在窗口隐藏时跳过扫描。
+- 新增 `scripts/test.mjs` 行为测试（别名、CRLF、作用域）。
+
 ## 1.29.1
 
 - 处理 CSS lint warning：`text-decoration` 拆成长属性、去掉 `:has` 已完成的遗留、移除 color/background 的重复 fallback、用 `page-break-inside` 替代 `break-inside`。
