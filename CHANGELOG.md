@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- T0.1：新增 13 个 tokenizer golden fixtures（tests/fixtures/tokenizer/）与 scripts/fixture-runner.mjs，接入 npm test；覆盖关键字、类型、单位、数字、秩区间、括号、注释/注解、坐标串、否定、空输入、CRLF、转义与长输入。
+
 ## 1.31.0
 
 发布日期：2026-11-16

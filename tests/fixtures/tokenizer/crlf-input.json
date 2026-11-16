@@ -1,0 +1,7 @@
+{
+  "name": "crlf-input",
+  "input": "nec\r\nmanis\r\n",
+  "lists": {},
+  "keys": [],
+  "expected": "<span class=\"token keyword\">nec</span>\r\n<span class=\"token word\">manis</span>\r\n"
+}

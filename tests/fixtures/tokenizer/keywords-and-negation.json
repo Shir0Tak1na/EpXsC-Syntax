@@ -1,0 +1,7 @@
+{
+  "name": "keywords-and-negation",
+  "input": "in de pro om post nec ne luss pretium max min plur navis",
+  "lists": {},
+  "keys": [],
+  "expected": "<span class=\"token keyword\">in</span> <span class=\"token keyword\">de</span> <span class=\"token keyword\">pro</span> <span class=\"token keyword\">om</span> <span class=\"token keyword\">post</span> <span class=\"token keyword\">nec</span> <span class=\"token negPrefix\">ne</span> <span class=\"token clause\">luss</span> <span class=\"token pretium\">pretium</span> <span class=\"token degree\">max</span> <span class=\"token degree\">min</span> <span class=\"token predicate\">plur</span> <span class=\"token predicate\">navis</span>"
+}

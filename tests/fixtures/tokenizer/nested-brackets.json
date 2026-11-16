@@ -1,0 +1,7 @@
+{
+  "name": "nested-brackets",
+  "input": "(a [b {c}])",
+  "lists": {},
+  "keys": [],
+  "expected": "<span class=\"token paren\">(</span><span class=\"token word\">a</span> <span class=\"token bracket\">[</span><span class=\"token word\">b</span> <span class=\"token brace\">{</span><span class=\"token word\">c</span><span class=\"token brace\">}</span><span class=\"token bracket\">]</span><span class=\"token paren\">)</span>"
+}

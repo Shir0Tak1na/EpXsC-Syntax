@@ -133,7 +133,7 @@ const issues = core.lint(source, { info, units, keys, spells, path });
 npm install       # 安装 esbuild
 npm run build     # src/main.js -> main.js
 npm run check     # manifest / 语法 / CSS / 片段一致性
-npm test          # 围栏、CRLF、作用域、tokenizer、hover、markup
+npm test          # 行为测试 + tokenizer golden fixtures
 ```
 
 | 路径 | 作用 |

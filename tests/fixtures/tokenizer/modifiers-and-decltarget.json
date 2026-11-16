@@ -1,0 +1,7 @@
+{
+  "name": "modifiers-and-decltarget",
+  "input": "priv x = &zone;\npubl consta total = lit;",
+  "lists": {},
+  "keys": [],
+  "expected": "<span class=\"token modifier\">priv</span> <span class=\"token declTarget\">x</span> <span class=\"token operator\">=</span> <span class=\"token pointer\">&amp;</span><span class=\"token word\">zone</span><span class=\"token punctuation\">;</span>\n<span class=\"token modifier\">publ</span> <span class=\"token modifier\">consta</span> <span class=\"token declTarget\">total</span> <span class=\"token operator\">=</span> <span class=\"token word\">lit</span><span class=\"token punctuation\">;</span>"
+}

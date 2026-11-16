@@ -1,0 +1,14 @@
+{
+  "name": "filters-and-spells",
+  "input": "genus=ordin; intervall(a, b); Foo::bar; class Baz",
+  "lists": {
+    "judge": [
+      "ordin"
+    ]
+  },
+  "keys": [
+    "genus",
+    "intervall"
+  ],
+  "expected": "<span class=\"token filterKey\">genus</span><span class=\"token operator\">=</span><span class=\"token judge\">ordin</span><span class=\"token punctuation\">;</span> <span class=\"token filterKey\">intervall</span><span class=\"token paren\">(</span><span class=\"token word\">a</span><span class=\"token punctuation\">,</span> <span class=\"token word\">b</span><span class=\"token paren\">)</span><span class=\"token punctuation\">;</span> <span class=\"token classUse className\">Foo</span><span class=\"token classOp operator\">::</span><span class=\"token word\">bar</span><span class=\"token punctuation\">;</span> <span class=\"token word\">class</span> <span class=\"token className className\">Baz</span>"
+}

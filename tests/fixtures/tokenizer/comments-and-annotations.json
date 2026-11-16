@@ -1,0 +1,7 @@
+{
+  "name": "comments-and-annotations",
+  "input": "/* comment */\n.annotation line\nvalue",
+  "lists": {},
+  "keys": [],
+  "expected": "<span class=\"token comment\">/* comment */</span>\n<span class=\"token annotation\">.annotation line</span>\n<span class=\"token word\">value</span>"
+}

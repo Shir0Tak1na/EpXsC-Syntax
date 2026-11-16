@@ -1,0 +1,7 @@
+{
+  "name": "types-elements-units",
+  "input": "METOS locus siro intervallum verb littera forma sonus Ert Aqu Flm Wnd Nut Elc Lum Duk Sar Qen MUW EUW MU miteas kigrama m s kg",
+  "lists": {},
+  "keys": [],
+  "expected": "<span class=\"token type\">METOS</span> <span class=\"token type\">locus</span> <span class=\"token type\">siro</span> <span class=\"token type\">intervallum</span> <span class=\"token type\">verb</span> <span class=\"token type\">littera</span> <span class=\"token type\">forma</span> <span class=\"token type\">sonus</span> <span class=\"token element\">Ert</span> <span class=\"token element\">Aqu</span> <span class=\"token element\">Flm</span> <span class=\"token element\">Wnd</span> <span class=\"token element\">Nut</span> <span class=\"token element\">Elc</span> <span class=\"token element\">Lum</span> <span class=\"token element\">Duk</span> <span class=\"token element\">Sar</span> <span class=\"token element\">Qen</span> <span class=\"token unit\">MUW</span> <span class=\"token unit\">EUW</span> <span class=\"token unit\">MU</span> <span class=\"token unit\">miteas</span> <span class=\"token unit\">kigrama</span> <span class=\"token unit\">m</span> <span class=\"token unit\">s</span> <span class=\"token unit\">kg</span>"
+}

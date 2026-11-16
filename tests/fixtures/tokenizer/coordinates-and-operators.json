@@ -1,0 +1,7 @@
+{
+  "name": "coordinates-and-operators",
+  "input": "~ 1 ~ 2 ^ 3 ^ 4 :: += == ...",
+  "lists": {},
+  "keys": [],
+  "expected": "<span class=\"token coordRun\">~ 1 ~ 2</span> <span class=\"token coordRun\">^ 3 ^ 4</span> <span class=\"token classOp operator\">::</span> <span class=\"token operator\">+=</span> <span class=\"token operator\">==</span> <span class=\"token operator\">...</span>"
+}
