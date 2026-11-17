@@ -4,6 +4,12 @@
 > Rules: verify before fixing, test before refactoring, one verifiable boundary at a time.
 > Current release: **1.31.0**（2026-11-16）. At most **one GitHub Release per Asia/Shanghai calendar day**.
 
+## 2.1 / 2.2
+
+- 2.1.0：多语言 T 块、自动翻译、设置页与词库导入。
+- 2.2.0：下划线、编辑器辅助。
+- 详见 [2.1.0-PLAN.md](2.1.0-PLAN.md)。
+
 ## A. Current baseline
 
 - [x] data events: dictionary / syntax / rank / `ROOTS_DIR` / `SPELL_DIR`, `modify/create/delete/rename`, 300ms debounce.
