@@ -76,7 +76,8 @@ function renderOrdBlockInner(el, source, mode, grammar, info, options) {
           sourceLang: 'epxsc',
           targetLanguage: options.requestedLanguage || 'zh-CN',
           lexiconVersion: options.lexiconVersion || '',
-          context: options.translationContext ? options.translationContext(record.src) : ''
+          context: options.translationContext ? options.translationContext(record.src) : '',
+          grammarContext: options.grammarContext || ''
         })).then(function (result) {
           if (!zh.isConnected) return;
           if (result && result.ok) {

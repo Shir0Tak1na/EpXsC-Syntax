@@ -301,6 +301,7 @@ class EpXsCSyntaxPlugin extends Plugin {
     this.grammar = makeGrammar(BASE_LISTS);
     this.info = new Map();
     this.translationLanguage = detectLanguage(this.app);
+    this.translationGrammarContext = DEFAULT_GRAMMAR_CONTEXT;
     this.settings = normalizeSettings(null);
     this.lexiconConflicts = [];
     this.customDictionaryErrors = [];
@@ -323,6 +324,7 @@ class EpXsCSyntaxPlugin extends Plugin {
       self.settings = normalizeSettings(data);
       self.translationLanguage = (self.settings.display.language !== 'auto') ? self.settings.display.language : detectLanguage(self.app);
       self.configureTranslation();
+      self.getGrammarContext().then(function (g) { self.translationGrammarContext = g; });
       self.refresh();
     }).catch(function (err) { console.warn('[EpXsC Syntax] 设置读取失败，使用默认值：', err); });
     this.registerDomEvent(document, 'mouseover', function (ev) {
@@ -593,6 +595,7 @@ class EpXsCSyntaxPlugin extends Plugin {
       autoTranslate: !!(this.settings && this.settings.translation && this.settings.translation.enabled),
       translationService: this.translationService || null,
       lexiconVersion: this.lexiconVersion || '',
+      grammarContext: this.translationGrammarContext || DEFAULT_GRAMMAR_CONTEXT,
       translationContext: (text) => this.getTranslationContext(text)
     };
   }

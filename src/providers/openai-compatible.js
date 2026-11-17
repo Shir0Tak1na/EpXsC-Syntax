@@ -62,7 +62,7 @@ function createOpenAICompatibleProvider(options) {
     const text = String((input && input.text) || '').trim();
     if (!text) return error('EMPTY_SOURCE', '源句为空', false);
     const target = String((input && input.targetLanguage) || 'zh-CN').trim() || 'zh-CN';
-    return chat(buildTranslationMessages({ text: text, targetLanguage: target, context: input && input.context }), input);
+    return chat(buildTranslationMessages({ text: text, targetLanguage: target, context: input && input.context, grammarContext: input && input.grammarContext }), input);
   }
 
   return {

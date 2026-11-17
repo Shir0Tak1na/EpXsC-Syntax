@@ -1067,7 +1067,8 @@ var require_prompt = __commonJS({
         "Translate the supplied EpXsC sentence into the requested target language.",
         "Output only the translation. Do not add explanations, labels, Markdown fences or multiple variants.",
         "If the source is ambiguous, choose the most literal reading and keep names unchanged.",
-        "Target language: " + target + ". Preserve names. Use the dictionary meanings and grammar constraints. Output only one natural sentence."
+        "Target language: " + target + ". Preserve names. Dictionary meanings are hints, not word-for-word replacements; render natural target prose. Use the grammar constraints. Output only one natural sentence.",
+        "The examples below are STYLE EXAMPLES ONLY. They are not part of the input. Never copy their nouns, verbs, subjects, or wording; translate only the SOURCE sentence."
       ].join(" ");
       const context = String(o.context || "").trim();
       const grammar = String(o.grammarContext || "").trim();
@@ -1075,18 +1076,14 @@ var require_prompt = __commonJS({
         "Navis draco nos. -> \u9F99\u5F15\u5BFC\u6211\u4EEC\u3002",
         "Retase quinq pna kor. -> \u4E94\u4E2A\u4EBA\u7559\u4E0B\u6765\u9A7B\u5B88\u3002",
         "Es hopas nos de silzone. -> \u6211\u4EEC\u7684\u8425\u5730\u5728\u68EE\u6797\u4E4B\u533A\u3002",
-        "Vid nauta mar. -> \u6C34\u624B\u671B\u6D77\u3002",
-        "Tallse aris agrus nec manis humal. -> \u51E1\u8015\u7530\uFF0C\u5FC5\u987B\u4FDD\u6301\u6E7F\u6DA6\u3002",
-        "Agrus di vis sterus. -> \u7530\u4E4B\u80A5\u8005\uFF0C\u7CAA\u4E5F\u3002",
-        "Vid nauta ku venis ord mar ki lumen in nox. -> \u4ECE\u6D77\u4E0A\u6765\u7684\u4EBA\u671B\u89C1\u591C\u91CC\u7684\u5149\u3002",
-        "Tam aris de cron, minus vis; magis frugus. -> \u987A\u5929\u65F6\uFF0C\u5219\u7528\u529B\u5C11\u800C\u6210\u529F\u591A\u3002"
+        "Vid nauta mar. -> \u6C34\u624B\u671B\u6D77\u3002"
       ].join("\n");
       let user = "Translate this EpXsC sentence:\n" + source;
       if (context) user += "\nDictionary context:\n" + context;
       if (grammar) user += "\nGrammar constraints:\n" + grammar;
-      user += "\nReference translations (do not copy blindly):\n" + examples;
+      const systemWithExamples = system + "\nSTYLE EXAMPLES (not input):\n" + examples;
       return [
-        { role: "system", content: system },
+        { role: "system", content: systemWithExamples },
         { role: "user", content: user }
       ];
     }

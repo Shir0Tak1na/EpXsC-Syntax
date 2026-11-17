@@ -11,7 +11,8 @@ function buildTranslationMessages(input) {
     'Translate the supplied EpXsC sentence into the requested target language.',
     'Output only the translation. Do not add explanations, labels, Markdown fences or multiple variants.',
     'If the source is ambiguous, choose the most literal reading and keep names unchanged.',
-    'Target language: ' + target + '. Preserve names. Use the dictionary meanings and grammar constraints. Output only one natural sentence.'
+    'Target language: ' + target + '. Preserve names. Dictionary meanings are hints, not word-for-word replacements; render natural target prose. Use the grammar constraints. Output only one natural sentence.',
+    'The examples below are STYLE EXAMPLES ONLY. They are not part of the input. Never copy their nouns, verbs, subjects, or wording; translate only the SOURCE sentence.'
   ].join(' ');
   const context = String(o.context || '').trim();
   const grammar = String(o.grammarContext || '').trim();
@@ -19,18 +20,14 @@ function buildTranslationMessages(input) {
     'Navis draco nos. -> 龙引导我们。',
     'Retase quinq pna kor. -> 五个人留下来驻守。',
     'Es hopas nos de silzone. -> 我们的营地在森林之区。',
-    'Vid nauta mar. -> 水手望海。',
-    'Tallse aris agrus nec manis humal. -> 凡耕田，必须保持湿润。',
-    'Agrus di vis sterus. -> 田之肥者，粪也。',
-    'Vid nauta ku venis ord mar ki lumen in nox. -> 从海上来的人望见夜里的光。',
-    'Tam aris de cron, minus vis; magis frugus. -> 顺天时，则用力少而成功多。'
+    'Vid nauta mar. -> 水手望海。'
   ].join('\n');
   let user = 'Translate this EpXsC sentence:\n' + source;
   if (context) user += '\nDictionary context:\n' + context;
   if (grammar) user += '\nGrammar constraints:\n' + grammar;
-  user += '\nReference translations (do not copy blindly):\n' + examples;
+  const systemWithExamples = system + '\nSTYLE EXAMPLES (not input):\n' + examples;
   return [
-    { role: 'system', content: system },
+    { role: 'system', content: systemWithExamples },
     { role: 'user', content: user }
   ];
 }
