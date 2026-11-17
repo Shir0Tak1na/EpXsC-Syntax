@@ -6,7 +6,7 @@
 ## Build under test
 
 - Version: 2.3.0
-- Build hash / commit: c031731
+- Build hash / commit: 1cecc1b
 - Obsidian version: current installed build (user smoke, 2026-11-17)
 - Platform: Windows
 - Vault: main (user-confirmed)
@@ -33,4 +33,4 @@
 ## Result
 
 - Pass / fail: PASS
-- Notes: user-confirmed on 2026-11-17; stacked diagnostic + token tooltip verified.
+- Notes: user-confirmed on 2026-11-17; stacked diagnostic + token tooltip verified; duplicate native tooltip removed (single custom tooltip).
