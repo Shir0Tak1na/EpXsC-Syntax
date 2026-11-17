@@ -19,7 +19,11 @@ function buildTranslationMessages(input) {
     'Navis draco nos. -> 龙引导我们。',
     'Retase quinq pna kor. -> 五个人留下来驻守。',
     'Es hopas nos de silzone. -> 我们的营地在森林之区。',
-    'Vid nauta mar. -> 水手望海。'
+    'Vid nauta mar. -> 水手望海。',
+    'Tallse aris agrus nec manis humal. -> 凡耕田，必须保持湿润。',
+    'Agrus di vis sterus. -> 田之肥者，粪也。',
+    'Vid nauta ku venis ord mar ki lumen in nox. -> 从海上来的人望见夜里的光。',
+    'Tam aris de cron, minus vis; magis frugus. -> 顺天时，则用力少而成功多。'
   ].join('\n');
   let user = 'Translate this EpXsC sentence:\n' + source;
   if (context) user += '\nDictionary context:\n' + context;
