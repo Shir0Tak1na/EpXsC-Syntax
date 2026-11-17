@@ -4083,14 +4083,55 @@ var require_plugin = __commonJS({
           }
         }
       }
-      /* 词典里查不到的词加一层点线，提示未入典 */
-      markUnknown(code) {
-        const spans = code.querySelectorAll("span.token.word");
+      markUnknownTokens(root) {
+        const spans = root.querySelectorAll("span.token.word");
         for (let i = 0; i < spans.length; i++) {
           const w = (spans[i].textContent || "").toLowerCase();
           if (w.length < 4 || /[0-9]/.test(w)) continue;
           if (this.info.has(w)) continue;
           spans[i].classList.add("epx-unknown");
+        }
+      }
+      markUnknown(code) {
+        this.markUnknownTokens(code);
+      }
+      lintForSource(source, path) {
+        return lintSource(source, { info: this.info, units: this.units, keys: this.keys, spells: this.spells }, path || "");
+      }
+      decorateLint(code, issues) {
+        if (!code || !issues || !issues.length) return;
+        const sourceLines = (code.textContent || "").split("\n").length;
+        const parts = (code.innerHTML || "").split("\n");
+        if (parts.length !== sourceLines) return;
+        const byLine = /* @__PURE__ */ new Map();
+        for (let i = 0; i < issues.length; i++) {
+          const issue = issues[i];
+          const n = Number(issue.line);
+          if (!n || n < 1) continue;
+          if (!byLine.has(n)) byLine.set(n, []);
+          byLine.get(n).push(issue);
+        }
+        code.innerHTML = parts.map(function(html, i) {
+          const n = i + 1;
+          const list = byLine.get(n);
+          const level = list && list.length ? list.some(function(x) {
+            return x.level === "error";
+          }) ? "error" : "warn" : "";
+          const title = list && list.length ? list.map(function(x) {
+            return x.message;
+          }).join("\n") : "";
+          return '<span class="epx-code-line' + (level ? " epx-lint-" + level : "") + '" data-epx-line="' + n + '"' + (title ? ' title="' + title.replace(/"/g, "&quot;") + '"' : "") + ">" + (html || " ") + "</span>";
+        }).join("\n");
+      }
+      decorateOrdLint(el, issues) {
+        if (!el || !issues || !issues.length) return;
+        const lines = el.querySelectorAll(".epx-oline");
+        for (let i = 0; i < issues.length; i++) {
+          const issue = issues[i];
+          const line = lines[Number(issue.line) - 1];
+          if (!line) continue;
+          line.classList.add("epx-lint-" + (issue.level === "error" ? "error" : "warn"));
+          line.title = (line.title ? line.title + "\n" : "") + issue.message;
         }
       }
       /* 自检：当前视图里到底有没有 token、词表读进来没有 */
