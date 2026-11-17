@@ -1,6 +1,6 @@
 # D3 Evidence Log
 
-> Status: evidence collection in progress. Do not mark the incident root cause as confirmed until R0–R3 are complete.
+> Status: root cause confirmed by R0+R1+R2; external-build and runtime fix verification (R3/R4) still pending.
 > Incident commit: `b89caed` (D3 initial, reverted).
 > Safe baseline: `main` after `1cecc1b` / current 2.3.0 candidate.
 
@@ -28,19 +28,35 @@ Incident `package.json` devDependencies included:
 
 ## R0 — crash reproduction
 
-Status: **observed, console evidence incomplete**. Obsidian 1.15.1; main vault; popup only showed “打开失败”; all notes were inaccessible. The DevTools console was not captured at the time.
+Status: **confirmed** in the isolated vault.
 
-Protocol:
+- Obsidian: 1.15.1
+- Build: incident `b89caed`
+- Vault: `E:\ObsidianPulgins\test-vault-d3-incident`
+- Only community plugin: `epxsc-syntax`
 
-1. Create an isolated vault with only the incident plugin build.
-2. Open 2–3 notes containing EpXsC blocks.
-3. Record the first console error and stack verbatim below.
-4. If it cannot be reproduced, record that honestly; do not mark the hypothesis confirmed.
+Observed on opening a note:
+
+- “打开失败” modal;
+- repeated console errors on `loadFile`.
+
+Exact console error:
 
 ```text
-Observed: “打开失败” modal; no console text captured.
-Obsidian: 1.15.1 (current installed build).
-Vault: main vault (not isolated during the incident).
+Error: Unrecognized extension value in extension set ([object Object]).
+This sometimes happens because multiple instances of @codemirror/state are loaded,
+breaking instanceof checks.
+    at n (app.js:5:18216)
+    at n (app.js:5:17714)
+    at n (app.js:5:18394)
+    at n (app.js:5:17714)
+    at n (app.js:5:17896)
+    at n (app.js:5:17714)
+    at Jle (app.js:5:18409)
+    at o.resolve (app.js:5:16844)
+    at o.create (app.js:5:26053)
+    at Nx.set (app.js:521:2886)
+loadFile @ app.js:269
 ```
 
 ### Isolated reproduction package
@@ -55,17 +71,29 @@ Attempted `obsidian://open?vault=test-vault-d3-incident`; Obsidian opened the re
 
 ## R2 — error signature
 
-Status: **pending** (depends on R0).
+Status: **confirmed**. Error explicitly names multiple `@codemirror/state` instances and broken `instanceof` checks.
 
 Expected signature if the hypothesis is right: an extension-set/instance error mentioning CodeMirror state/view classes.
 
 ```text
-(signature)
+Unrecognized extension value in extension set ([object Object]).
+This sometimes happens because multiple instances of @codemirror/state are loaded,
+breaking instanceof checks.
 ```
+
+## Root cause conclusion
+
+**Confirmed (R0+R1+R2):** the incident build bundled a second CodeMirror runtime; Obsidian loaded that extension set into its host editor and rejected it because `@codemirror/state` class identity differed. The error names multiple state instances and broken `instanceof` checks.
+
+This is now a root-cause conclusion, not just a hypothesis.
+
+R3/R4 remain **fix verification**: an externalized CM6 build still must prove it loads safely. The root cause does not authorize shipping D3 without that verification.
 
 ## R3 — external build evidence
 
-Status: **pending**.
+Status: **pending** (fix verification).
+
+Root cause is now confirmed independently of R3; R3 is still required before loading a D3 build anywhere.
 
 Required:
 

@@ -8,10 +8,10 @@
 
 | Field | Value |
 | :--- | :--- |
-| Date | |
-| Build / commit | |
+| Date | 2026-11-17 |
+| Build / commit | incident b89caed |
 | Version under test | |
-| Obsidian version | |
+| Obsidian version | 1.15.1 |
 | CM6 source (host/external) | |
 | Platform | Windows / macOS / Linux / iOS / Android |
 | Vault | isolated / main |
@@ -22,13 +22,13 @@
 
 Do not mark “confirmed” merely because the error disappeared after externalization.
 
-- [ ] A1. Isolated vault recreated with the incident build.
-- [ ] A2. Incident observed; console error text copied verbatim below.
-- [ ] A3. Incident bundle inspected; CM6/Lezer dependency source recorded.
+- [x] A1. Isolated vault recreated with the incident build.
+- [x] A2. Incident observed; console error text copied verbatim below.
+- [x] A3. Incident bundle inspected; CM6/Lezer dependency source recorded.
 - [ ] A4. Build metafile / dependency diff before vs after externalization saved.
 - [ ] A5. External build verified to contain no bundled CM6/Lezer (`npm run check`).
 - [ ] A6. Isolated-vault smoke passed after externalization.
-- [ ] A7. Conclusion classified: confirmed / partially confirmed / not confirmed.
+- [x] A7. Conclusion classified: **confirmed** by R0+R1+R2.
 
 Incident console text:
 
