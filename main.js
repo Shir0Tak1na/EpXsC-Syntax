@@ -4140,7 +4140,7 @@ var require_plugin = __commonJS({
               else warnings += 1;
             }
           }
-          status.setText("EpXsC: " + errors + " \u9519\u8BEF / " + warnings + " \u8B66\u544A");
+          status.textContent = "EpXsC: " + errors + " \u9519\u8BEF / " + warnings + " \u8B66\u544A";
           status.style.display = "";
           status.title = "\u70B9\u51FB\u6253\u5F00\u5F53\u524D\u7B14\u8BB0\u7684 EpXsC \u8BCA\u65AD";
         } catch (e) {

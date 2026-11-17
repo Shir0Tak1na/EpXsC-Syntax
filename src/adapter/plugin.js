@@ -790,7 +790,7 @@ class EpXsCSyntaxPlugin extends Plugin {
           if (found[i].level === 'error') errors += 1; else warnings += 1;
         }
       }
-      status.setText('EpXsC: ' + errors + ' 错误 / ' + warnings + ' 警告');
+      status.textContent = 'EpXsC: ' + errors + ' 错误 / ' + warnings + ' 警告';
       status.style.display = '';
       status.title = '点击打开当前笔记的 EpXsC 诊断';
     } catch (e) {
