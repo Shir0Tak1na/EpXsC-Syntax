@@ -22,7 +22,7 @@
 
 Progress 2026-11-17: F2/F3/F4/F7 complete; Obsidian settings/ribbon smoke passed; **2.1.0 released**. Next: 2.2.0 F5/F6/F8.
 
-Progress 2026-11-17: 2.2.0 F5/F6/F8 complete; version bumped to 2.2.0; release gates pass. Auto translation is opt-in and off by default. Release planned 2026-11-18 (one release per Asia/Shanghai day).
+Progress 2026-11-17: 2.2.0 F5/F6/F8 complete; release candidate on main. 2.3 D1/D2 implemented; D3 reverted after a runtime editor incident. 2.3.0 release is gated on isolated-vault D3 smoke; see [2.3.0-PLAN.md](2.3.0-PLAN.md).
 
 ### 2.2.0 tasks
 
