@@ -325,3 +325,12 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
 @media (max-width: 640px) {
   .epx-ord { padding: 0 0.9em 0.9em !important; }
 }
+
+/* 2.3.0 D2: line-level lint decoration */
+.epx-code-line{display:block;min-height:1em}
+.epx-code-line.epx-lint-error,.epx-code-line.epx-lint-warn{text-decoration-line:underline;text-decoration-style:dashed;text-underline-offset:.18em;text-decoration-thickness:1px}
+.epx-code-line.epx-lint-error{text-decoration-color:var(--color-red)}
+.epx-code-line.epx-lint-warn{text-decoration-color:var(--color-orange)}
+
+.epx-oline.epx-lint-error,.epx-oline.epx-lint-warn{border-bottom:1px dashed var(--color-red)}
+.epx-oline.epx-lint-warn{border-bottom-color:var(--color-orange)}

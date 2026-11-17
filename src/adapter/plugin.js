@@ -386,6 +386,7 @@ class EpXsCSyntaxPlugin extends Plugin {
         pre.appendChild(code);
         el.appendChild(pre);
         self.highlightOne(code);
+        try { self.decorateLint(code, self.lintForSource(source, ctx && ctx.sourcePath)); } catch (e) { /* lint decoration is best-effort */ }
         bindClickToSource(pre, self.app, el, ctx);
       } catch (err) {
         console.warn('[EpXsC Syntax] 代码块渲染失败：', err);
@@ -402,6 +403,10 @@ class EpXsCSyntaxPlugin extends Plugin {
     const ord = function (source, el, ctx, mode) {
       el.__epxOrd = { source: source, mode: mode, ctx: ctx };
       renderOrdBlock(el, source, mode, self.grammar, self.info, self.getTranslationRenderOptions());
+      try {
+        self.markUnknownTokens(el);
+        self.decorateOrdLint(el, self.lintForSource(source, ctx && ctx.sourcePath));
+      } catch (e) { /* best effort */ }
       bindClickToSource(el, self.app, el, ctx);
     };
     const ordG = (source, el, ctx) => ord(source, el, ctx, 'G');

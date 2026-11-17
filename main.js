@@ -1964,8 +1964,17 @@ var require_lint = __commonJS({
     function lintText(text, ctx) {
       const issues = [];
       const lines = text.split("\n");
-      const push = function(level, line, message) {
-        issues.push({ level, line, message });
+      const push = function(level, line, message, start, end) {
+        const content = String(lines[line - 1] || "");
+        let s = Number.isInteger(start) ? start : 0;
+        let e = Number.isInteger(end) ? end : content.length;
+        if (s < 0) s = 0;
+        if (s > content.length) s = content.length;
+        if (e < s) e = s;
+        if (e > content.length) e = content.length;
+        const issue = { level, line, column: s, start: s, end: e, message };
+        if (!Number.isInteger(start) || !Number.isInteger(end)) issue.approximate = true;
+        issues.push(issue);
       };
       const units = ctx && ctx.units || /* @__PURE__ */ new Set();
       const keys = ctx && ctx.keys || /* @__PURE__ */ new Set();
@@ -2000,11 +2009,11 @@ var require_lint = __commonJS({
         }
         for (let c = 0; c < clean.length; c++) {
           const ch = clean.charAt(c);
-          if (ch === "(" || ch === "[" || ch === "{") stack.push({ ch, line: i + 1 });
+          if (ch === "(" || ch === "[" || ch === "{") stack.push({ ch, line: i + 1, column: c });
           else if (ch === ")" || ch === "]" || ch === "}") {
             const top = stack.pop();
-            if (!top) push("error", i + 1, "\u591A\u51FA\u4E00\u4E2A\u300C" + ch + "\u300D\uFF0C\u524D\u9762\u6CA1\u6709\u4E0E\u4E4B\u5BF9\u5E94\u7684\u300C" + pairOf[ch] + "\u300D");
-            else if (top.ch !== pairOf[ch]) push("error", i + 1, "\u62EC\u53F7\u5BF9\u4E0D\u4E0A\uFF1A\u8FD9\u91CC\u662F\u300C" + ch + "\u300D\uFF0C\u4F46\u6700\u8FD1\u672A\u95ED\u5408\u7684\u662F\u300C" + top.ch + "\u300D\uFF08\u7B2C " + top.line + " \u884C\uFF09");
+            if (!top) push("error", i + 1, "\u591A\u51FA\u4E00\u4E2A\u300C" + ch + "\u300D\uFF0C\u524D\u9762\u6CA1\u6709\u4E0E\u4E4B\u5BF9\u5E94\u7684\u300C" + pairOf[ch] + "\u300D", c, c + 1);
+            else if (top.ch !== pairOf[ch]) push("error", i + 1, "\u62EC\u53F7\u5BF9\u4E0D\u4E0A\uFF1A\u8FD9\u91CC\u662F\u300C" + ch + "\u300D\uFF0C\u4F46\u6700\u8FD1\u672A\u95ED\u5408\u7684\u662F\u300C" + top.ch + "\u300D\uFF08\u7B2C " + top.line + " \u884C\uFF09", c, c + 1);
           }
         }
         if (!prose && /:$/.test(clean.replace(/[ \t]+$/, "")) && clean.trim()) {
@@ -2018,7 +2027,7 @@ var require_lint = __commonJS({
           }
         }
       }
-      for (let i = 0; i < stack.length; i++) push("error", stack[i].line, "\u300C" + stack[i].ch + "\u300D\u6CA1\u6709\u95ED\u5408");
+      for (let i = 0; i < stack.length; i++) push("error", stack[i].line, "\u300C" + stack[i].ch + "\u300D\u6CA1\u6709\u95ED\u5408", stack[i].column, stack[i].column + 1);
       if (prose) return issues;
       const lead = function(s) {
         return (s.match(/^[ \t]*/) || [""])[0].length;
@@ -3663,6 +3672,10 @@ var require_plugin = __commonJS({
             pre.appendChild(code);
             el.appendChild(pre);
             self.highlightOne(code);
+            try {
+              self.decorateLint(code, self.lintForSource(source, ctx && ctx.sourcePath));
+            } catch (e) {
+            }
             bindClickToSource(pre, self.app, el, ctx);
           } catch (err) {
             console.warn("[EpXsC Syntax] \u4EE3\u7801\u5757\u6E32\u67D3\u5931\u8D25\uFF1A", err);
@@ -3675,6 +3688,11 @@ var require_plugin = __commonJS({
         const ord = function(source, el, ctx, mode) {
           el.__epxOrd = { source, mode, ctx };
           renderOrdBlock(el, source, mode, self.grammar, self.info, self.getTranslationRenderOptions());
+          try {
+            self.markUnknownTokens(el);
+            self.decorateOrdLint(el, self.lintForSource(source, ctx && ctx.sourcePath));
+          } catch (e) {
+          }
           bindClickToSource(el, self.app, el, ctx);
         };
         const ordG = (source, el, ctx) => ord(source, el, ctx, "G");
