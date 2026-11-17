@@ -953,10 +953,10 @@ var require_settings_tab = __commonJS({
         }));
         containerEl.createEl("h3", { text: "\u7FFB\u8BD1\uFF082.2.0\uFF09" });
         const tr = this.plugin.settings.translation;
-        new Setting(containerEl).setName("\u542F\u7528\u81EA\u52A8\u7FFB\u8BD1").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF1B\u5F00\u542F\u540E\u4EC5\u5728 T \u5757\u7F3A\u5F53\u524D\u8BED\u8A00\u8BD1\u6587\u65F6\u8BF7\u6C42\u672C\u5730\u6A21\u578B\u3002").addToggle((toggle) => toggle.setValue(!!tr.enabled).onChange(async (value) => {
+        new Setting(containerEl).setName("\u542F\u7528\u81EA\u52A8\u7FFB\u8BD1\uFF08\u53EF\u9009\uFF09").setDesc("\u9ED8\u8BA4\u5173\u95ED\u3002\u5F00\u542F\u540E\uFF0CT \u5757\u7F3A\u5F53\u524D\u8BED\u8A00\u8BD1\u6587\u65F6\u4F1A\u8BF7\u6C42\u6A21\u578B\uFF0C\u53EF\u80FD\u5360\u7528 CPU/GPU\uFF1B\u5173\u95ED\u65F6\u4E0D\u4F1A\u53D1\u8D77\u4EFB\u4F55\u7FFB\u8BD1\u8BF7\u6C42\u3002").addToggle((toggle) => toggle.setValue(!!tr.enabled).onChange(async (value) => {
           const was = !!tr.enabled;
           tr.enabled = !!value;
-          if (tr.enabled && !was) new Notice("\u81EA\u52A8\u7FFB\u8BD1\u4F1A\u628A T \u5757\u6E90\u53E5\u53D1\u9001\u5230\u4F60\u914D\u7F6E\u7684 endpoint\uFF1B\u5173\u95ED\u65F6\u4E0D\u4F1A\u53D1\u8D77\u8BF7\u6C42\u3002");
+          if (tr.enabled && !was) new Notice("\u81EA\u52A8\u7FFB\u8BD1\u5DF2\u542F\u7528\uFF1A\u4F1A\u8BF7\u6C42\u6A21\u578B\u5E76\u53EF\u80FD\u5360\u7528 CPU/GPU\uFF1B\u4E0D\u9700\u8981\u65F6\u8BF7\u5173\u95ED\u3002");
           await this.persist();
         }));
         new Setting(containerEl).setName("Base URL").setDesc("\u4F8B\u5982 http://127.0.0.1:11434/v1\uFF1B\u975E\u56DE\u73AF\u5730\u5740\u5FC5\u987B HTTPS\u3002").addText((text) => text.setPlaceholder("http://127.0.0.1:11434/v1").setValue(tr.provider.baseUrl || "").onChange(async (value) => {

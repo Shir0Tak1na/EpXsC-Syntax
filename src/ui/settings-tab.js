@@ -95,12 +95,12 @@ class EpXsSettingsTab extends PluginSettingTab {
     containerEl.createEl('h3', { text: '翻译（2.2.0）' });
     const tr = this.plugin.settings.translation;
     new Setting(containerEl)
-      .setName('启用自动翻译')
-      .setDesc('默认关闭；开启后仅在 T 块缺当前语言译文时请求本地模型。')
+      .setName('启用自动翻译（可选）')
+      .setDesc('默认关闭。开启后，T 块缺当前语言译文时会请求模型，可能占用 CPU/GPU；关闭时不会发起任何翻译请求。')
       .addToggle((toggle) => toggle.setValue(!!tr.enabled).onChange(async (value) => {
         const was = !!tr.enabled;
         tr.enabled = !!value;
-        if (tr.enabled && !was) new Notice('自动翻译会把 T 块源句发送到你配置的 endpoint；关闭时不会发起请求。');
+        if (tr.enabled && !was) new Notice('自动翻译已启用：会请求模型并可能占用 CPU/GPU；不需要时请关闭。');
         await this.persist();
       }));
 
