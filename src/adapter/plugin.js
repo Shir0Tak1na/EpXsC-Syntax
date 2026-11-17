@@ -306,6 +306,7 @@ function detectLanguage(app) {
 class EpXsCSyntaxPlugin extends Plugin {
   onload() {
     const self = this;
+    new Notice('D3 spike：插件 onload 已执行');
     this.grammar = makeGrammar(BASE_LISTS);
     this.info = new Map();
     this.translationLanguage = detectLanguage(this.app);

@@ -3632,6 +3632,7 @@ var require_plugin = __commonJS({
     var EpXsCSyntaxPlugin = class extends Plugin2 {
       onload() {
         const self = this;
+        new Notice("D3 spike\uFF1A\u63D2\u4EF6 onload \u5DF2\u6267\u884C");
         this.grammar = makeGrammar(BASE_LISTS);
         this.info = /* @__PURE__ */ new Map();
         this.translationLanguage = detectLanguage(this.app);
