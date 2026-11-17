@@ -10,13 +10,16 @@
  *           词典一改、颜色跟着改；读不到就退回下面的内置词表（两者取并集，内置的不会被顶掉）。
  */
 
-const { Plugin, TFile, TFolder, Notice, MarkdownView } = require('obsidian');
+const { Plugin, TFile, TFolder, Notice, MarkdownView, requestUrl } = require('obsidian');
 const { extractEpXsCBlocks } = require('../core/markdown-blocks.js');
 const { loadBuiltinLexicon } = require('../data/lexicon.js');
 const { RefreshScheduler } = require('../services/refresh-scheduler.js');
 const { buildLexiconSnapshot } = require('../services/lexicon-service.js');
 const { normalizeSettings } = require('../core/settings.js');
 const { EpXsSettingsTab } = require('../ui/settings-tab.js');
+const { createOpenAICompatibleProvider } = require('../providers/openai-compatible.js');
+const { createTranslationService } = require('../services/translation-service.js');
+const { normalizeProviderConfig, validateProviderConfig } = require('../core/translation/request.js');
 const { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require('../core/markup.js');
 const { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require('../core/grammar.js');
 const { tokenizeText } = require('../core/tokenizer.js');
@@ -311,6 +314,7 @@ class EpXsCSyntaxPlugin extends Plugin {
     this.loadData().then(function (data) {
       self.settings = normalizeSettings(data);
       self.translationLanguage = (self.settings.display.language !== 'auto') ? self.settings.display.language : detectLanguage(self.app);
+      self.configureTranslation();
       self.refresh();
     }).catch(function (err) { console.warn('[EpXsC Syntax] 设置读取失败，使用默认值：', err); });
     this.registerDomEvent(document, 'mouseover', function (ev) {
@@ -387,10 +391,7 @@ class EpXsCSyntaxPlugin extends Plugin {
        TypeError（表现为代码块显示「渲染错误」）。 */
     const ord = function (source, el, ctx, mode) {
       el.__epxOrd = { source: source, mode: mode, ctx: ctx };
-      renderOrdBlock(el, source, mode, self.grammar, self.info, {
-        requestedLanguage: self.getRequestedLanguage(),
-        fallbackLanguage: self.getFallbackLanguage()
-      });
+      renderOrdBlock(el, source, mode, self.grammar, self.info, self.getTranslationRenderOptions());
       bindClickToSource(el, self.app, el, ctx);
     };
     const ordG = (source, el, ctx) => ord(source, el, ctx, 'G');
@@ -442,7 +443,52 @@ class EpXsCSyntaxPlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
+    this.configureTranslation();
     await this.refresh();
+  }
+
+  configureTranslation() {
+    const tr = this.settings && this.settings.translation;
+    if (!tr || tr.enabled !== true) {
+      this.translationService = null;
+      this.translationConfigError = '';
+      return false;
+    }
+    const cfg = normalizeProviderConfig(tr.provider);
+    const check = validateProviderConfig(cfg);
+    if (!check.ok) {
+      this.translationService = null;
+      this.translationConfigError = check.message;
+      return false;
+    }
+    const self = this;
+    const provider = createOpenAICompatibleProvider({
+      config: cfg,
+      request: async function (req) {
+        const res = await requestUrl({ url: req.url, method: req.method, headers: req.headers, body: req.body, throw: false });
+        return { status: res.status, json: res.json, text: res.text };
+      }
+    });
+    this.translationService = createTranslationService({ provider: provider, timeoutMs: cfg.timeoutMs });
+    this.translationConfigError = '';
+    return true;
+  }
+
+  getTranslationRenderOptions() {
+    return {
+      requestedLanguage: this.getRequestedLanguage(),
+      fallbackLanguage: this.getFallbackLanguage(),
+      autoTranslate: !!(this.settings && this.settings.translation && this.settings.translation.enabled),
+      translationService: this.translationService || null,
+      lexiconVersion: this.lexiconVersion || ''
+    };
+  }
+
+  async testTranslation() {
+    if (!this.configureTranslation() || !this.translationService) {
+      return { ok: false, error: { code: 'NOT_CONFIGURED', message: this.translationConfigError || '翻译未启用或配置不完整' } };
+    }
+    return await this.translationService.translate({ text: 'Plur Aqua', sourceLang: 'epxsc', targetLanguage: this.getRequestedLanguage() || 'zh-CN', lexiconVersion: this.lexiconVersion || '' });
   }
 
   async openSettings() {
@@ -519,6 +565,7 @@ class EpXsCSyntaxPlugin extends Plugin {
 
     this.spells = snapshot.spells;
     spellRegistry = snapshot.spells;
+    this.lexiconVersion = snapshot.lexiconVersion || '';
     this.info = snapshot.info;
     this.ranks = snapshot.ranks;
     this.roots = snapshot.roots;
@@ -630,10 +677,7 @@ class EpXsCSyntaxPlugin extends Plugin {
       const rec = el && el.__epxOrd;
       if (!rec) continue;
       try {
-        renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info, {
-          requestedLanguage: this.getRequestedLanguage(),
-          fallbackLanguage: this.getFallbackLanguage()
-        });
+        renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info, this.getTranslationRenderOptions());
         bindClickToSource(el, this.app, el, rec.ctx);
       } catch (e) { /* keep previous render */ }
     }

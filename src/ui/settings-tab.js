@@ -92,6 +92,86 @@ class EpXsSettingsTab extends PluginSettingTab {
         await this.persist();
       }));
 
+    containerEl.createEl('h3', { text: '翻译（2.2.0）' });
+    const tr = this.plugin.settings.translation;
+    new Setting(containerEl)
+      .setName('启用自动翻译')
+      .setDesc('默认关闭；开启后仅在 T 块缺当前语言译文时请求本地模型。')
+      .addToggle((toggle) => toggle.setValue(!!tr.enabled).onChange(async (value) => {
+        tr.enabled = !!value;
+        await this.persist();
+      }));
+
+    new Setting(containerEl)
+      .setName('Base URL')
+      .setDesc('例如 http://127.0.0.1:11434/v1；非回环地址必须 HTTPS。')
+      .addText((text) => text.setPlaceholder('http://127.0.0.1:11434/v1').setValue(tr.provider.baseUrl || '').onChange(async (value) => {
+        tr.provider.baseUrl = String(value || '').trim();
+        this.scheduleSave();
+      }));
+
+    new Setting(containerEl)
+      .setName('Endpoint')
+      .setDesc('相对 endpoint 会拼接 Base URL；也可填写完整 URL。')
+      .addText((text) => text.setValue(tr.provider.endpoint || '/chat/completions').onChange(async (value) => {
+        tr.provider.endpoint = String(value || '').trim();
+        this.scheduleSave();
+      }));
+
+    new Setting(containerEl)
+      .setName('Model')
+      .addText((text) => text.setPlaceholder('模型名称').setValue(tr.provider.model || '').onChange(async (value) => {
+        tr.provider.model = String(value || '').trim();
+        this.scheduleSave();
+      }));
+
+    new Setting(containerEl)
+      .setName('API Key')
+      .setDesc('只保存在插件 data.json；不要使用带高权限的长期令牌。')
+      .addText((text) => {
+        text.inputEl.type = 'password';
+        text.setValue(tr.provider.apiKey || '').onChange(async (value) => {
+          tr.provider.apiKey = String(value || '');
+          this.scheduleSave();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('Headers')
+      .setDesc('JSON 对象；与内置 Content-Type 合并。')
+      .addTextArea((text) => {
+        text.inputEl.rows = 3;
+        text.inputEl.style.width = '100%';
+        text.setValue(JSON.stringify(tr.provider.headers || {}, null, 2)).onChange(async (value) => {
+          try {
+            const parsed = JSON.parse(String(value || '{}'));
+            tr.provider.headers = parsed && typeof parsed === 'object' ? parsed : {};
+            this.scheduleSave();
+          } catch (e) { /* keep last valid headers */ }
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('参数')
+      .setDesc('timeoutMs / maxTokens / temperature')
+      .addText((text) => text.setValue(String(tr.provider.timeoutMs || 30000)).onChange((value) => {
+        tr.provider.timeoutMs = Number(value) || 30000; this.scheduleSave();
+      }))
+      .addText((text) => text.setValue(String(tr.provider.maxTokens || 2048)).onChange((value) => {
+        tr.provider.maxTokens = Number(value) || 2048; this.scheduleSave();
+      }))
+      .addText((text) => text.setValue(String(tr.provider.temperature === undefined ? 0.3 : tr.provider.temperature)).onChange((value) => {
+        tr.provider.temperature = Number(value); this.scheduleSave();
+      }));
+
+    new Setting(containerEl)
+      .setName('测试连接')
+      .setDesc('只在你点击时发起一次请求，不保存测试结果。')
+      .addButton((btn) => btn.setButtonText('测试').onClick(async () => {
+        const result = await this.plugin.testTranslation();
+        new Notice(result && result.ok ? '翻译连接成功' : '翻译失败：' + (result && result.error ? result.error.message : '未知错误'));
+      }));
+
     containerEl.createEl('h3', { text: '诊断' });
     new Setting(containerEl)
       .setName('词条统计')

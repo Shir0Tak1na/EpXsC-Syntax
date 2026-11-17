@@ -691,9 +691,136 @@ var require_lexicon_service = __commonJS({
       info.forEach(function(v, k) {
         if (v.pos === "\u7B5B\u9009\u952E") keys.add(String(k).toLowerCase());
       });
-      return { info, roots, ranks, units, keys, lists, spells, keyWords, dictionaryConflicts: merged.conflicts, customDictionaryErrors: customErrors };
+      return { info, roots, ranks, units, keys, lists, spells, keyWords, lexiconVersion: builtin && builtin.lexiconVersion || "", dictionaryConflicts: merged.conflicts, customDictionaryErrors: customErrors };
     }
     module2.exports = { buildLexiconSnapshot, builtinLists };
+  }
+});
+
+// src/core/translation/request.js
+var require_request = __commonJS({
+  "src/core/translation/request.js"(exports2, module2) {
+    "use strict";
+    var DEFAULT_PROVIDER = {
+      type: "openai-compatible",
+      baseUrl: "",
+      endpoint: "/chat/completions",
+      model: "",
+      headers: {},
+      apiKey: "",
+      timeoutMs: 3e4,
+      maxTokens: 2048,
+      temperature: 0.3
+    };
+    function normalizeHeaders(headers) {
+      const out = {};
+      if (!headers || typeof headers !== "object") return out;
+      for (const key in headers) {
+        if (!Object.prototype.hasOwnProperty.call(headers, key)) continue;
+        const value = headers[key];
+        if (value === void 0 || value === null) continue;
+        out[String(key)] = String(value);
+      }
+      return out;
+    }
+    function normalizeProviderConfig(input) {
+      const v = input && typeof input === "object" ? input : {};
+      return {
+        type: String(v.type || DEFAULT_PROVIDER.type),
+        baseUrl: String(v.baseUrl || "").trim(),
+        endpoint: String(v.endpoint || DEFAULT_PROVIDER.endpoint).trim(),
+        model: String(v.model || "").trim(),
+        headers: normalizeHeaders(v.headers),
+        apiKey: String(v.apiKey || ""),
+        timeoutMs: Number(v.timeoutMs) > 0 ? Number(v.timeoutMs) : DEFAULT_PROVIDER.timeoutMs,
+        maxTokens: Number(v.maxTokens) > 0 ? Math.floor(Number(v.maxTokens)) : DEFAULT_PROVIDER.maxTokens,
+        temperature: Number.isFinite(Number(v.temperature)) ? Number(v.temperature) : DEFAULT_PROVIDER.temperature
+      };
+    }
+    function isLoopback(host) {
+      return host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1";
+    }
+    function validateProviderConfig(input) {
+      const cfg = normalizeProviderConfig(input);
+      if (cfg.type !== "openai-compatible") return { ok: false, code: "UNSUPPORTED_PROVIDER", message: "\u4E0D\u652F\u6301\u7684 Provider \u7C7B\u578B" };
+      if (!cfg.baseUrl) return { ok: false, code: "MISSING_BASE_URL", message: "\u7F3A\u5C11 Base URL" };
+      if (!cfg.model) return { ok: false, code: "MISSING_MODEL", message: "\u7F3A\u5C11\u6A21\u578B\u540D\u79F0" };
+      let url;
+      try {
+        url = new URL(cfg.baseUrl);
+      } catch (e) {
+        return { ok: false, code: "INVALID_BASE_URL", message: "Base URL \u4E0D\u662F\u5408\u6CD5 URL" };
+      }
+      if (url.protocol !== "http:" && url.protocol !== "https:") return { ok: false, code: "INVALID_PROTOCOL", message: "\u53EA\u5141\u8BB8 http \u6216 https" };
+      if (url.protocol === "http:" && !isLoopback(url.hostname)) return { ok: false, code: "HTTPS_REQUIRED", message: "\u975E\u56DE\u73AF\u5730\u5740\u5FC5\u987B\u4F7F\u7528 HTTPS" };
+      try {
+        resolveEndpoint(cfg.baseUrl, cfg.endpoint);
+      } catch (e) {
+        return { ok: false, code: "INVALID_ENDPOINT", message: e.message };
+      }
+      return { ok: true, config: cfg };
+    }
+    function resolveEndpoint(baseUrl, endpoint) {
+      const base = String(baseUrl || "").trim().replace(/\/+$/, "");
+      const ep = String(endpoint || "").trim();
+      if (!ep) throw new Error("endpoint \u4E0D\u80FD\u4E3A\u7A7A");
+      if (/^https?:\/\//i.test(ep)) {
+        try {
+          new URL(ep);
+        } catch (e) {
+          throw new Error("endpoint \u4E0D\u662F\u5408\u6CD5 URL");
+        }
+        return ep;
+      }
+      if (!base) throw new Error("baseUrl \u4E0D\u80FD\u4E3A\u7A7A");
+      try {
+        new URL(base);
+      } catch (e) {
+        throw new Error("baseUrl \u4E0D\u662F\u5408\u6CD5 URL");
+      }
+      const joined = base + "/" + ep.replace(/^\/+/, "");
+      if (/\/v1\/v1\//.test(joined)) throw new Error("endpoint \u4E0E baseUrl \u91CD\u590D\u4E86 /v1 \u6BB5");
+      return joined;
+    }
+    function translationKey(parts) {
+      const p = parts || {};
+      const source = String(p.source || "").replace(/\r/g, "").replace(/[ \t]+/g, " ").trim();
+      let h = 2166136261;
+      for (let i = 0; i < source.length; i++) {
+        h ^= source.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      const sourceHash = ("00000000" + (h >>> 0).toString(16)).slice(-8);
+      const fp = p.providerFingerprint || {};
+      return JSON.stringify({
+        sourceHash,
+        sourceLang: p.sourceLang || "",
+        targetLang: p.targetLang || "",
+        lexiconVersion: p.lexiconVersion || "",
+        providerType: fp.type || "",
+        baseUrlOrigin: fp.baseUrlOrigin || "",
+        endpoint: fp.endpoint || "",
+        model: fp.model || "",
+        promptVersion: fp.promptVersion || ""
+      });
+    }
+    function providerFingerprint(config, promptVersion) {
+      const cfg = normalizeProviderConfig(config);
+      let origin = "";
+      try {
+        origin = new URL(cfg.baseUrl).origin;
+      } catch (e) {
+        origin = cfg.baseUrl;
+      }
+      return {
+        type: cfg.type,
+        baseUrlOrigin: origin,
+        endpoint: cfg.endpoint,
+        model: cfg.model,
+        promptVersion: promptVersion || "v1"
+      };
+    }
+    module2.exports = { DEFAULT_PROVIDER, normalizeProviderConfig, validateProviderConfig, resolveEndpoint, translationKey, providerFingerprint, isLoopback };
   }
 });
 
@@ -701,10 +828,15 @@ var require_lexicon_service = __commonJS({
 var require_settings = __commonJS({
   "src/core/settings.js"(exports2, module2) {
     "use strict";
+    var { DEFAULT_PROVIDER, normalizeProviderConfig } = require_request();
     var DEFAULT_SETTINGS = {
       schemaVersion: 1,
       lexicon: { customPaths: [] },
-      display: { language: "auto", fallbackLanguage: "" }
+      display: { language: "auto", fallbackLanguage: "" },
+      translation: {
+        enabled: false,
+        provider: Object.assign({}, DEFAULT_PROVIDER)
+      }
     };
     function normalizePaths(input) {
       const out = [];
@@ -722,6 +854,7 @@ var require_settings = __commonJS({
       const d = data && typeof data === "object" ? data : {};
       const lexicon = d.lexicon && typeof d.lexicon === "object" ? d.lexicon : {};
       const display = d.display && typeof d.display === "object" ? d.display : {};
+      const translation = d.translation && typeof d.translation === "object" ? d.translation : {};
       const language = String(display.language || "auto").trim() || "auto";
       const fallback = String(display.fallbackLanguage || "").trim();
       return {
@@ -730,6 +863,10 @@ var require_settings = __commonJS({
         display: {
           language: language === "auto" ? "auto" : language,
           fallbackLanguage: fallback
+        },
+        translation: {
+          enabled: translation.enabled === true,
+          provider: normalizeProviderConfig(translation.provider)
         }
       };
     }
@@ -812,6 +949,57 @@ var require_settings_tab = __commonJS({
           this.plugin.settings.display.fallbackLanguage = String(value || "").trim();
           await this.persist();
         }));
+        containerEl.createEl("h3", { text: "\u7FFB\u8BD1\uFF082.2.0\uFF09" });
+        const tr = this.plugin.settings.translation;
+        new Setting(containerEl).setName("\u542F\u7528\u81EA\u52A8\u7FFB\u8BD1").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF1B\u5F00\u542F\u540E\u4EC5\u5728 T \u5757\u7F3A\u5F53\u524D\u8BED\u8A00\u8BD1\u6587\u65F6\u8BF7\u6C42\u672C\u5730\u6A21\u578B\u3002").addToggle((toggle) => toggle.setValue(!!tr.enabled).onChange(async (value) => {
+          tr.enabled = !!value;
+          await this.persist();
+        }));
+        new Setting(containerEl).setName("Base URL").setDesc("\u4F8B\u5982 http://127.0.0.1:11434/v1\uFF1B\u975E\u56DE\u73AF\u5730\u5740\u5FC5\u987B HTTPS\u3002").addText((text) => text.setPlaceholder("http://127.0.0.1:11434/v1").setValue(tr.provider.baseUrl || "").onChange(async (value) => {
+          tr.provider.baseUrl = String(value || "").trim();
+          this.scheduleSave();
+        }));
+        new Setting(containerEl).setName("Endpoint").setDesc("\u76F8\u5BF9 endpoint \u4F1A\u62FC\u63A5 Base URL\uFF1B\u4E5F\u53EF\u586B\u5199\u5B8C\u6574 URL\u3002").addText((text) => text.setValue(tr.provider.endpoint || "/chat/completions").onChange(async (value) => {
+          tr.provider.endpoint = String(value || "").trim();
+          this.scheduleSave();
+        }));
+        new Setting(containerEl).setName("Model").addText((text) => text.setPlaceholder("\u6A21\u578B\u540D\u79F0").setValue(tr.provider.model || "").onChange(async (value) => {
+          tr.provider.model = String(value || "").trim();
+          this.scheduleSave();
+        }));
+        new Setting(containerEl).setName("API Key").setDesc("\u53EA\u4FDD\u5B58\u5728\u63D2\u4EF6 data.json\uFF1B\u4E0D\u8981\u4F7F\u7528\u5E26\u9AD8\u6743\u9650\u7684\u957F\u671F\u4EE4\u724C\u3002").addText((text) => {
+          text.inputEl.type = "password";
+          text.setValue(tr.provider.apiKey || "").onChange(async (value) => {
+            tr.provider.apiKey = String(value || "");
+            this.scheduleSave();
+          });
+        });
+        new Setting(containerEl).setName("Headers").setDesc("JSON \u5BF9\u8C61\uFF1B\u4E0E\u5185\u7F6E Content-Type \u5408\u5E76\u3002").addTextArea((text) => {
+          text.inputEl.rows = 3;
+          text.inputEl.style.width = "100%";
+          text.setValue(JSON.stringify(tr.provider.headers || {}, null, 2)).onChange(async (value) => {
+            try {
+              const parsed = JSON.parse(String(value || "{}"));
+              tr.provider.headers = parsed && typeof parsed === "object" ? parsed : {};
+              this.scheduleSave();
+            } catch (e) {
+            }
+          });
+        });
+        new Setting(containerEl).setName("\u53C2\u6570").setDesc("timeoutMs / maxTokens / temperature").addText((text) => text.setValue(String(tr.provider.timeoutMs || 3e4)).onChange((value) => {
+          tr.provider.timeoutMs = Number(value) || 3e4;
+          this.scheduleSave();
+        })).addText((text) => text.setValue(String(tr.provider.maxTokens || 2048)).onChange((value) => {
+          tr.provider.maxTokens = Number(value) || 2048;
+          this.scheduleSave();
+        })).addText((text) => text.setValue(String(tr.provider.temperature === void 0 ? 0.3 : tr.provider.temperature)).onChange((value) => {
+          tr.provider.temperature = Number(value);
+          this.scheduleSave();
+        }));
+        new Setting(containerEl).setName("\u6D4B\u8BD5\u8FDE\u63A5").setDesc("\u53EA\u5728\u4F60\u70B9\u51FB\u65F6\u53D1\u8D77\u4E00\u6B21\u8BF7\u6C42\uFF0C\u4E0D\u4FDD\u5B58\u6D4B\u8BD5\u7ED3\u679C\u3002").addButton((btn) => btn.setButtonText("\u6D4B\u8BD5").onClick(async () => {
+          const result = await this.plugin.testTranslation();
+          new Notice(result && result.ok ? "\u7FFB\u8BD1\u8FDE\u63A5\u6210\u529F" : "\u7FFB\u8BD1\u5931\u8D25\uFF1A" + (result && result.error ? result.error.message : "\u672A\u77E5\u9519\u8BEF"));
+        }));
         containerEl.createEl("h3", { text: "\u8BCA\u65AD" });
         new Setting(containerEl).setName("\u8BCD\u6761\u7EDF\u8BA1").setDesc("\u5F53\u524D\u8BCD\u6761 " + this.plugin.info.size + " \xB7 \u8BCD\u6839 " + this.plugin.roots.size + " \xB7 \u81EA\u5B9A\u4E49\u51B2\u7A81 " + this.plugin.lexiconConflicts.length).addButton((btn) => btn.setButtonText("\u91CD\u65B0\u8F7D\u5165").onClick(async () => {
           await this.plugin.refresh();
@@ -854,6 +1042,224 @@ var require_settings_tab = __commonJS({
       }
     };
     module2.exports = { EpXsSettingsTab };
+  }
+});
+
+// src/core/translation/prompt.js
+var require_prompt = __commonJS({
+  "src/core/translation/prompt.js"(exports2, module2) {
+    "use strict";
+    var PROMPT_VERSION = "epxsc-translation-v1";
+    function buildTranslationMessages(input) {
+      const o = input || {};
+      const target = o.targetLanguage || "zh-CN";
+      const source = String(o.text || "");
+      const system = [
+        "You are a careful translator for the constructed language EpXsC (Expaulxsirian Construct).",
+        "Translate the supplied EpXsC sentence into the requested target language.",
+        "Output only the translation. Do not add explanations, labels, Markdown fences or multiple variants.",
+        "If the source is ambiguous, choose the most literal reading and keep names unchanged.",
+        "Target language: " + target + "."
+      ].join(" ");
+      const user = "Translate this EpXsC sentence:\n" + source;
+      return [
+        { role: "system", content: system },
+        { role: "user", content: user }
+      ];
+    }
+    function cleanModelText(text) {
+      let s = String(text || "").trim();
+      s = s.replace(/^\x60{3}[^\n]*\n?/, "").replace(/\n?\x60{3}$/, "").trim();
+      s = s.replace(/^["'\u201c\u201d]+|["'\u201c\u201d]+$/g, "").trim();
+      return s;
+    }
+    module2.exports = { PROMPT_VERSION, buildTranslationMessages, cleanModelText };
+  }
+});
+
+// src/providers/openai-compatible.js
+var require_openai_compatible = __commonJS({
+  "src/providers/openai-compatible.js"(exports2, module2) {
+    "use strict";
+    var { validateProviderConfig, resolveEndpoint, normalizeProviderConfig, providerFingerprint } = require_request();
+    var { PROMPT_VERSION, buildTranslationMessages, cleanModelText } = require_prompt();
+    function error(code, message, retryable) {
+      return { ok: false, error: { code, message, retryable: !!retryable } };
+    }
+    function createOpenAICompatibleProvider(options) {
+      const opts = options || {};
+      const rawConfig = opts.config || {};
+      const config = normalizeProviderConfig(rawConfig);
+      const request = opts.request;
+      const promptVersion = opts.promptVersion || PROMPT_VERSION;
+      const fingerprint = providerFingerprint(config, promptVersion);
+      async function translate(input) {
+        const v = validateProviderConfig(config);
+        if (!v.ok) return error(v.code, v.message, false);
+        if (typeof request !== "function") return error("MISSING_TRANSPORT", "\u6CA1\u6709\u53EF\u7528\u7684 HTTP \u4F20\u8F93\u5C42", false);
+        const text = String(input && input.text || "").trim();
+        if (!text) return error("EMPTY_SOURCE", "\u6E90\u53E5\u4E3A\u7A7A", false);
+        const target = String(input && input.targetLanguage || "zh-CN").trim() || "zh-CN";
+        const headers = Object.assign({ "Content-Type": "application/json" }, config.headers || {});
+        if (config.apiKey) headers.Authorization = "Bearer " + config.apiKey;
+        const payload = {
+          model: config.model,
+          messages: buildTranslationMessages({ text, targetLanguage: target }),
+          temperature: config.temperature,
+          max_tokens: config.maxTokens,
+          stream: false
+        };
+        let res;
+        try {
+          res = await request({
+            url: resolveEndpoint(config.baseUrl, config.endpoint),
+            method: "POST",
+            headers,
+            body: JSON.stringify(payload),
+            signal: input && input.signal
+          });
+        } catch (e) {
+          return error("REQUEST_FAILED", String(e && e.message || e), true);
+        }
+        if (!res) return error("EMPTY_RESPONSE", "\u6A21\u578B\u6CA1\u6709\u8FD4\u56DE\u54CD\u5E94", true);
+        if (res.status === 401 || res.status === 403) return error("AUTH_FAILED", "\u8BA4\u8BC1\u5931\u8D25\uFF08HTTP " + res.status + "\uFF09", false);
+        if (res.status === 429) return error("RATE_LIMITED", "\u8BF7\u6C42\u8FC7\u4E8E\u9891\u7E41\uFF08HTTP 429\uFF09", true);
+        if (res.status < 200 || res.status >= 300) return error("HTTP_ERROR", "\u6A21\u578B\u8FD4\u56DE HTTP " + res.status, res.status >= 500);
+        let data = res.json;
+        if (!data && res.text) {
+          try {
+            data = JSON.parse(res.text);
+          } catch (e) {
+            return error("INVALID_JSON", "\u6A21\u578B\u54CD\u5E94\u4E0D\u662F JSON", true);
+          }
+        }
+        const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+        const textOut = cleanModelText(typeof content === "string" ? content : "");
+        if (!textOut) return error("EMPTY_CONTENT", "\u6A21\u578B\u8FD4\u56DE\u7A7A\u8BD1\u6587", true);
+        return { ok: true, text: textOut };
+      }
+      return {
+        id: "openai-compatible",
+        label: "OpenAI-compatible",
+        fingerprint,
+        capabilities: {
+          temperature: true,
+          maxTokens: true,
+          streaming: false,
+          cancel: "logical",
+          structuredOutput: false
+        },
+        config,
+        translate
+      };
+    }
+    module2.exports = { createOpenAICompatibleProvider };
+  }
+});
+
+// src/services/translation-service.js
+var require_translation_service = __commonJS({
+  "src/services/translation-service.js"(exports2, module2) {
+    "use strict";
+    var { translationKey, providerFingerprint } = require_request();
+    function cancelled() {
+      return { ok: false, error: { code: "CANCELLED", message: "\u7FFB\u8BD1\u5DF2\u53D6\u6D88", retryable: false } };
+    }
+    function createTranslationService(options) {
+      const opts = options || {};
+      const provider = opts.provider || null;
+      const cacheLimit = Number(opts.cacheLimit) > 0 ? Math.floor(Number(opts.cacheLimit)) : 256;
+      const timeoutMs = Number(opts.timeoutMs) > 0 ? Number(opts.timeoutMs) : 3e4;
+      const cache = /* @__PURE__ */ new Map();
+      const inflight = /* @__PURE__ */ new Map();
+      let epoch = 0;
+      function cacheGet(key) {
+        if (!cache.has(key)) return null;
+        const value = cache.get(key);
+        cache.delete(key);
+        cache.set(key, value);
+        return value;
+      }
+      function cacheSet(key, value) {
+        if (cache.has(key)) cache.delete(key);
+        cache.set(key, value);
+        while (cache.size > cacheLimit) {
+          const first = cache.keys().next().value;
+          cache.delete(first);
+        }
+      }
+      function clear() {
+        cache.clear();
+        inflight.clear();
+        epoch += 1;
+      }
+      function cancelAll() {
+        epoch += 1;
+        inflight.clear();
+      }
+      function withTimeout(promise, ms) {
+        let timer = null;
+        const timeout = new Promise(function(resolve) {
+          timer = setTimeout(function() {
+            resolve({ ok: false, error: { code: "TIMEOUT", message: "\u7FFB\u8BD1\u8BF7\u6C42\u8D85\u65F6", retryable: true } });
+          }, ms);
+        });
+        return Promise.race([promise, timeout]).finally(function() {
+          if (timer) clearTimeout(timer);
+        });
+      }
+      async function translate(input) {
+        const optsIn = input || {};
+        if (!provider) return { ok: false, error: { code: "NO_PROVIDER", message: "\u672A\u914D\u7F6E\u7FFB\u8BD1\u6A21\u578B", retryable: false } };
+        const source = String(optsIn.text || "").trim();
+        if (!source) return { ok: false, error: { code: "EMPTY_SOURCE", message: "\u6E90\u53E5\u4E3A\u7A7A", retryable: false } };
+        const key = translationKey({
+          source,
+          sourceLang: optsIn.sourceLang || "epxsc",
+          targetLang: optsIn.targetLanguage || optsIn.targetLang || "zh-CN",
+          lexiconVersion: optsIn.lexiconVersion || "",
+          providerFingerprint: optsIn.providerFingerprint || provider.fingerprint
+        });
+        const hit = cacheGet(key);
+        if (hit) return { ok: true, text: hit.text, cached: true };
+        if (inflight.has(key)) return await inflight.get(key);
+        const startEpoch = epoch;
+        const promise = withTimeout(provider.translate({
+          text: source,
+          sourceLang: optsIn.sourceLang || "epxsc",
+          targetLanguage: optsIn.targetLanguage || optsIn.targetLang || "zh-CN",
+          signal: optsIn.signal
+        }), timeoutMs).then(function(result) {
+          if (startEpoch !== epoch) return cancelled();
+          if (result && result.ok) cacheSet(key, { text: result.text });
+          return result;
+        }).catch(function(err) {
+          return { ok: false, error: { code: "PROVIDER_ERROR", message: String(err && err.message || err), retryable: true } };
+        }).finally(function() {
+          inflight.delete(key);
+        });
+        inflight.set(key, promise);
+        return await promise;
+      }
+      return {
+        translate,
+        clear,
+        cancelAll,
+        get provider() {
+          return provider;
+        },
+        get epoch() {
+          return epoch;
+        },
+        get cacheSize() {
+          return cache.size;
+        },
+        get inflightSize() {
+          return inflight.size;
+        }
+      };
+    }
+    module2.exports = { createTranslationService, cancelled };
   }
 });
 
@@ -2503,6 +2909,28 @@ var require_ord_dom = __commonJS({
           zh.className = "epx-tzh epx-tuntranslated";
           zh.textContent = "\u5C1A\u672A\u7FFB\u8BD1 / Untranslated";
           line.appendChild(zh);
+          if (record.translationState === "untranslated" && options && options.autoTranslate && options.translationService && record.src) {
+            zh.className = "epx-tzh epx-t-auto";
+            zh.textContent = "\u81EA\u52A8\u7FFB\u8BD1\u4E2D\u2026";
+            Promise.resolve(options.translationService.translate({
+              text: record.src,
+              sourceLang: "epxsc",
+              targetLanguage: options.requestedLanguage || "zh-CN",
+              lexiconVersion: options.lexiconVersion || ""
+            })).then(function(result) {
+              if (!zh.isConnected) return;
+              if (result && result.ok) {
+                zh.textContent = result.text;
+                zh.classList.remove("epx-tuntranslated");
+                zh.classList.add("epx-t-auto");
+              } else {
+                zh.textContent = "\u81EA\u52A8\u7FFB\u8BD1\u5931\u8D25\uFF08\u53EF\u91CD\u8BD5\uFF09";
+                zh.classList.add("epx-t-failed");
+              }
+            }).catch(function() {
+              if (zh.isConnected) zh.textContent = "\u81EA\u52A8\u7FFB\u8BD1\u5931\u8D25\uFF08\u53EF\u91CD\u8BD5\uFF09";
+            });
+          }
         }
         code.appendChild(line);
       }
@@ -2536,13 +2964,16 @@ var require_builtin_lexicon = __commonJS({
 var require_plugin = __commonJS({
   "src/adapter/plugin.js"(exports2, module2) {
     "use strict";
-    var { Plugin: Plugin2, TFile, TFolder, Notice, MarkdownView } = require("obsidian");
+    var { Plugin: Plugin2, TFile, TFolder, Notice, MarkdownView, requestUrl } = require("obsidian");
     var { extractEpXsCBlocks } = require_markdown_blocks();
     var { loadBuiltinLexicon } = require_lexicon();
     var { RefreshScheduler } = require_refresh_scheduler();
     var { buildLexiconSnapshot } = require_lexicon_service();
     var { normalizeSettings } = require_settings();
     var { EpXsSettingsTab } = require_settings_tab();
+    var { createOpenAICompatibleProvider } = require_openai_compatible();
+    var { createTranslationService } = require_translation_service();
+    var { normalizeProviderConfig, validateProviderConfig } = require_request();
     var { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require_markup();
     var { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require_grammar();
     var { tokenizeText } = require_tokenizer();
@@ -2819,6 +3250,7 @@ var require_plugin = __commonJS({
         this.loadData().then(function(data) {
           self.settings = normalizeSettings(data);
           self.translationLanguage = self.settings.display.language !== "auto" ? self.settings.display.language : detectLanguage(self.app);
+          self.configureTranslation();
           self.refresh();
         }).catch(function(err) {
           console.warn("[EpXsC Syntax] \u8BBE\u7F6E\u8BFB\u53D6\u5931\u8D25\uFF0C\u4F7F\u7528\u9ED8\u8BA4\u503C\uFF1A", err);
@@ -2901,10 +3333,7 @@ var require_plugin = __commonJS({
         this.registerMarkdownCodeBlockProcessor("EPXSC", renderBlock);
         const ord = function(source, el, ctx, mode) {
           el.__epxOrd = { source, mode, ctx };
-          renderOrdBlock(el, source, mode, self.grammar, self.info, {
-            requestedLanguage: self.getRequestedLanguage(),
-            fallbackLanguage: self.getFallbackLanguage()
-          });
+          renderOrdBlock(el, source, mode, self.grammar, self.info, self.getTranslationRenderOptions());
           bindClickToSource(el, self.app, el, ctx);
         };
         const ordG = (source, el, ctx) => ord(source, el, ctx, "G");
@@ -2972,7 +3401,49 @@ var require_plugin = __commonJS({
       }
       async saveSettings() {
         await this.saveData(this.settings);
+        this.configureTranslation();
         await this.refresh();
+      }
+      configureTranslation() {
+        const tr = this.settings && this.settings.translation;
+        if (!tr || tr.enabled !== true) {
+          this.translationService = null;
+          this.translationConfigError = "";
+          return false;
+        }
+        const cfg = normalizeProviderConfig(tr.provider);
+        const check = validateProviderConfig(cfg);
+        if (!check.ok) {
+          this.translationService = null;
+          this.translationConfigError = check.message;
+          return false;
+        }
+        const self = this;
+        const provider = createOpenAICompatibleProvider({
+          config: cfg,
+          request: async function(req) {
+            const res = await requestUrl({ url: req.url, method: req.method, headers: req.headers, body: req.body, throw: false });
+            return { status: res.status, json: res.json, text: res.text };
+          }
+        });
+        this.translationService = createTranslationService({ provider, timeoutMs: cfg.timeoutMs });
+        this.translationConfigError = "";
+        return true;
+      }
+      getTranslationRenderOptions() {
+        return {
+          requestedLanguage: this.getRequestedLanguage(),
+          fallbackLanguage: this.getFallbackLanguage(),
+          autoTranslate: !!(this.settings && this.settings.translation && this.settings.translation.enabled),
+          translationService: this.translationService || null,
+          lexiconVersion: this.lexiconVersion || ""
+        };
+      }
+      async testTranslation() {
+        if (!this.configureTranslation() || !this.translationService) {
+          return { ok: false, error: { code: "NOT_CONFIGURED", message: this.translationConfigError || "\u7FFB\u8BD1\u672A\u542F\u7528\u6216\u914D\u7F6E\u4E0D\u5B8C\u6574" } };
+        }
+        return await this.translationService.translate({ text: "Plur Aqua", sourceLang: "epxsc", targetLanguage: this.getRequestedLanguage() || "zh-CN", lexiconVersion: this.lexiconVersion || "" });
       }
       async openSettings() {
         try {
@@ -3051,6 +3522,7 @@ var require_plugin = __commonJS({
         if (gen !== this._refreshGen) return;
         this.spells = snapshot.spells;
         spellRegistry = snapshot.spells;
+        this.lexiconVersion = snapshot.lexiconVersion || "";
         this.info = snapshot.info;
         this.ranks = snapshot.ranks;
         this.roots = snapshot.roots;
@@ -3174,10 +3646,7 @@ var require_plugin = __commonJS({
           const rec = el && el.__epxOrd;
           if (!rec) continue;
           try {
-            renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info, {
-              requestedLanguage: this.getRequestedLanguage(),
-              fallbackLanguage: this.getFallbackLanguage()
-            });
+            renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info, this.getTranslationRenderOptions());
             bindClickToSource(el, this.app, el, rec.ctx);
           } catch (e) {
           }

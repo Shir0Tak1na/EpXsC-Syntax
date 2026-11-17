@@ -11,6 +11,8 @@ const markup = require('./markup.js');
 const ord = require('./ord/parse.js');
 const settings = require('./settings.js');
 const lexiconMerge = require('./lexicon/merge.js');
+const translation = require('./translation/request.js');
+const translationPrompt = require('./translation/prompt.js');
 
 module.exports = Object.assign(
   {},
@@ -24,6 +26,8 @@ module.exports = Object.assign(
   ord,
   settings,
   lexiconMerge,
+  translation,
+  translationPrompt,
   {
     /* 稳定别名：外部工具按这些名字调用 */
     extractBlocks: blocks.extractEpXsCBlocks,
@@ -37,6 +41,9 @@ module.exports = Object.assign(
     pickTranslation: ord.pickTranslation,
     sourceHash: ord.sourceHash,
     normalizeSettings: settings.normalizeSettings,
-    mergeDictionaries: lexiconMerge.mergeDictionaries
+    mergeDictionaries: lexiconMerge.mergeDictionaries,
+    resolveEndpoint: translation.resolveEndpoint,
+    validateProviderConfig: translation.validateProviderConfig,
+    providerFingerprint: translation.providerFingerprint
   }
 );

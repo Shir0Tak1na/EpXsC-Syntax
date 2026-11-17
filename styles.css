@@ -277,6 +277,8 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
 .epx-tsrc { display: block; }
 .epx-tzh { display: block; font-family: var(--font-text); opacity: .78; font-size: .92em; }
 .epx-tzh.epx-tuntranslated { opacity: .55; font-style: italic; }
+.epx-tzh.epx-t-auto { opacity: .68; font-style: italic; }
+.epx-tzh.epx-t-failed { opacity: .75; color: var(--color-red); }
 .epx-gap { display: block; height: .45em; }
 .epx-ord-wrap { display: block; }
 /* 有些主题会给块级元素继承首行缩进；T/G 是代码块，首行必须贴左 */

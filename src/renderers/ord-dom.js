@@ -68,6 +68,28 @@ function renderOrdBlockInner(el, source, mode, grammar, info, options) {
       zh.className = 'epx-tzh epx-tuntranslated';
       zh.textContent = '尚未翻译 / Untranslated';
       line.appendChild(zh);
+      if (record.translationState === 'untranslated' && options && options.autoTranslate && options.translationService && record.src) {
+        zh.className = 'epx-tzh epx-t-auto';
+        zh.textContent = '自动翻译中…';
+        Promise.resolve(options.translationService.translate({
+          text: record.src,
+          sourceLang: 'epxsc',
+          targetLanguage: options.requestedLanguage || 'zh-CN',
+          lexiconVersion: options.lexiconVersion || ''
+        })).then(function (result) {
+          if (!zh.isConnected) return;
+          if (result && result.ok) {
+            zh.textContent = result.text;
+            zh.classList.remove('epx-tuntranslated');
+            zh.classList.add('epx-t-auto');
+          } else {
+            zh.textContent = '自动翻译失败（可重试）';
+            zh.classList.add('epx-t-failed');
+          }
+        }).catch(function () {
+          if (zh.isConnected) zh.textContent = '自动翻译失败（可重试）';
+        });
+      }
     }
     code.appendChild(line);
   }

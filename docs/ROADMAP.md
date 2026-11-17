@@ -22,6 +22,8 @@
 
 Progress 2026-11-17: F2/F3/F4/F7 complete; Obsidian settings/ribbon smoke passed; **2.1.0 released**. Next: 2.2.0 F5/F6/F8.
 
+Progress 2026-11-17: 2.2.0 F5/F8 core implemented (OpenAI-compatible provider, translation service, settings, auto-render fallback); F6 author reference remains open; no 2.2.0 release yet.
+
 ### 2.2.0 tasks
 
 | ID | Task | DoD |

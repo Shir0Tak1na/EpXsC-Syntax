@@ -22,6 +22,10 @@ const tooltipCore = nodeRequire('../src/ui/tooltip.js');
 const { parseOrdBlocks } = nodeRequire('../src/renderers/ord-renderer.js');
 const settingsCore = nodeRequire('../src/core/settings.js');
 const mergeCore = nodeRequire('../src/core/lexicon/merge.js');
+const translationCore = nodeRequire('../src/core/translation/request.js');
+const translationPrompt = nodeRequire('../src/core/translation/prompt.js');
+const { createOpenAICompatibleProvider } = nodeRequire('../src/providers/openai-compatible.js');
+const { createTranslationService } = nodeRequire('../src/services/translation-service.js');
 const ordParse = nodeRequire('../src/core/ord/parse.js');
 
 const source = fs.readFileSync('src/adapter/plugin.js', 'utf8');
@@ -284,6 +288,47 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   assert.ok(snap.dictionaryConflicts.some((c) => c.word === 'de'));
   assert.ok(snap.dictionaryConflicts.length >= 1);
   assert.equal(snap.customDictionaryErrors.length, 1);
+}
+
+// 13c) 2.2.0 translation core: endpoint, provider, service, cache
+{
+  const endpoint = translationCore.resolveEndpoint('http://127.0.0.1:11434/v1/', '/chat/completions');
+  assert.equal(endpoint, 'http://127.0.0.1:11434/v1/chat/completions');
+  const full = translationCore.resolveEndpoint('http://127.0.0.1:11434/v1', 'http://127.0.0.1:1234/v1/chat/completions');
+  assert.ok(full.includes(':1234'));
+  assert.throws(() => translationCore.resolveEndpoint('http://127.0.0.1:11434/v1', '/v1/chat/completions'));
+
+  const valid = translationCore.validateProviderConfig({ baseUrl: 'http://127.0.0.1:11434/v1', endpoint: '/chat/completions', model: 'x' });
+  assert.equal(valid.ok, true);
+  const remote = translationCore.validateProviderConfig({ baseUrl: 'http://example.com/v1', endpoint: '/chat/completions', model: 'x' });
+  assert.equal(remote.ok, false);
+  assert.equal(remote.code, 'HTTPS_REQUIRED');
+
+  let calls = 0;
+  const provider = createOpenAICompatibleProvider({
+    config: { baseUrl: 'http://127.0.0.1:11434/v1', endpoint: '/chat/completions', model: 'mock' },
+    request: async () => { calls += 1; return { status: 200, json: { choices: [{ message: { content: '译文' } }] } }; }
+  });
+  const service = createTranslationService({ provider: provider, timeoutMs: 1000 });
+  const a = await service.translate({ text: 'A', targetLanguage: 'zh-CN' });
+  assert.equal(a.ok, true);
+  assert.equal(a.text, '译文');
+  const b = await service.translate({ text: 'A', targetLanguage: 'zh-CN' });
+  assert.equal(b.cached, true);
+  assert.equal(calls, 1, 'cache must avoid second provider call');
+
+  const dedupe = createTranslationService({ provider: provider, timeoutMs: 1000 });
+  await Promise.all([dedupe.translate({ text: 'B', targetLanguage: 'zh-CN' }), dedupe.translate({ text: 'B', targetLanguage: 'zh-CN' })]);
+  assert.equal(calls, 2, 'concurrent same request must be deduped');
+
+  const slow = createOpenAICompatibleProvider({
+    config: { baseUrl: 'http://127.0.0.1:11434/v1', endpoint: '/chat/completions', model: 'slow' },
+    request: async () => { await new Promise((r) => setTimeout(r, 50)); return { status: 200, json: { choices: [{ message: { content: 'late' } }] } }; }
+  });
+  const timeoutService = createTranslationService({ provider: slow, timeoutMs: 5 });
+  const timed = await timeoutService.translate({ text: 'C', targetLanguage: 'zh-CN' });
+  assert.equal(timed.ok, false);
+  assert.equal(timed.error.code, 'TIMEOUT');
 }
 
 // 14) SpellRegistry / LintService 薄服务

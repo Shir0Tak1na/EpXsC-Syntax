@@ -202,7 +202,7 @@ async function buildLexiconSnapshot(io, config, builtin, extraWords, options) {
   keyWords.forEach(function (k) { keys.add(String(k).toLowerCase()); });
   info.forEach(function (v, k) { if (v.pos === '筛选键') keys.add(String(k).toLowerCase()); });
 
-  return { info, roots, ranks, units, keys, lists, spells, keyWords, dictionaryConflicts: merged.conflicts, customDictionaryErrors: customErrors };
+  return { info, roots, ranks, units, keys, lists, spells, keyWords, lexiconVersion: (builtin && builtin.lexiconVersion) || '', dictionaryConflicts: merged.conflicts, customDictionaryErrors: customErrors };
 }
 
 module.exports = { buildLexiconSnapshot, builtinLists };
