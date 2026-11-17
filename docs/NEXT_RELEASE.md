@@ -1,12 +1,12 @@
 # Next release checklist
 
 > Current release: **2.1.0**（2026-11-17，无网络阅读层）.
-> Next planned: **2.2.0**（联网翻译层，发布候选）. Planned 2026-11-18. At most one public GitHub Release per Asia/Shanghai calendar day.
+> Next planned: **2.3.0**（语法诊断层；并入未单独发布的 2.2.0）. Planned 2026-11-18. At most one public GitHub Release per Asia/Shanghai calendar day.
 
 ## Candidate
 
-- Next version: **2.2.0**（联网翻译层；F5/F6/F8）.
-- Status: version bumped, release gates pass; automatic translation defaults to off.
+- Next version: **2.3.0**（D1/D2 + 2.2 翻译层；D3 推迟到 2.3.x）.
+- Status: release gates pass; runtime smoke pending in SMOKE.md.
 - Base: current `main` after 2.1.0.
 
 ## Steps

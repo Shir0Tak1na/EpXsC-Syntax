@@ -2,12 +2,12 @@
 
 > Source review: architecture review task book (2026-11-16).
 > Rules: verify before fixing, test before refactoring, one verifiable boundary at a time.
-> Current release: **2.1.0**（2026-11-17，无网络阅读层）. Previous: **2.0.0**（2026-11-16）. Next: **2.2.0 release candidate**, planned 2026-11-18. At most **one GitHub Release per Asia/Shanghai calendar day**.
+> Current release: **2.1.0**（2026-11-17，无网络阅读层）. Candidate: **2.3.0**（语法诊断层；2.2.0 未单独发布，并入 2.3.0）. Previous: **2.0.0**（2026-11-16）. At most **one GitHub Release per Asia/Shanghai calendar day**.
 
 ## 2.1 / 2.2 / 2.3
 
 - 2.1.0：无网络阅读层——多语言 T 块、语言选择、未翻译状态、词库与设置。
-- 2.2.0：联网层——自动翻译、作者参考、Provider 与隐私。
+- 2.2.0：联网层——自动翻译、作者参考、Provider 与隐私（未单独发布，并入 2.3.0）。
 - 2.3.0：编辑器层——下划线、CodeMirror 装饰器、Codex 式辅助。
 - 任务拆分见 [2.1.0-PLAN.md](2.1.0-PLAN.md)。
 
@@ -22,7 +22,7 @@
 
 Progress 2026-11-17: F2/F3/F4/F7 complete; Obsidian settings/ribbon smoke passed; **2.1.0 released**. Next: 2.2.0 F5/F6/F8.
 
-Progress 2026-11-17: 2.2.0 F5/F6/F8 complete; release candidate on main. 2.3 D1/D2 implemented; D3 reverted after a runtime editor incident. 2.3.0 release is gated on isolated-vault D3 smoke; see [2.3.0-PLAN.md](2.3.0-PLAN.md).
+Progress 2026-11-17: 2.3.0 candidate includes 2.2 F5/F6/F8 + D1/D2 diagnostics; D3 reverted and moved to 2.3.x. Release gated on [SMOKE.md](../SMOKE.md) and CI.
 
 ### 2.2.0 tasks
 

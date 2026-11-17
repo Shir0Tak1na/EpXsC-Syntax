@@ -1,7 +1,7 @@
 {
   "id": "epxsc-syntax",
   "name": "EpXsC Syntax",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "minAppVersion": "1.4.0",
   "description": "Syntax highlighting, hover dictionary and linting for the fictional EpXsC conlang. 为 EpXsC 提供语法高亮、悬停词表与语法检查.",
   "author": "Shir0Tak1na",
