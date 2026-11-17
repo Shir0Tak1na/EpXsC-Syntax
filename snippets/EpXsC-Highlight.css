@@ -334,3 +334,5 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
 
 .epx-oline.epx-lint-error{border-bottom:1px dashed var(--color-red)}
 .epx-oline.epx-lint-warn{border-bottom:1px wavy var(--color-orange)}
+
+.epx-tip-section + .epx-tip-section{margin-top:8px;padding-top:8px;border-top:1px solid var(--background-modifier-border)}

@@ -3391,15 +3391,23 @@ var require_plugin = __commonJS({
     function showTipAt(x, y, tip) {
       const node = ensureTipNode();
       node.innerHTML = "";
-      const head = document.createElement("div");
-      head.className = "epx-tip-head";
-      head.textContent = tip.label;
-      node.appendChild(head);
-      if (tip.body) {
-        const bodyEl = document.createElement("div");
-        bodyEl.className = "epx-tip-body";
-        bodyEl.textContent = tip.body;
-        node.appendChild(bodyEl);
+      const sections = [];
+      if (tip && (tip.label || tip.body)) sections.push(tip);
+      if (tip && tip.secondary && (tip.secondary.label || tip.secondary.body)) sections.push(tip.secondary);
+      for (let i = 0; i < sections.length; i++) {
+        const section = document.createElement("div");
+        section.className = "epx-tip-section";
+        const head = document.createElement("div");
+        head.className = "epx-tip-head";
+        head.textContent = sections[i].label || "";
+        section.appendChild(head);
+        if (sections[i].body) {
+          const bodyEl = document.createElement("div");
+          bodyEl.className = "epx-tip-body";
+          bodyEl.textContent = sections[i].body;
+          section.appendChild(bodyEl);
+        }
+        node.appendChild(section);
       }
       node.style.opacity = "1";
       node.classList.add("is-visible");
@@ -3643,20 +3651,21 @@ var require_plugin = __commonJS({
           const el = ev.target;
           if (!el || !el.closest) return;
           const diag = el.closest("[data-epx-lint]");
+          const token = el.closest("span.token");
+          let tokenTip = null;
+          if (token && el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)')) {
+            tokenTip = tipForElement(token, self.info, self.ranks);
+          }
           if (diag) {
             const msg = diag.getAttribute("data-epx-lint");
             if (msg) {
-              showTipAt(ev.clientX, ev.clientY, { label: "EpXsC \u8BCA\u65AD", body: msg });
+              showTipAt(ev.clientX, ev.clientY, { label: "EpXsC \u8BCA\u65AD", body: msg, secondary: tokenTip });
               return;
             }
           }
-          const token = el.closest("span.token");
-          if (token && el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)')) {
-            const tip2 = tipForElement(token, self.info, self.ranks);
-            if (tip2) {
-              showTipAt(ev.clientX, ev.clientY, tip2);
-              return;
-            }
+          if (tokenTip) {
+            showTipAt(ev.clientX, ev.clientY, tokenTip);
+            return;
           }
           if (!inCodeContext(el)) return;
           const word = wordAtPoint(ev.clientX, ev.clientY);
