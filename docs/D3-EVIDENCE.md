@@ -1,0 +1,75 @@
+# D3 Evidence Log
+
+> Status: evidence collection in progress. Do not mark the incident root cause as confirmed until R0–R3 are complete.
+> Incident commit: `b89caed` (D3 initial, reverted).
+> Safe baseline: `main` after `1cecc1b` / current 2.3.0 candidate.
+
+## R1 — bundle dependency evidence
+
+Collected 2026-11-17 from git objects:
+
+| Build | Size | `@codemirror/` refs | `ViewPlugin` refs | `registerEditorExtension` refs |
+| :--- | ---: | ---: | ---: | ---: |
+| Incident `b89caed:main.js` | 1,064,804 B | 5 | 22 | 1 |
+| Safe `main:main.js` | 492,381 B | 0 | 0 | 0 |
+
+Incident `package.json` devDependencies included:
+
+```json
+{
+  "@codemirror/state": "^6.7.6",
+  "@codemirror/view": "^6.43.15",
+  "esbuild": "^0.25.0"
+}
+```
+
+**Conclusion for R1:** the incident bundle did contain a bundled CodeMirror runtime; the safe main bundle does not.
+**This does not alone prove the crash root cause.** It proves the dependency difference that must be tested against R0/R2/R4.
+
+## R0 — crash reproduction
+
+Status: **pending** (requires isolated Obsidian vault).
+
+Protocol:
+
+1. Create an isolated vault with only the incident plugin build.
+2. Open 2–3 notes containing EpXsC blocks.
+3. Record the first console error and stack verbatim below.
+4. If it cannot be reproduced, record that honestly; do not mark the hypothesis confirmed.
+
+```text
+(console text)
+```
+
+## R2 — error signature
+
+Status: **pending** (depends on R0).
+
+Expected signature if the hypothesis is right: an extension-set/instance error mentioning CodeMirror state/view classes.
+
+```text
+(signature)
+```
+
+## R3 — external build evidence
+
+Status: **pending**.
+
+Required:
+
+- an isolated build that externalizes `@codemirror/*` and `@lezer/*`;
+- `main.js` contains zero CM6/Lezer runtimes;
+- record how the host is expected to provide the module;
+- CI check `check-no-codemirror` passes.
+
+## R4 — fix verification
+
+Status: **pending** (depends on R0/R3).
+
+- same isolated-vault operation set;
+- no crash; notes open;
+- separate from the root-cause conclusion.
+
+## Next action
+
+Run R0 in an isolated vault and attach the console text. Until then, the D3 plan must keep the root cause labeled unconfirmed.
