@@ -8,11 +8,17 @@
     {
       "level": "error",
       "line": 3,
+      "column": 0,
+      "start": 0,
+      "end": 1,
       "message": "括号对不上：这里是「}」，但最近未闭合的是「(」（第 2 行）"
     },
     {
       "level": "error",
       "line": 1,
+      "column": 6,
+      "start": 6,
+      "end": 7,
       "message": "「{」没有闭合"
     }
   ]

@@ -113,6 +113,10 @@ assert.ok(html.includes('token unit'), 'MU should tokenize as unit');
 // 6) Linter 括号错误
 const bracketIssues = lintText('Foo() {', { info: new Map(), units: new Set(), keys: new Set(), spells: new Map() });
 assert.ok(bracketIssues.some(x => x.level === 'error'), 'unclosed brace must be an error');
+const rangeIssue = bracketIssues.find(x => x.message.includes('没有闭合'));
+assert.ok(rangeIssue && rangeIssue.start === 6 && rangeIssue.end === 7, 'unclosed brace range must point at {');
+const extraBracket = lintText(')', { info: new Map(), units: new Set(), keys: new Set(), spells: new Map() });
+assert.ok(extraBracket.length >= 1 && extraBracket[0].start === 0 && extraBracket[0].end === 1, 'extra bracket range must point at )');
 
 // 7) 数据 parser 冒烟
 const entries = parseEntries('## 介词\n| de | 在……之内 | dex |\n');

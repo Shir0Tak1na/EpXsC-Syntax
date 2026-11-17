@@ -8,7 +8,18 @@ const BRANCH_WORDS = ['keal', 'keol', 'tam', 'dum', 'nisi', 'quan'];
 function lintText(text, ctx) {
   const issues = [];
   const lines = text.split('\n');
-  const push = function (level, line, message) { issues.push({ level: level, line: line, message: message }); };
+  const push = function (level, line, message, start, end) {
+    const content = String(lines[line - 1] || '');
+    let s = Number.isInteger(start) ? start : 0;
+    let e = Number.isInteger(end) ? end : content.length;
+    if (s < 0) s = 0;
+    if (s > content.length) s = content.length;
+    if (e < s) e = s;
+    if (e > content.length) e = content.length;
+    const issue = { level: level, line: line, column: s, start: s, end: e, message: message };
+    if (!Number.isInteger(start) || !Number.isInteger(end)) issue.approximate = true;
+    issues.push(issue);
+  };
   const units = (ctx && ctx.units) || new Set();
   const keys = (ctx && ctx.keys) || new Set();
 
@@ -34,11 +45,11 @@ function lintText(text, ctx) {
     }
     for (let c = 0; c < clean.length; c++) {
       const ch = clean.charAt(c);
-      if (ch === '(' || ch === '[' || ch === '{') stack.push({ ch: ch, line: i + 1 });
+      if (ch === '(' || ch === '[' || ch === '{') stack.push({ ch: ch, line: i + 1, column: c });
       else if (ch === ')' || ch === ']' || ch === '}') {
         const top = stack.pop();
-        if (!top) push('error', i + 1, '多出一个「' + ch + '」，前面没有与之对应的「' + pairOf[ch] + '」');
-        else if (top.ch !== pairOf[ch]) push('error', i + 1, '括号对不上：这里是「' + ch + '」，但最近未闭合的是「' + top.ch + '」（第 ' + top.line + ' 行）');
+        if (!top) push('error', i + 1, '多出一个「' + ch + '」，前面没有与之对应的「' + pairOf[ch] + '」', c, c + 1);
+        else if (top.ch !== pairOf[ch]) push('error', i + 1, '括号对不上：这里是「' + ch + '」，但最近未闭合的是「' + top.ch + '」（第 ' + top.line + ' 行）', c, c + 1);
       }
     }
     /* ② 块头：行尾是冒号，下一行必须缩进更深（日常句不套这条） */
@@ -53,7 +64,7 @@ function lintText(text, ctx) {
       }
     }
   }
-  for (let i = 0; i < stack.length; i++) push('error', stack[i].line, '「' + stack[i].ch + '」没有闭合');
+  for (let i = 0; i < stack.length; i++) push('error', stack[i].line, '「' + stack[i].ch + '」没有闭合', stack[i].column, stack[i].column + 1);
   if (prose) return issues;
 
   /* 条款次序：载体制 → 对象 → 限制 → 代价 → 触发 → 效果 → 能量 */

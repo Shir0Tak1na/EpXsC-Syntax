@@ -18,12 +18,20 @@
     {
       "level": "warn",
       "line": 2,
-      "message": "「Secret」是 priv，只允许在自己文件的语块内引用"
+      "column": 0,
+      "start": 0,
+      "end": 11,
+      "message": "「Secret」是 priv，只允许在自己文件的语块内引用",
+      "approximate": true
     },
     {
       "level": "warn",
       "line": 2,
-      "message": "「Secret」形参 0 个，这里给了 1 个"
+      "column": 0,
+      "start": 0,
+      "end": 11,
+      "message": "「Secret」形参 0 个，这里给了 1 个",
+      "approximate": true
     }
   ]
 }

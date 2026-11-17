@@ -26,7 +26,11 @@
     {
       "level": "warn",
       "line": 2,
-      "message": "「Secret」形参 1 个，这里给了 2 个"
+      "column": 0,
+      "start": 0,
+      "end": 14,
+      "message": "「Secret」形参 1 个，这里给了 2 个",
+      "approximate": true
     }
   ]
 }

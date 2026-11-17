@@ -12,7 +12,11 @@
     {
       "level": "warn",
       "line": 2,
-      "message": "「1 XU」——XU 不是登记过的单位"
+      "column": 0,
+      "start": 0,
+      "end": 11,
+      "message": "「1 XU」——XU 不是登记过的单位",
+      "approximate": true
     }
   ]
 }
