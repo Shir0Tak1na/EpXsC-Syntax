@@ -9,6 +9,8 @@ const spells = require('./spells.js');
 const lint = require('./lint.js');
 const markup = require('./markup.js');
 const ord = require('./ord/parse.js');
+const settings = require('./settings.js');
+const lexiconMerge = require('./lexicon/merge.js');
 
 module.exports = Object.assign(
   {},
@@ -20,6 +22,8 @@ module.exports = Object.assign(
   lint,
   markup,
   ord,
+  settings,
+  lexiconMerge,
   {
     /* 稳定别名：外部工具按这些名字调用 */
     extractBlocks: blocks.extractEpXsCBlocks,
@@ -31,6 +35,8 @@ module.exports = Object.assign(
     parseTranslations: ord.parseTranslations,
     normalizeLang: ord.normalizeLang,
     pickTranslation: ord.pickTranslation,
-    sourceHash: ord.sourceHash
+    sourceHash: ord.sourceHash,
+    normalizeSettings: settings.normalizeSettings,
+    mergeDictionaries: lexiconMerge.mergeDictionaries
   }
 );

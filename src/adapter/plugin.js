@@ -15,6 +15,8 @@ const { extractEpXsCBlocks } = require('../core/markdown-blocks.js');
 const { loadBuiltinLexicon } = require('../data/lexicon.js');
 const { RefreshScheduler } = require('../services/refresh-scheduler.js');
 const { buildLexiconSnapshot } = require('../services/lexicon-service.js');
+const { normalizeSettings } = require('../core/settings.js');
+const { EpXsSettingsTab } = require('../ui/settings-tab.js');
 const { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require('../core/markup.js');
 const { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require('../core/grammar.js');
 const { tokenizeText } = require('../core/tokenizer.js');
@@ -293,9 +295,18 @@ class EpXsCSyntaxPlugin extends Plugin {
     this.grammar = makeGrammar(BASE_LISTS);
     this.info = new Map();
     this.translationLanguage = detectLanguage(this.app);
+    this.settings = normalizeSettings(null);
+    this.lexiconConflicts = [];
+    this.customDictionaryErrors = [];
     this.ranks = new Map();
     for (const w in EXTRA_WORDS) this.info.set(w, EXTRA_WORDS[w]);
     this.install();
+    this.addSettingTab(new EpXsSettingsTab(this.app, this));
+    this.loadData().then(function (data) {
+      self.settings = normalizeSettings(data);
+      self.translationLanguage = (self.settings.display.language !== 'auto') ? self.settings.display.language : detectLanguage(self.app);
+      self.refresh();
+    }).catch(function (err) { console.warn('[EpXsC Syntax] 设置读取失败，使用默认值：', err); });
     this.registerDomEvent(document, 'mouseover', function (ev) {
       hideTip();
       const el = ev.target;
@@ -370,7 +381,10 @@ class EpXsCSyntaxPlugin extends Plugin {
        TypeError（表现为代码块显示「渲染错误」）。 */
     const ord = function (source, el, ctx, mode) {
       el.__epxOrd = { source: source, mode: mode, ctx: ctx };
-      renderOrdBlock(el, source, mode, self.grammar, self.info, { requestedLanguage: self.translationLanguage });
+      renderOrdBlock(el, source, mode, self.grammar, self.info, {
+        requestedLanguage: self.getRequestedLanguage(),
+        fallbackLanguage: self.getFallbackLanguage()
+      });
       bindClickToSource(el, self.app, el, ctx);
     };
     const ordG = (source, el, ctx) => ord(source, el, ctx, 'G');
@@ -379,8 +393,10 @@ class EpXsCSyntaxPlugin extends Plugin {
     for (const lang of ['EpXsT', 'epxst', 'EPXST']) this.registerMarkdownCodeBlockProcessor(lang, ordT);
     const isDataFile = function (file) {
       if (!file || !file.path) return false;
+      const customPaths = (self.settings && self.settings.lexicon && self.settings.lexicon.customPaths) || [];
       return file.path === DICT_PATH || file.path === SYNTAX_PATH || file.path === RANK_PATH ||
-        file.path.indexOf(ROOTS_DIR) === 0 || file.path.indexOf(SPELL_DIR) === 0;
+        file.path.indexOf(ROOTS_DIR) === 0 || file.path.indexOf(SPELL_DIR) === 0 ||
+        customPaths.indexOf(file.path) >= 0;
     };
     const refreshScheduler = new RefreshScheduler(function () { self.refresh(); }, 300);
     const scheduleRefresh = function () { refreshScheduler.request(); };
@@ -440,11 +456,18 @@ class EpXsCSyntaxPlugin extends Plugin {
     const snapshot = await buildLexiconSnapshot({
       readFile: async (path) => {
         const file = this.app.vault.getAbstractFileByPath(path);
-        return file instanceof TFile ? await this.app.vault.cachedRead(file) : null;
+        if (file instanceof TFile) return await this.app.vault.cachedRead(file);
+        /* Imported lexicons can live under the plugin directory, outside the vault index. */
+        try {
+          if (this.app.vault.adapter && typeof this.app.vault.adapter.read === 'function') {
+            return await this.app.vault.adapter.read(path);
+          }
+        } catch (e) { /* missing */ }
+        return null;
       },
       listMarkdown: (dir) => this.mdFilesUnder(dir).map(function (file) { return file.path; }),
       warn: function (err) { console.warn('[EpXsC Syntax] 读取库内词库失败，改用内置快照：', err); }
-    }, { DICT_PATH, RANK_PATH, SYNTAX_PATH, ROOTS_DIR, SPELL_DIR }, BUILTIN_LEXICON, EXTRA_WORDS);
+    }, { DICT_PATH, RANK_PATH, SYNTAX_PATH, ROOTS_DIR, SPELL_DIR }, BUILTIN_LEXICON, EXTRA_WORDS, { customDictPaths: this.settings.lexicon.customPaths });
     if (gen !== this._refreshGen) return;
 
     this.spells = snapshot.spells;
@@ -454,6 +477,8 @@ class EpXsCSyntaxPlugin extends Plugin {
     this.roots = snapshot.roots;
     this.units = snapshot.units;
     this.keys = snapshot.keys;
+    this.lexiconConflicts = snapshot.dictionaryConflicts || [];
+    this.customDictionaryErrors = snapshot.customDictionaryErrors || [];
     this.grammar = makeGrammar(snapshot.lists, Array.from(snapshot.keyWords));
     this.install();
     if (window.__epxscDebug) console.log('[EpXsC Syntax] 词条 ' + this.info.size + ' · 词根 ' + this.roots.size + ' · 秩 ' + this.ranks.size + '（' + snapshot.lists.predicate.length + ' 个谓词）');
@@ -558,7 +583,10 @@ class EpXsCSyntaxPlugin extends Plugin {
       const rec = el && el.__epxOrd;
       if (!rec) continue;
       try {
-        renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info, { requestedLanguage: this.translationLanguage });
+        renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info, {
+          requestedLanguage: this.getRequestedLanguage(),
+          fallbackLanguage: this.getFallbackLanguage()
+        });
         bindClickToSource(el, this.app, el, rec.ctx);
       } catch (e) { /* keep previous render */ }
     }

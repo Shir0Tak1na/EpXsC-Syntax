@@ -4,6 +4,23 @@
 
 const { FALLBACK, SECTIONS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require('../data/parsers.js');
 const { buildSpellRegistry } = require('./spell-registry.js');
+const { mergeDictionaries } = require('../core/lexicon/merge.js');
+
+function parseJsonDictionary(text) {
+  const obj = JSON.parse(text);
+  const root = (obj && (obj.entries || obj.words)) || obj || {};
+  const out = new Map();
+  for (const key in root) {
+    if (!Object.prototype.hasOwnProperty.call(root, key)) continue;
+    const v = root[key];
+    const word = (v && typeof v === 'object' && v.word) ? String(v.word) : String(key);
+    const entry = (v && typeof v === 'object')
+      ? { word: word, pos: String(v.pos || v.posName || ''), meaning: String(v.meaning || v.definition || ''), abbr: String(v.abbr || '') }
+      : { word: word, pos: '', meaning: String(v || ''), abbr: '' };
+    if (entry.meaning) out.set(String(key).toLowerCase(), entry);
+  }
+  return out;
+}
 
 function builtinMap(builtin, part) {
   const out = new Map();
@@ -51,7 +68,7 @@ function mergeInto(target, map) {
   map.forEach(function (value, key) { if (!target.has(key)) target.set(key, value); });
 }
 
-async function buildLexiconSnapshot(io, config, builtin, extraWords) {
+async function buildLexiconSnapshot(io, config, builtin, extraWords, options) {
   const info = new Map();
   for (const w in extraWords) info.set(w, extraWords[w]);
   const roots = new Map();
@@ -114,6 +131,42 @@ async function buildLexiconSnapshot(io, config, builtin, extraWords) {
     if (!ranks.size) ranks = builtinRanks(builtin);
   }
 
+  /* 2.1.0: custom dictionaries override default/builtin, whole-entry, with conflict report. */
+  const customPaths = (options && Array.isArray(options.customDictPaths))
+    ? options.customDictPaths
+    : ((config && Array.isArray(config.CUSTOM_DICT_PATHS)) ? config.CUSTOM_DICT_PATHS : []);
+  const customLayers = [];
+  const customErrors = [];
+  const customSectionWords = { keyword: [], judge: [], clause: [], degree: [], predicate: [], unit: [] };
+  for (let ci = 0; ci < customPaths.length; ci++) {
+    const cpath = customPaths[ci];
+    try {
+      const ctext = await io.readFile(cpath);
+      if (ctext === null || ctext === undefined) {
+        customErrors.push({ path: cpath, code: 'MISSING', message: '自定义词库不存在' });
+        continue;
+      }
+      const centries = /\.json$/i.test(cpath) ? parseJsonDictionary(ctext) : parseEntries(ctext);
+      customLayers.push({ name: cpath, entries: centries });
+      const cmap = splitSections(ctext);
+      for (const key in customSectionWords) {
+        for (let si = 0; si < SECTIONS[key].length; si++) {
+          const words = cmap[SECTIONS[key][si]] || [];
+          for (let wi = 0; wi < words.length; wi++) customSectionWords[key].push(words[wi]);
+        }
+      }
+      const unitMap = parseUnits(ctext);
+      unitMap.forEach(function (v) { extraUnits.push(v.word); customSectionWords.unit.push(v.word); });
+    } catch (e) {
+      customErrors.push({ path: cpath, code: 'READ_ERROR', message: String(e && e.message || e) });
+      if (io.warn) io.warn(e);
+    }
+  }
+  const merged = mergeDictionaries(info, customLayers);
+  info.clear();
+  merged.dictionary.forEach(function (v, k) { info.set(k, v); });
+
+
   const verbRoots = [];
   roots.forEach(function (v) { if (v.kind === '动') verbRoots.push(v.word); });
   if (lists) {
@@ -121,6 +174,12 @@ async function buildLexiconSnapshot(io, config, builtin, extraWords) {
     lists.unit = lists.unit.concat(extraUnits);
   } else {
     lists = builtinLists(builtin, verbRoots);
+  }
+
+  for (const key in customSectionWords) {
+    for (let ci = 0; ci < customSectionWords[key].length; ci++) {
+      if (lists[key].indexOf(customSectionWords[key][ci]) < 0) lists[key].push(customSectionWords[key][ci]);
+    }
   }
 
   let spells = new Map();
@@ -143,7 +202,7 @@ async function buildLexiconSnapshot(io, config, builtin, extraWords) {
   keyWords.forEach(function (k) { keys.add(String(k).toLowerCase()); });
   info.forEach(function (v, k) { if (v.pos === '筛选键') keys.add(String(k).toLowerCase()); });
 
-  return { info, roots, ranks, units, keys, lists, spells, keyWords };
+  return { info, roots, ranks, units, keys, lists, spells, keyWords, dictionaryConflicts: merged.conflicts, customDictionaryErrors: customErrors };
 }
 
 module.exports = { buildLexiconSnapshot, builtinLists };

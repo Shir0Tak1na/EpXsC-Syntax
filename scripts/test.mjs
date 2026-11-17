@@ -20,6 +20,8 @@ const { lintSource } = nodeRequire('../src/services/lint-service.js');
 const { renderEpXsC } = nodeRequire('../src/renderers/epxsc-renderer.js');
 const tooltipCore = nodeRequire('../src/ui/tooltip.js');
 const { parseOrdBlocks } = nodeRequire('../src/renderers/ord-renderer.js');
+const settingsCore = nodeRequire('../src/core/settings.js');
+const mergeCore = nodeRequire('../src/core/lexicon/merge.js');
 const ordParse = nodeRequire('../src/core/ord/parse.js');
 
 const source = fs.readFileSync('src/adapter/plugin.js', 'utf8');
@@ -245,6 +247,45 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   assert.ok(missing.lists.unit.length > 0, 'missing units must use builtin lists');
 }
 
+// 13b) F7 settings normalization and custom dictionary merge
+{
+  const defaults = settingsCore.normalizeSettings(undefined);
+  assert.deepEqual(defaults.lexicon.customPaths, []);
+  assert.equal(defaults.display.language, 'auto');
+  const normalized = settingsCore.normalizeSettings({
+    lexicon: { customPaths: ['  a.md ', 'a.md', '', 'b.md'] },
+    display: { language: 'zh-cn', fallbackLanguage: ' en ' }
+  });
+  assert.deepEqual(normalized.lexicon.customPaths, ['a.md', 'b.md']);
+  assert.equal(normalized.display.language, 'zh-cn');
+  assert.equal(normalized.display.fallbackLanguage, 'en');
+
+  const base = new Map([['de', { word: 'de', pos: '介词', meaning: '在……之内', abbr: 'dex' }]]);
+  const merged = mergeCore.mergeDictionaries(base, [
+    { name: 'custom.md', entries: new Map([['de', { word: 'de', pos: '介词', meaning: '自定义', abbr: 'dex' }]]) }
+  ]);
+  assert.equal(merged.dictionary.get('de').meaning, '自定义');
+  assert.equal(merged.conflicts.length, 1);
+  assert.equal(merged.conflicts[0].source, 'custom.md');
+
+  const cfg = { DICT_PATH: 'dict.md', SYNTAX_PATH: 'syntax.md', RANK_PATH: 'rank.md', ROOTS_DIR: 'roots/', SPELL_DIR: 'spells/' };
+  const files = {
+    'dict.md': '## 介词\n| de | 在……之内 | dex |\n',
+    'syntax.md': '## 筛选键\n| genus | 类别 |\n',
+    'rank.md': '## 九个秩与维度的对应\n| 1 | 存在 | 位置 |\n',
+    'custom.md': '## 介词\n| de | 自定义 | dex |\n'
+  };
+  const io = {
+    readFile: async (p) => Object.prototype.hasOwnProperty.call(files, p) ? files[p] : null,
+    listMarkdown: async (dir) => Object.keys(files).filter((p) => p.indexOf(dir) === 0)
+  };
+  const snap = await buildLexiconSnapshot(io, cfg, builtinLexicon, {}, { customDictPaths: ['custom.md', 'missing.md'] });
+  assert.equal(snap.info.get('de').meaning, '自定义');
+  assert.ok(snap.dictionaryConflicts.some((c) => c.word === 'de'));
+  assert.ok(snap.dictionaryConflicts.length >= 1);
+  assert.equal(snap.customDictionaryErrors.length, 1);
+}
+
 // 14) SpellRegistry / LintService 薄服务
 {
   const registry = buildSpellRegistry([
@@ -341,6 +382,15 @@ assert.ok(source.includes('renderOrdBlockInner'), 'rehighlight must import the T
   const tip = tooltipCore.buildTip('word', 'siro', new Map([['siro', { pos: '名词', meaning: '虚空', abbr: '' }]]), new Map(), { spells: new Map(), sectionPos: {} });
   assert.ok(tip && tip.label, 'buildTip known word');
   assert.ok(tooltipCore.coordTip('~ 1 ~ 2').label.indexOf('相对坐标') >= 0);
+}
+
+// 18) F7 settings tab wiring / zero network in 2.1
+{
+  assert.ok(source.includes('addSettingTab'), 'adapter must register settings tab');
+  assert.ok(source.includes('getRequestedLanguage'), 'adapter must resolve settings language');
+  const settingsTabSrc = fs.readFileSync('src/ui/settings-tab.js', 'utf8');
+  assert.ok(settingsTabSrc.includes('PluginSettingTab'), 'settings tab must extend PluginSettingTab');
+  assert.ok(!/\bfetch\s*\(|requestUrl/.test(settingsTabSrc), '2.1 settings must not make network requests');
 }
 
 console.log('OK: block aliases, line mapping, spell file/scope, tokenizer, bracket, parsers, hover, markup, core-api, history-regression, scheduler, lexicon-service, lint-service, renderer, ord-renderer, tooltip');

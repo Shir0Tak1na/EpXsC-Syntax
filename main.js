@@ -444,12 +444,69 @@ var require_spell_registry = __commonJS({
   }
 });
 
+// src/core/lexicon/merge.js
+var require_merge = __commonJS({
+  "src/core/lexicon/merge.js"(exports2, module2) {
+    "use strict";
+    function sameEntry(a, b) {
+      return a && b && a.word === b.word && a.pos === b.pos && a.meaning === b.meaning && (a.abbr || "") === (b.abbr || "");
+    }
+    function mergeDictionaries(base, layers) {
+      const out = new Map(base || []);
+      const conflicts = [];
+      const list = Array.isArray(layers) ? layers : [];
+      for (let i = 0; i < list.length; i++) {
+        const layer = list[i] || {};
+        const name = layer.name || "layer-" + i;
+        const entries = layer.entries;
+        if (!entries || typeof entries.forEach !== "function") continue;
+        entries.forEach(function(value, key) {
+          if (out.has(key)) {
+            const prev = out.get(key);
+            if (!sameEntry(prev, value)) {
+              conflicts.push({
+                word: value.word || key,
+                key,
+                source: name,
+                previous: prev,
+                next: value,
+                kinds: [
+                  prev.meaning !== value.meaning ? "definition" : "",
+                  prev.pos !== value.pos ? "pos" : "",
+                  (prev.abbr || "") !== (value.abbr || "") ? "abbr" : ""
+                ].filter(Boolean)
+              });
+            }
+          }
+          out.set(key, value);
+        });
+      }
+      return { dictionary: out, conflicts };
+    }
+    module2.exports = { mergeDictionaries, sameEntry };
+  }
+});
+
 // src/services/lexicon-service.js
 var require_lexicon_service = __commonJS({
   "src/services/lexicon-service.js"(exports2, module2) {
     "use strict";
     var { FALLBACK, SECTIONS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require_parsers();
     var { buildSpellRegistry } = require_spell_registry();
+    var { mergeDictionaries } = require_merge();
+    function parseJsonDictionary(text) {
+      const obj = JSON.parse(text);
+      const root = obj && (obj.entries || obj.words) || obj || {};
+      const out = /* @__PURE__ */ new Map();
+      for (const key in root) {
+        if (!Object.prototype.hasOwnProperty.call(root, key)) continue;
+        const v = root[key];
+        const word = v && typeof v === "object" && v.word ? String(v.word) : String(key);
+        const entry = v && typeof v === "object" ? { word, pos: String(v.pos || v.posName || ""), meaning: String(v.meaning || v.definition || ""), abbr: String(v.abbr || "") } : { word, pos: "", meaning: String(v || ""), abbr: "" };
+        if (entry.meaning) out.set(String(key).toLowerCase(), entry);
+      }
+      return out;
+    }
     function builtinMap(builtin, part) {
       const out = /* @__PURE__ */ new Map();
       const source = builtin[part] || {};
@@ -493,7 +550,7 @@ var require_lexicon_service = __commonJS({
         if (!target.has(key)) target.set(key, value);
       });
     }
-    async function buildLexiconSnapshot(io, config, builtin, extraWords) {
+    async function buildLexiconSnapshot(io, config, builtin, extraWords, options) {
       const info = /* @__PURE__ */ new Map();
       for (const w in extraWords) info.set(w, extraWords[w]);
       const roots = /* @__PURE__ */ new Map();
@@ -561,6 +618,42 @@ var require_lexicon_service = __commonJS({
         });
         if (!ranks.size) ranks = builtinRanks(builtin);
       }
+      const customPaths = options && Array.isArray(options.customDictPaths) ? options.customDictPaths : config && Array.isArray(config.CUSTOM_DICT_PATHS) ? config.CUSTOM_DICT_PATHS : [];
+      const customLayers = [];
+      const customErrors = [];
+      const customSectionWords = { keyword: [], judge: [], clause: [], degree: [], predicate: [], unit: [] };
+      for (let ci = 0; ci < customPaths.length; ci++) {
+        const cpath = customPaths[ci];
+        try {
+          const ctext = await io.readFile(cpath);
+          if (ctext === null || ctext === void 0) {
+            customErrors.push({ path: cpath, code: "MISSING", message: "\u81EA\u5B9A\u4E49\u8BCD\u5E93\u4E0D\u5B58\u5728" });
+            continue;
+          }
+          const centries = /\.json$/i.test(cpath) ? parseJsonDictionary(ctext) : parseEntries(ctext);
+          customLayers.push({ name: cpath, entries: centries });
+          const cmap = splitSections(ctext);
+          for (const key in customSectionWords) {
+            for (let si = 0; si < SECTIONS[key].length; si++) {
+              const words = cmap[SECTIONS[key][si]] || [];
+              for (let wi = 0; wi < words.length; wi++) customSectionWords[key].push(words[wi]);
+            }
+          }
+          const unitMap = parseUnits(ctext);
+          unitMap.forEach(function(v) {
+            extraUnits.push(v.word);
+            customSectionWords.unit.push(v.word);
+          });
+        } catch (e) {
+          customErrors.push({ path: cpath, code: "READ_ERROR", message: String(e && e.message || e) });
+          if (io.warn) io.warn(e);
+        }
+      }
+      const merged = mergeDictionaries(info, customLayers);
+      info.clear();
+      merged.dictionary.forEach(function(v, k) {
+        info.set(k, v);
+      });
       const verbRoots = [];
       roots.forEach(function(v) {
         if (v.kind === "\u52A8") verbRoots.push(v.word);
@@ -570,6 +663,11 @@ var require_lexicon_service = __commonJS({
         lists.unit = lists.unit.concat(extraUnits);
       } else {
         lists = builtinLists(builtin, verbRoots);
+      }
+      for (const key in customSectionWords) {
+        for (let ci = 0; ci < customSectionWords[key].length; ci++) {
+          if (lists[key].indexOf(customSectionWords[key][ci]) < 0) lists[key].push(customSectionWords[key][ci]);
+        }
       }
       let spells = /* @__PURE__ */ new Map();
       try {
@@ -593,9 +691,169 @@ var require_lexicon_service = __commonJS({
       info.forEach(function(v, k) {
         if (v.pos === "\u7B5B\u9009\u952E") keys.add(String(k).toLowerCase());
       });
-      return { info, roots, ranks, units, keys, lists, spells, keyWords };
+      return { info, roots, ranks, units, keys, lists, spells, keyWords, dictionaryConflicts: merged.conflicts, customDictionaryErrors: customErrors };
     }
     module2.exports = { buildLexiconSnapshot, builtinLists };
+  }
+});
+
+// src/core/settings.js
+var require_settings = __commonJS({
+  "src/core/settings.js"(exports2, module2) {
+    "use strict";
+    var DEFAULT_SETTINGS = {
+      schemaVersion: 1,
+      lexicon: { customPaths: [] },
+      display: { language: "auto", fallbackLanguage: "" }
+    };
+    function normalizePaths(input) {
+      const out = [];
+      const seen = /* @__PURE__ */ new Set();
+      const list = Array.isArray(input) ? input : [];
+      for (let i = 0; i < list.length; i++) {
+        const s = String(list[i] || "").trim();
+        if (!s || seen.has(s)) continue;
+        seen.add(s);
+        out.push(s);
+      }
+      return out;
+    }
+    function normalizeSettings(data) {
+      const d = data && typeof data === "object" ? data : {};
+      const lexicon = d.lexicon && typeof d.lexicon === "object" ? d.lexicon : {};
+      const display = d.display && typeof d.display === "object" ? d.display : {};
+      const language = String(display.language || "auto").trim() || "auto";
+      const fallback = String(display.fallbackLanguage || "").trim();
+      return {
+        schemaVersion: 1,
+        lexicon: { customPaths: normalizePaths(lexicon.customPaths) },
+        display: {
+          language: language === "auto" ? "auto" : language,
+          fallbackLanguage: fallback
+        }
+      };
+    }
+    module2.exports = { DEFAULT_SETTINGS, normalizeSettings, normalizePaths };
+  }
+});
+
+// src/ui/settings-tab.js
+var require_settings_tab = __commonJS({
+  "src/ui/settings-tab.js"(exports2, module2) {
+    "use strict";
+    var { PluginSettingTab, Setting, Notice } = require("obsidian");
+    var { normalizeSettings } = require_settings();
+    var EpXsSettingsTab = class extends PluginSettingTab {
+      constructor(app, plugin) {
+        super(app, plugin);
+        this.plugin = plugin;
+      }
+      scheduleSave(delay) {
+        if (this._saveTimer) window.clearTimeout(this._saveTimer);
+        this._saveTimer = window.setTimeout(() => {
+          this._saveTimer = null;
+          this.persist();
+        }, typeof delay === "number" ? delay : 400);
+      }
+      hide() {
+        if (this._saveTimer) window.clearTimeout(this._saveTimer);
+        this._saveTimer = null;
+      }
+      async persist() {
+        try {
+          await this.plugin.saveSettings();
+        } catch (err) {
+          new Notice("EpXsC \u8BBE\u7F6E\u4FDD\u5B58\u5931\u8D25\uFF1A" + (err && err.message ? err.message : err));
+        }
+      }
+      display() {
+        const { containerEl } = this;
+        containerEl.empty();
+        containerEl.createEl("h2", { text: "EpXsC Syntax \u8BBE\u7F6E" });
+        containerEl.createEl("p", { text: "2.1.0 \u53EA\u5305\u542B\u8BCD\u5E93\u4E0E\u9605\u8BFB\u8BBE\u7F6E\uFF1B\u7FFB\u8BD1\u6A21\u578B\u914D\u7F6E\u5C5E\u4E8E 2.2.0\u3002" });
+        containerEl.createEl("h3", { text: "\u8BCD\u5E93" });
+        const def = containerEl.createEl("p", {
+          text: "\u9ED8\u8BA4\u8BCD\u5E93\u7531\u63D2\u4EF6\u5185\u7F6E\u8DEF\u5F84\u8BFB\u53D6\uFF1B\u81EA\u5B9A\u4E49\u8BCD\u5E93\u6309\u5217\u8868\u987A\u5E8F\u8986\u76D6\uFF0C\u8D8A\u9760\u540E\u4F18\u5148\u7EA7\u8D8A\u9AD8\u3002"
+        });
+        def.addClass && def.addClass("setting-item-description");
+        const paths = this.plugin.settings.lexicon.customPaths.join("\n");
+        new Setting(containerEl).setName("\u81EA\u5B9A\u4E49\u8BCD\u5E93\u8DEF\u5F84").setDesc("\u6BCF\u884C\u4E00\u4E2A Vault \u8DEF\u5F84\uFF0C\u4F8B\u5982\uFF1A\u4E16\u754C\u8BBE\u5B9A\u96C6/\u6211\u7684\u8BCD\u5E93.md").addTextArea((text) => {
+          text.inputEl.rows = 4;
+          text.inputEl.style.width = "100%";
+          text.setValue(paths).onChange(async (value) => {
+            this.plugin.settings.lexicon.customPaths = String(value || "").split(/\r?\n/);
+            this.plugin.settings = normalizeSettings(this.plugin.settings);
+            this.scheduleSave();
+          });
+        });
+        new Setting(containerEl).setName("\u5BFC\u5165\u81EA\u5B9A\u4E49\u8BCD\u5E93").setDesc("\u628A .md \u6216 .json \u6587\u4EF6\u590D\u5236\u5230\u63D2\u4EF6\u76EE\u5F55\u7684 lexicons/ \u4E0B\uFF0C\u5E76\u52A0\u5165\u8DEF\u5F84\u5217\u8868\u3002").addButton((btn) => btn.setButtonText("\u9009\u62E9\u6587\u4EF6").onClick(() => this.pickFile()));
+        if (this.plugin.lexiconConflicts && this.plugin.lexiconConflicts.length) {
+          containerEl.createEl("h4", { text: "\u8BCD\u5E93\u51B2\u7A81" });
+          const list = containerEl.createEl("ul");
+          this.plugin.lexiconConflicts.slice(0, 20).forEach((c) => {
+            list.createEl("li", { text: c.word + "\uFF1A" + (c.previous && c.previous.meaning) + " \u2192 " + (c.next && c.next.meaning) + "\uFF08" + c.source + "\uFF09" });
+          });
+        }
+        if (this.plugin.customDictionaryErrors && this.plugin.customDictionaryErrors.length) {
+          containerEl.createEl("h4", { text: "\u8BCD\u5E93\u9519\u8BEF" });
+          const list = containerEl.createEl("ul");
+          this.plugin.customDictionaryErrors.forEach((e) => list.createEl("li", { text: e.path + "\uFF1A" + e.message }));
+        }
+        containerEl.createEl("h3", { text: "\u663E\u793A" });
+        new Setting(containerEl).setName("\u663E\u793A\u8BED\u8A00").setDesc("auto \u8DDF\u968F Obsidian \u754C\u9762\u8BED\u8A00\uFF1B\u4E5F\u53EF\u56FA\u5B9A\u4E3A\u67D0\u4E2A\u8BED\u8A00\u6807\u7B7E\u3002").addDropdown((drop) => {
+          drop.addOption("auto", "auto\uFF08\u8DDF\u968F Obsidian\uFF09");
+          ["zh-CN", "zh-TW", "en", "ja"].forEach((lang) => drop.addOption(lang, lang));
+          drop.setValue(this.plugin.settings.display.language || "auto").onChange(async (value) => {
+            this.plugin.settings.display.language = value;
+            await this.persist();
+          });
+        });
+        new Setting(containerEl).setName("\u5907\u7528\u8BED\u8A00").setDesc("\u5F53\u524D\u8BED\u8A00\u6CA1\u6709\u8BD1\u6587\u65F6\uFF0C\u518D\u5C1D\u8BD5\u8FD9\u4E2A\u8BED\u8A00\uFF1B\u7559\u7A7A\u5219\u4E0D\u542F\u7528\u3002").addText((text) => text.setPlaceholder("\u4F8B\u5982 zh-CN").setValue(this.plugin.settings.display.fallbackLanguage || "").onChange(async (value) => {
+          this.plugin.settings.display.fallbackLanguage = String(value || "").trim();
+          await this.persist();
+        }));
+        containerEl.createEl("h3", { text: "\u8BCA\u65AD" });
+        new Setting(containerEl).setName("\u8BCD\u6761\u7EDF\u8BA1").setDesc("\u5F53\u524D\u8BCD\u6761 " + this.plugin.info.size + " \xB7 \u8BCD\u6839 " + this.plugin.roots.size + " \xB7 \u81EA\u5B9A\u4E49\u51B2\u7A81 " + this.plugin.lexiconConflicts.length).addButton((btn) => btn.setButtonText("\u91CD\u65B0\u8F7D\u5165").onClick(async () => {
+          await this.plugin.refresh();
+          this.display();
+        }));
+      }
+      pickFile() {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = ".md,.json,text/markdown,application/json";
+        input.style.display = "none";
+        document.body.appendChild(input);
+        input.addEventListener("change", async () => {
+          const file = input.files && input.files[0];
+          input.remove();
+          if (!file) return;
+          try {
+            const text = await file.text();
+            const dir = (this.plugin.manifest && this.plugin.manifest.dir ? this.plugin.manifest.dir : ".obsidian/plugins/epxsc-syntax") + "/lexicons";
+            const adapter = this.app.vault.adapter;
+            if (adapter && typeof adapter.mkdir === "function") {
+              try {
+                await adapter.mkdir(dir);
+              } catch (e) {
+              }
+            }
+            if (!adapter || typeof adapter.write !== "function") throw new Error("Vault adapter \u4E0D\u652F\u6301\u5199\u5165");
+            const target = dir + "/" + file.name;
+            await adapter.write(target, text);
+            const list = this.plugin.settings.lexicon.customPaths;
+            if (list.indexOf(target) < 0) list.push(target);
+            await this.persist();
+            new Notice("\u5DF2\u5BFC\u5165\u8BCD\u5E93\uFF1A" + target);
+            this.display();
+          } catch (err) {
+            new Notice("\u8BCD\u5E93\u5BFC\u5165\u5931\u8D25\uFF1A" + (err && err.message ? err.message : err));
+          }
+        });
+        input.click();
+      }
+    };
+    module2.exports = { EpXsSettingsTab };
   }
 });
 
@@ -2283,6 +2541,8 @@ var require_plugin = __commonJS({
     var { loadBuiltinLexicon } = require_lexicon();
     var { RefreshScheduler } = require_refresh_scheduler();
     var { buildLexiconSnapshot } = require_lexicon_service();
+    var { normalizeSettings } = require_settings();
+    var { EpXsSettingsTab } = require_settings_tab();
     var { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require_markup();
     var { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require_grammar();
     var { tokenizeText } = require_tokenizer();
@@ -2539,9 +2799,20 @@ var require_plugin = __commonJS({
         this.grammar = makeGrammar(BASE_LISTS);
         this.info = /* @__PURE__ */ new Map();
         this.translationLanguage = detectLanguage(this.app);
+        this.settings = normalizeSettings(null);
+        this.lexiconConflicts = [];
+        this.customDictionaryErrors = [];
         this.ranks = /* @__PURE__ */ new Map();
         for (const w in EXTRA_WORDS) this.info.set(w, EXTRA_WORDS[w]);
         this.install();
+        this.addSettingTab(new EpXsSettingsTab(this.app, this));
+        this.loadData().then(function(data) {
+          self.settings = normalizeSettings(data);
+          self.translationLanguage = self.settings.display.language !== "auto" ? self.settings.display.language : detectLanguage(self.app);
+          self.refresh();
+        }).catch(function(err) {
+          console.warn("[EpXsC Syntax] \u8BBE\u7F6E\u8BFB\u53D6\u5931\u8D25\uFF0C\u4F7F\u7528\u9ED8\u8BA4\u503C\uFF1A", err);
+        });
         this.registerDomEvent(document, "mouseover", function(ev) {
           hideTip();
           const el = ev.target;
@@ -2620,7 +2891,10 @@ var require_plugin = __commonJS({
         this.registerMarkdownCodeBlockProcessor("EPXSC", renderBlock);
         const ord = function(source, el, ctx, mode) {
           el.__epxOrd = { source, mode, ctx };
-          renderOrdBlock(el, source, mode, self.grammar, self.info, { requestedLanguage: self.translationLanguage });
+          renderOrdBlock(el, source, mode, self.grammar, self.info, {
+            requestedLanguage: self.getRequestedLanguage(),
+            fallbackLanguage: self.getFallbackLanguage()
+          });
           bindClickToSource(el, self.app, el, ctx);
         };
         const ordG = (source, el, ctx) => ord(source, el, ctx, "G");
@@ -2629,7 +2903,8 @@ var require_plugin = __commonJS({
         for (const lang of ["EpXsT", "epxst", "EPXST"]) this.registerMarkdownCodeBlockProcessor(lang, ordT);
         const isDataFile = function(file) {
           if (!file || !file.path) return false;
-          return file.path === DICT_PATH || file.path === SYNTAX_PATH || file.path === RANK_PATH || file.path.indexOf(ROOTS_DIR) === 0 || file.path.indexOf(SPELL_DIR) === 0;
+          const customPaths = self.settings && self.settings.lexicon && self.settings.lexicon.customPaths || [];
+          return file.path === DICT_PATH || file.path === SYNTAX_PATH || file.path === RANK_PATH || file.path.indexOf(ROOTS_DIR) === 0 || file.path.indexOf(SPELL_DIR) === 0 || customPaths.indexOf(file.path) >= 0;
         };
         const refreshScheduler = new RefreshScheduler(function() {
           self.refresh();
@@ -2707,7 +2982,14 @@ var require_plugin = __commonJS({
         const snapshot = await buildLexiconSnapshot({
           readFile: async (path) => {
             const file = this.app.vault.getAbstractFileByPath(path);
-            return file instanceof TFile ? await this.app.vault.cachedRead(file) : null;
+            if (file instanceof TFile) return await this.app.vault.cachedRead(file);
+            try {
+              if (this.app.vault.adapter && typeof this.app.vault.adapter.read === "function") {
+                return await this.app.vault.adapter.read(path);
+              }
+            } catch (e) {
+            }
+            return null;
           },
           listMarkdown: (dir) => this.mdFilesUnder(dir).map(function(file) {
             return file.path;
@@ -2715,7 +2997,7 @@ var require_plugin = __commonJS({
           warn: function(err) {
             console.warn("[EpXsC Syntax] \u8BFB\u53D6\u5E93\u5185\u8BCD\u5E93\u5931\u8D25\uFF0C\u6539\u7528\u5185\u7F6E\u5FEB\u7167\uFF1A", err);
           }
-        }, { DICT_PATH, RANK_PATH, SYNTAX_PATH, ROOTS_DIR, SPELL_DIR }, BUILTIN_LEXICON, EXTRA_WORDS);
+        }, { DICT_PATH, RANK_PATH, SYNTAX_PATH, ROOTS_DIR, SPELL_DIR }, BUILTIN_LEXICON, EXTRA_WORDS, { customDictPaths: this.settings.lexicon.customPaths });
         if (gen !== this._refreshGen) return;
         this.spells = snapshot.spells;
         spellRegistry = snapshot.spells;
@@ -2724,6 +3006,8 @@ var require_plugin = __commonJS({
         this.roots = snapshot.roots;
         this.units = snapshot.units;
         this.keys = snapshot.keys;
+        this.lexiconConflicts = snapshot.dictionaryConflicts || [];
+        this.customDictionaryErrors = snapshot.customDictionaryErrors || [];
         this.grammar = makeGrammar(snapshot.lists, Array.from(snapshot.keyWords));
         this.install();
         if (window.__epxscDebug) console.log("[EpXsC Syntax] \u8BCD\u6761 " + this.info.size + " \xB7 \u8BCD\u6839 " + this.roots.size + " \xB7 \u79E9 " + this.ranks.size + "\uFF08" + snapshot.lists.predicate.length + " \u4E2A\u8C13\u8BCD\uFF09");
@@ -2840,7 +3124,10 @@ var require_plugin = __commonJS({
           const rec = el && el.__epxOrd;
           if (!rec) continue;
           try {
-            renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info, { requestedLanguage: this.translationLanguage });
+            renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info, {
+              requestedLanguage: this.getRequestedLanguage(),
+              fallbackLanguage: this.getFallbackLanguage()
+            });
             bindClickToSource(el, this.app, el, rec.ctx);
           } catch (e) {
           }
