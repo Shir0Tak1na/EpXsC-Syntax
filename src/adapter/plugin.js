@@ -19,6 +19,8 @@ const { normalizeSettings } = require('../core/settings.js');
 const { EpXsSettingsTab } = require('../ui/settings-tab.js');
 const { createOpenAICompatibleProvider } = require('../providers/openai-compatible.js');
 const { createTranslationService } = require('../services/translation-service.js');
+const { createReferenceService } = require('../services/reference-service.js');
+const { ReferenceModal } = require('../ui/reference-modal.js');
 const { normalizeProviderConfig, validateProviderConfig } = require('../core/translation/request.js');
 const { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require('../core/markup.js');
 const { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require('../core/grammar.js');
@@ -311,6 +313,11 @@ class EpXsCSyntaxPlugin extends Plugin {
       name: '打开 EpXsC 设置',
       callback: function () { self.openSettings(); }
     });
+    this.addCommand({
+      id: 'reference-from-chinese',
+      name: '从中文生成 EpXs 参考',
+      callback: function () { new ReferenceModal(self.app, self).open(); }
+    });
     this.loadData().then(function (data) {
       self.settings = normalizeSettings(data);
       self.translationLanguage = (self.settings.display.language !== 'auto') ? self.settings.display.language : detectLanguage(self.app);
@@ -451,6 +458,8 @@ class EpXsCSyntaxPlugin extends Plugin {
     const tr = this.settings && this.settings.translation;
     if (!tr || tr.enabled !== true) {
       this.translationService = null;
+      this.translationProvider = null;
+      this.referenceService = null;
       this.translationConfigError = '';
       return false;
     }
@@ -458,6 +467,8 @@ class EpXsCSyntaxPlugin extends Plugin {
     const check = validateProviderConfig(cfg);
     if (!check.ok) {
       this.translationService = null;
+      this.translationProvider = null;
+      this.referenceService = null;
       this.translationConfigError = check.message;
       return false;
     }
@@ -469,9 +480,49 @@ class EpXsCSyntaxPlugin extends Plugin {
         return { status: res.status, json: res.json, text: res.text };
       }
     });
+    this.translationProvider = provider;
     this.translationService = createTranslationService({ provider: provider, timeoutMs: cfg.timeoutMs });
+    this.referenceService = createReferenceService({ provider: provider });
     this.translationConfigError = '';
     return true;
+  }
+
+  getDictionaryContext(limit) {
+    const max = Number(limit) > 0 ? Number(limit) : 120;
+    const parts = [];
+    let n = 0;
+    this.info.forEach(function (v, k) {
+      if (n >= max) return;
+      parts.push(k + '=' + (v.meaning || ''));
+      n += 1;
+    });
+    return parts.join('; ');
+  }
+
+  async generateReference(chinese) {
+    if (!this.referenceService) this.configureTranslation();
+    if (!this.referenceService) {
+      return { ok: false, error: { code: 'NOT_CONFIGURED', message: this.translationConfigError || '请先在设置中启用翻译模型' } };
+    }
+    const self = this;
+    const analyze = function (reference) {
+      const words = String(reference || '').match(/[A-Za-z][A-Za-z0-9_-]*/g) || [];
+      const wordBreakdown = [];
+      const unknownWords = [];
+      for (let i = 0; i < words.length; i++) {
+        const w = words[i];
+        const e = self.info.get(w.toLowerCase()) || self.info.get(w);
+        wordBreakdown.push({ text: w, gloss: e ? e.meaning : '', offset: i });
+        if (!e) unknownWords.push({ text: w, line: 1, column: 0 });
+      }
+      const issues = lintSource(reference, { info: self.info, units: self.units, keys: self.keys, spells: self.spells }, 'reference');
+      return { wordBreakdown: wordBreakdown, unknownWords: unknownWords, lint: issues };
+    };
+    return await this.referenceService.generate({
+      chinese: chinese,
+      dictionaryContext: this.getDictionaryContext(),
+      analyze: analyze
+    });
   }
 
   getTranslationRenderOptions() {

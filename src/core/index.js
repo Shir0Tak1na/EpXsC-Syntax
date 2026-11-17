@@ -13,6 +13,7 @@ const settings = require('./settings.js');
 const lexiconMerge = require('./lexicon/merge.js');
 const translation = require('./translation/request.js');
 const translationPrompt = require('./translation/prompt.js');
+const translationReference = require('./translation/reference.js');
 
 module.exports = Object.assign(
   {},
@@ -28,6 +29,7 @@ module.exports = Object.assign(
   lexiconMerge,
   translation,
   translationPrompt,
+  translationReference,
   {
     /* 稳定别名：外部工具按这些名字调用 */
     extractBlocks: blocks.extractEpXsCBlocks,
@@ -44,6 +46,7 @@ module.exports = Object.assign(
     mergeDictionaries: lexiconMerge.mergeDictionaries,
     resolveEndpoint: translation.resolveEndpoint,
     validateProviderConfig: translation.validateProviderConfig,
-    providerFingerprint: translation.providerFingerprint
+    providerFingerprint: translation.providerFingerprint,
+    parseReferenceResponse: translationReference.parseReferenceResponse
   }
 );

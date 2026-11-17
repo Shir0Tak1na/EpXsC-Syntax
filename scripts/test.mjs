@@ -26,6 +26,8 @@ const translationCore = nodeRequire('../src/core/translation/request.js');
 const translationPrompt = nodeRequire('../src/core/translation/prompt.js');
 const { createOpenAICompatibleProvider } = nodeRequire('../src/providers/openai-compatible.js');
 const { createTranslationService } = nodeRequire('../src/services/translation-service.js');
+const referenceCore = nodeRequire('../src/core/translation/reference.js');
+const { createReferenceService } = nodeRequire('../src/services/reference-service.js');
 const ordParse = nodeRequire('../src/core/ord/parse.js');
 
 const source = fs.readFileSync('src/adapter/plugin.js', 'utf8');
@@ -329,6 +331,29 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   const timed = await timeoutService.translate({ text: 'C', targetLanguage: 'zh-CN' });
   assert.equal(timed.ok, false);
   assert.equal(timed.error.code, 'TIMEOUT');
+}
+
+// 13d) 2.2.0 F6 reference generation: JSON parsing and service analysis
+{
+  const parsed = referenceCore.parseReferenceResponse('{"reference":"Plur Aqua","backTranslation":"净水","notes":["n"]}');
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.data.reference, 'Plur Aqua');
+  assert.equal(parsed.data.notes.length, 1);
+  const fenced = referenceCore.parseReferenceResponse('\x60\x60\x60json\n{"reference":"A"}\n\x60\x60\x60');
+  assert.equal(fenced.ok, true);
+  const bad = referenceCore.parseReferenceResponse('not json');
+  assert.equal(bad.ok, false);
+  const refService = createReferenceService({
+    provider: { chat: async () => ({ ok: true, text: '{"reference":"Plur Aqua","backTranslation":"净水"}' }) }
+  });
+  const out = await refService.generate({
+    chinese: '净水',
+    analyze: async () => ({ wordBreakdown: [{ text: 'Plur', gloss: '净化' }], unknownWords: [], lint: [] })
+  });
+  assert.equal(out.ok, true);
+  assert.equal(out.reference, 'Plur Aqua');
+  assert.equal(out.wordBreakdown.length, 1);
+  assert.equal(out.backTranslation, '净水');
 }
 
 // 14) SpellRegistry / LintService 薄服务

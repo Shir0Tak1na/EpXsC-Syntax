@@ -17,18 +17,16 @@ function createOpenAICompatibleProvider(options) {
   const promptVersion = opts.promptVersion || PROMPT_VERSION;
   const fingerprint = providerFingerprint(config, promptVersion);
 
-  async function translate(input) {
+  async function chat(messages, input) {
     const v = validateProviderConfig(config);
     if (!v.ok) return error(v.code, v.message, false);
     if (typeof request !== 'function') return error('MISSING_TRANSPORT', '没有可用的 HTTP 传输层', false);
-    const text = String((input && input.text) || '').trim();
-    if (!text) return error('EMPTY_SOURCE', '源句为空', false);
-    const target = String((input && input.targetLanguage) || 'zh-CN').trim() || 'zh-CN';
+    if (!Array.isArray(messages) || !messages.length) return error('EMPTY_MESSAGES', '消息为空', false);
     const headers = Object.assign({ 'Content-Type': 'application/json' }, config.headers || {});
     if (config.apiKey) headers.Authorization = 'Bearer ' + config.apiKey;
     const payload = {
       model: config.model,
-      messages: buildTranslationMessages({ text: text, targetLanguage: target }),
+      messages: messages,
       temperature: config.temperature,
       max_tokens: config.maxTokens,
       stream: false
@@ -55,8 +53,15 @@ function createOpenAICompatibleProvider(options) {
     }
     const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     const textOut = cleanModelText(typeof content === 'string' ? content : '');
-    if (!textOut) return error('EMPTY_CONTENT', '模型返回空译文', true);
+    if (!textOut) return error('EMPTY_CONTENT', '模型返回空内容', true);
     return { ok: true, text: textOut };
+  }
+
+  async function translate(input) {
+    const text = String((input && input.text) || '').trim();
+    if (!text) return error('EMPTY_SOURCE', '源句为空', false);
+    const target = String((input && input.targetLanguage) || 'zh-CN').trim() || 'zh-CN';
+    return chat(buildTranslationMessages({ text: text, targetLanguage: target }), input);
   }
 
   return {
@@ -71,6 +76,7 @@ function createOpenAICompatibleProvider(options) {
       structuredOutput: false
     },
     config: config,
+    chat: chat,
     translate: translate
   };
 }

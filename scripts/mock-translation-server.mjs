@@ -44,8 +44,12 @@ const server = http.createServer((req, res) => {
   req.on('end', () => {
     let body = {};
     try { body = JSON.parse(raw || '{}'); } catch (e) { /* ignore */ }
+    const messages = body && Array.isArray(body.messages) ? body.messages : [];
+    const system = (messages.filter((m) => m && m.role === 'system')[0] || {}).content || '';
     const src = sourceFrom(body);
-    const out = src === 'Plur Aqua' ? '净水（mock）' : ('[mock] ' + src);
+    const out = system.indexOf('EpXsC translation assistant') >= 0
+      ? JSON.stringify({ reference: 'Plur Aqua', backTranslation: '净水（mock 回译）', notes: ['mock reference'] })
+      : (src === 'Plur Aqua' ? '净水（mock）' : ('[mock] ' + src));
     setTimeout(() => {
       json(res, 200, {
         id: 'mock-' + Date.now(),

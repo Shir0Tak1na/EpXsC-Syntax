@@ -1093,18 +1093,16 @@ var require_openai_compatible = __commonJS({
       const request = opts.request;
       const promptVersion = opts.promptVersion || PROMPT_VERSION;
       const fingerprint = providerFingerprint(config, promptVersion);
-      async function translate(input) {
+      async function chat(messages, input) {
         const v = validateProviderConfig(config);
         if (!v.ok) return error(v.code, v.message, false);
         if (typeof request !== "function") return error("MISSING_TRANSPORT", "\u6CA1\u6709\u53EF\u7528\u7684 HTTP \u4F20\u8F93\u5C42", false);
-        const text = String(input && input.text || "").trim();
-        if (!text) return error("EMPTY_SOURCE", "\u6E90\u53E5\u4E3A\u7A7A", false);
-        const target = String(input && input.targetLanguage || "zh-CN").trim() || "zh-CN";
+        if (!Array.isArray(messages) || !messages.length) return error("EMPTY_MESSAGES", "\u6D88\u606F\u4E3A\u7A7A", false);
         const headers = Object.assign({ "Content-Type": "application/json" }, config.headers || {});
         if (config.apiKey) headers.Authorization = "Bearer " + config.apiKey;
         const payload = {
           model: config.model,
-          messages: buildTranslationMessages({ text, targetLanguage: target }),
+          messages,
           temperature: config.temperature,
           max_tokens: config.maxTokens,
           stream: false
@@ -1135,8 +1133,14 @@ var require_openai_compatible = __commonJS({
         }
         const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
         const textOut = cleanModelText(typeof content === "string" ? content : "");
-        if (!textOut) return error("EMPTY_CONTENT", "\u6A21\u578B\u8FD4\u56DE\u7A7A\u8BD1\u6587", true);
+        if (!textOut) return error("EMPTY_CONTENT", "\u6A21\u578B\u8FD4\u56DE\u7A7A\u5185\u5BB9", true);
         return { ok: true, text: textOut };
+      }
+      async function translate(input) {
+        const text = String(input && input.text || "").trim();
+        if (!text) return error("EMPTY_SOURCE", "\u6E90\u53E5\u4E3A\u7A7A", false);
+        const target = String(input && input.targetLanguage || "zh-CN").trim() || "zh-CN";
+        return chat(buildTranslationMessages({ text, targetLanguage: target }), input);
       }
       return {
         id: "openai-compatible",
@@ -1150,6 +1154,7 @@ var require_openai_compatible = __commonJS({
           structuredOutput: false
         },
         config,
+        chat,
         translate
       };
     }
@@ -1260,6 +1265,218 @@ var require_translation_service = __commonJS({
       };
     }
     module2.exports = { createTranslationService, cancelled };
+  }
+});
+
+// src/core/translation/reference.js
+var require_reference = __commonJS({
+  "src/core/translation/reference.js"(exports2, module2) {
+    "use strict";
+    var REFERENCE_PROMPT_VERSION = "epxsc-reference-v1";
+    function buildReferenceMessages(input) {
+      const o = input || {};
+      const chinese = String(o.chinese || "").trim();
+      const grammar = String(o.grammarContext || "").trim();
+      const dictionary = String(o.dictionaryContext || "").trim();
+      const system = [
+        "You are an EpXsC (Expaulxsirian Construct) translation assistant for an author.",
+        "Convert the supplied Chinese sentence into EpXsC.",
+        "Return JSON only, with this shape:",
+        '{"reference":"EpXsC sentence","backTranslation":"literal Chinese back-translation","notes":["optional note"]}',
+        "Do not return Markdown fences, explanations outside JSON, lint results, or invented dictionary entries.",
+        "Use only words supported by the supplied dictionary context. If a word is unknown, choose the closest supported expression and mention it in notes.",
+        "The author will review the result; never claim it is authoritative."
+      ].join(" ");
+      const parts = ["Chinese sentence:", chinese];
+      if (grammar) parts.push("Grammar constraints:", grammar);
+      if (dictionary) parts.push("Dictionary context:", dictionary);
+      return [
+        { role: "system", content: system },
+        { role: "user", content: parts.join("\n") }
+      ];
+    }
+    function parseReferenceResponse(text) {
+      let s = String(text || "").trim();
+      s = s.replace(/^\x60{3}[^\n]*\n?/, "").replace(/\n?\x60{3}$/, "").trim();
+      const start = s.indexOf("{");
+      const end = s.lastIndexOf("}");
+      if (start < 0 || end <= start) return { ok: false, error: { code: "INVALID_JSON", message: "\u6A21\u578B\u6CA1\u6709\u8FD4\u56DE JSON \u5BF9\u8C61" } };
+      let data;
+      try {
+        data = JSON.parse(s.slice(start, end + 1));
+      } catch (e) {
+        return { ok: false, error: { code: "INVALID_JSON", message: "\u6A21\u578B\u8FD4\u56DE\u7684 JSON \u65E0\u6CD5\u89E3\u6790" } };
+      }
+      if (!data || typeof data.reference !== "string" || !data.reference.trim()) {
+        return { ok: false, error: { code: "MISSING_REFERENCE", message: "\u6A21\u578B\u8FD4\u56DE\u7F3A\u5C11 reference \u5B57\u6BB5" } };
+      }
+      return {
+        ok: true,
+        data: {
+          reference: data.reference.trim(),
+          backTranslation: typeof data.backTranslation === "string" ? data.backTranslation.trim() : "",
+          notes: Array.isArray(data.notes) ? data.notes.map(String) : []
+        }
+      };
+    }
+    module2.exports = { REFERENCE_PROMPT_VERSION, buildReferenceMessages, parseReferenceResponse };
+  }
+});
+
+// src/services/reference-service.js
+var require_reference_service = __commonJS({
+  "src/services/reference-service.js"(exports2, module2) {
+    "use strict";
+    var { REFERENCE_PROMPT_VERSION, buildReferenceMessages, parseReferenceResponse } = require_reference();
+    function createReferenceService(options) {
+      const opts = options || {};
+      const provider = opts.provider || null;
+      async function generate(input) {
+        const o = input || {};
+        if (!provider || typeof provider.chat !== "function") {
+          return { ok: false, error: { code: "NO_PROVIDER", message: "\u672A\u914D\u7F6E\u7FFB\u8BD1\u6A21\u578B" } };
+        }
+        const chinese = String(o.chinese || "").trim();
+        if (!chinese) return { ok: false, error: { code: "EMPTY_SOURCE", message: "\u4E2D\u6587\u6E90\u53E5\u4E3A\u7A7A" } };
+        const messages = buildReferenceMessages({
+          chinese,
+          grammarContext: o.grammarContext || "",
+          dictionaryContext: o.dictionaryContext || ""
+        });
+        const raw = await provider.chat(messages, { signal: o.signal });
+        if (!raw || !raw.ok) return { ok: false, error: raw && raw.error || { code: "PROVIDER_ERROR", message: "\u6A21\u578B\u8BF7\u6C42\u5931\u8D25" } };
+        const parsed = parseReferenceResponse(raw.text);
+        if (!parsed.ok) return parsed;
+        let analysis = { wordBreakdown: [], unknownWords: [], lint: [] };
+        if (typeof o.analyze === "function") {
+          try {
+            analysis = await o.analyze(parsed.data.reference);
+          } catch (e) {
+          }
+        }
+        return {
+          ok: true,
+          reference: parsed.data.reference,
+          backTranslation: parsed.data.backTranslation,
+          notes: parsed.data.notes,
+          wordBreakdown: analysis.wordBreakdown || [],
+          unknownWords: analysis.unknownWords || [],
+          lint: analysis.lint || [],
+          promptVersion: REFERENCE_PROMPT_VERSION
+        };
+      }
+      return { generate, provider };
+    }
+    module2.exports = { createReferenceService };
+  }
+});
+
+// src/ui/reference-modal.js
+var require_reference_modal = __commonJS({
+  "src/ui/reference-modal.js"(exports2, module2) {
+    "use strict";
+    var { Modal, Setting, Notice, MarkdownView } = require("obsidian");
+    var ReferenceModal = class extends Modal {
+      constructor(app, plugin) {
+        super(app);
+        this.plugin = plugin;
+        this.result = null;
+        this.chinese = "";
+      }
+      onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.createEl("h2", { text: "EpXsC \u53C2\u8003\u7FFB\u8BD1" });
+        contentEl.createEl("p", { text: "\u8F93\u5165\u4E2D\u6587\uFF0C\u6A21\u578B\u751F\u6210 EpXs \u53C2\u8003\uFF1B\u7ED3\u679C\u4E0D\u4F1A\u81EA\u52A8\u5199\u5165\u6B63\u6587\u3002" });
+        const source = contentEl.createEl("textarea");
+        source.rows = 4;
+        source.style.width = "100%";
+        source.placeholder = "\u8F93\u5165\u4E2D\u6587\u53E5\u5B50\u2026";
+        source.addEventListener("input", () => {
+          this.chinese = source.value;
+        });
+        const status = contentEl.createEl("p", { text: "" });
+        const output = contentEl.createEl("div");
+        new Setting(contentEl).addButton((btn) => btn.setButtonText("\u751F\u6210\u53C2\u8003").setCta().onClick(async () => {
+          const text = String(source.value || "").trim();
+          if (!text) {
+            new Notice("\u8BF7\u5148\u8F93\u5165\u4E2D\u6587");
+            return;
+          }
+          status.textContent = "\u751F\u6210\u4E2D\u2026";
+          btn.setDisabled(true);
+          try {
+            const result = await this.plugin.generateReference(text);
+            this.result = result;
+            output.empty();
+            if (!result || !result.ok) {
+              status.textContent = "\u751F\u6210\u5931\u8D25\uFF1A" + (result && result.error ? result.error.message : "\u672A\u77E5\u9519\u8BEF");
+              return;
+            }
+            status.textContent = "\u53C2\u8003\u7ED3\u679C\uFF1B\u8BF7\u81EA\u884C\u6838\u5BF9\uFF0C\u4E0D\u4F1A\u81EA\u52A8\u5199\u5165\u6B63\u6587\u3002";
+            output.createEl("h3", { text: "\u53C2\u8003 EpXs" });
+            output.createEl("pre", { text: result.reference });
+            if (result.backTranslation) {
+              output.createEl("h3", { text: "\u6A21\u578B\u56DE\u8BD1\uFF08\u975E\u6743\u5A01\uFF09" });
+              output.createEl("p", { text: result.backTranslation });
+            }
+            if (result.notes && result.notes.length) {
+              output.createEl("h3", { text: "\u5907\u6CE8" });
+              const ul = output.createEl("ul");
+              result.notes.forEach((n) => ul.createEl("li", { text: String(n) }));
+            }
+            if (result.wordBreakdown && result.wordBreakdown.length) {
+              output.createEl("h3", { text: "\u9010\u8BCD" });
+              const table = output.createEl("table");
+              const head = table.createEl("tr");
+              head.createEl("th", { text: "\u8BCD" });
+              head.createEl("th", { text: "\u91CA\u4E49" });
+              result.wordBreakdown.forEach((w) => {
+                const row = table.createEl("tr");
+                row.createEl("td", { text: w.text });
+                row.createEl("td", { text: w.gloss || "\uFF08\u672A\u77E5\uFF09" });
+              });
+            }
+            if (result.unknownWords && result.unknownWords.length) {
+              output.createEl("h3", { text: "\u672A\u77E5\u8BCD" });
+              output.createEl("p", { text: result.unknownWords.map((w) => w.text).join("\u3001") });
+            }
+            if (result.lint && result.lint.length) {
+              output.createEl("h3", { text: "\u8BED\u6CD5\u68C0\u67E5" });
+              const ul = output.createEl("ul");
+              result.lint.forEach((issue) => ul.createEl("li", { text: issue.message || String(issue) }));
+            }
+            new Setting(output).addButton((b) => b.setButtonText("\u590D\u5236\u53C2\u8003").onClick(async () => {
+              try {
+                await navigator.clipboard.writeText(result.reference);
+                new Notice("\u5DF2\u590D\u5236");
+              } catch (e) {
+                new Notice("\u590D\u5236\u5931\u8D25");
+              }
+            })).addButton((b) => b.setButtonText("\u63D2\u5165\u53C2\u8003\u5757").onClick(() => this.insertReference(result.reference, text)));
+          } catch (err) {
+            status.textContent = "\u751F\u6210\u5931\u8D25\uFF1A" + (err && err.message ? err.message : err);
+          } finally {
+            btn.setDisabled(false);
+          }
+        }));
+      }
+      insertReference(reference, chinese) {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view || !view.editor) {
+          new Notice("\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A Markdown \u7B14\u8BB0");
+          return;
+        }
+        const block = "```EpXsT\n" + reference + "\n> (zh-CN) " + String(chinese).replace(/\n/g, " ") + "\n```\n";
+        view.editor.replaceSelection(block);
+        new Notice("\u5DF2\u63D2\u5165\u53C2\u8003\u5757");
+        this.close();
+      }
+      onClose() {
+        this.contentEl.empty();
+      }
+    };
+    module2.exports = { ReferenceModal };
   }
 });
 
@@ -2973,6 +3190,8 @@ var require_plugin = __commonJS({
     var { EpXsSettingsTab } = require_settings_tab();
     var { createOpenAICompatibleProvider } = require_openai_compatible();
     var { createTranslationService } = require_translation_service();
+    var { createReferenceService } = require_reference_service();
+    var { ReferenceModal } = require_reference_modal();
     var { normalizeProviderConfig, validateProviderConfig } = require_request();
     var { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require_markup();
     var { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require_grammar();
@@ -3247,6 +3466,13 @@ var require_plugin = __commonJS({
             self.openSettings();
           }
         });
+        this.addCommand({
+          id: "reference-from-chinese",
+          name: "\u4ECE\u4E2D\u6587\u751F\u6210 EpXs \u53C2\u8003",
+          callback: function() {
+            new ReferenceModal(self.app, self).open();
+          }
+        });
         this.loadData().then(function(data) {
           self.settings = normalizeSettings(data);
           self.translationLanguage = self.settings.display.language !== "auto" ? self.settings.display.language : detectLanguage(self.app);
@@ -3408,6 +3634,8 @@ var require_plugin = __commonJS({
         const tr = this.settings && this.settings.translation;
         if (!tr || tr.enabled !== true) {
           this.translationService = null;
+          this.translationProvider = null;
+          this.referenceService = null;
           this.translationConfigError = "";
           return false;
         }
@@ -3415,6 +3643,8 @@ var require_plugin = __commonJS({
         const check = validateProviderConfig(cfg);
         if (!check.ok) {
           this.translationService = null;
+          this.translationProvider = null;
+          this.referenceService = null;
           this.translationConfigError = check.message;
           return false;
         }
@@ -3426,9 +3656,47 @@ var require_plugin = __commonJS({
             return { status: res.status, json: res.json, text: res.text };
           }
         });
+        this.translationProvider = provider;
         this.translationService = createTranslationService({ provider, timeoutMs: cfg.timeoutMs });
+        this.referenceService = createReferenceService({ provider });
         this.translationConfigError = "";
         return true;
+      }
+      getDictionaryContext(limit) {
+        const max = Number(limit) > 0 ? Number(limit) : 120;
+        const parts = [];
+        let n = 0;
+        this.info.forEach(function(v, k) {
+          if (n >= max) return;
+          parts.push(k + "=" + (v.meaning || ""));
+          n += 1;
+        });
+        return parts.join("; ");
+      }
+      async generateReference(chinese) {
+        if (!this.referenceService) this.configureTranslation();
+        if (!this.referenceService) {
+          return { ok: false, error: { code: "NOT_CONFIGURED", message: this.translationConfigError || "\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u542F\u7528\u7FFB\u8BD1\u6A21\u578B" } };
+        }
+        const self = this;
+        const analyze = function(reference) {
+          const words = String(reference || "").match(/[A-Za-z][A-Za-z0-9_-]*/g) || [];
+          const wordBreakdown = [];
+          const unknownWords = [];
+          for (let i = 0; i < words.length; i++) {
+            const w = words[i];
+            const e = self.info.get(w.toLowerCase()) || self.info.get(w);
+            wordBreakdown.push({ text: w, gloss: e ? e.meaning : "", offset: i });
+            if (!e) unknownWords.push({ text: w, line: 1, column: 0 });
+          }
+          const issues = lintSource(reference, { info: self.info, units: self.units, keys: self.keys, spells: self.spells }, "reference");
+          return { wordBreakdown, unknownWords, lint: issues };
+        };
+        return await this.referenceService.generate({
+          chinese,
+          dictionaryContext: this.getDictionaryContext(),
+          analyze
+        });
       }
       getTranslationRenderOptions() {
         return {
