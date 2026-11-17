@@ -2,7 +2,7 @@
 
 > Source review: architecture review task book (2026-11-16).
 > Rules: verify before fixing, test before refactoring, one verifiable boundary at a time.
-> Current release: **1.31.0**（2026-11-16）. At most **one GitHub Release per Asia/Shanghai calendar day**.
+> Current release: **2.0.0**（2026-11-16）. Previous stable: **1.31.0**. Next planned: **2.1.0**. At most **one GitHub Release per Asia/Shanghai calendar day**.
 
 ## 2.1 / 2.2
 
@@ -24,6 +24,8 @@
 ## B. Remaining work
 
 > **T1.0 checkpoint**: T1.1 is done. Pause here for review before T1.2.
+>
+> 口径：B 与 D 以 Status Board 为准；本节已按 2026-11-17 状态回写。T4.2 / T4.3 / T5.2 / T5.3 仍为 open。
 
 ### T0 — test baseline (first)
 
@@ -43,14 +45,14 @@
 
 - [x] T2.1 `RefreshScheduler`: requestRefresh / cancelPending / execute; keep debounce, dedupe, generation guard (implemented as `src/services/refresh-scheduler.js`).
 - [x] T2.2 `LexiconService` / `SpellRegistry` / `LintService`: Vault read + parse + merge + snapshot; Node-testable (`src/services/`).
-- [ ] T2.3 Adapter only lifecycle, Vault events, commands, processors; no tokenize/lint/render rules.
+- [x] T2.3 Adapter only lifecycle, Vault events, commands, processors; no tokenize/lint/render rules.
 
 ### T3 — renderer / UI
 
 - [x] T3.1 `epxsc-renderer` / `epxst-renderer` / `epxsg-renderer`; pure token → HTML/DOM structure; adapter mounts (`epxsc-renderer`, `ord-renderer`).
-- [ ] T3.2 Tooltip / lint panel / diagnostics modules; shared `CODE_SELECTOR` and aliases.
+- [x] T3.2 Tooltip / lint panel / diagnostics modules; shared `CODE_SELECTOR` and aliases.
 - [x] T3.3 Render golden tests for C/T/G, long-block guard, empty and malformed input (renderer tests in `scripts/test.mjs`; DOM mounting still smoke-only).
-- [ ] T3.4 Keep `refresh()` → T/G re-render invariant and test it.
+- [x] T3.4 Keep `refresh()` → T/G re-render invariant and test it.
 
 ### T4 — performance / stability
 
@@ -60,7 +62,7 @@
 
 ### T5 — build / CI / release
 
-- [ ] T5.1 CI: golden fixtures, snapshot freshness, clean-build bundle diff, CSS equality, manifest/versions/BUILD consistency.
+- [x] T5.1 CI: golden fixtures, snapshot freshness, clean-build bundle diff, CSS equality, manifest/versions/BUILD consistency.
 - [ ] T5.2 Release asset validation: 3 assets, version match, no tests/local data.
 - [ ] T5.3 One release per day; update current release assets instead of creating another.
 
