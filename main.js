@@ -3217,6 +3217,7 @@ var require_ord_dom = __commonJS({
           if (w.length < 4 || /[0-9]/.test(w)) continue;
           if (info.has(w)) continue;
           spans[i].classList.add("epx-unknown");
+          spans[i].removeAttribute("title");
           const msg = "\u672A\u5165\u5178\uFF1A" + spans[i].textContent;
           spans[i].setAttribute("data-epx-lint", msg);
           spans[i].setAttribute("aria-label", msg);
@@ -4203,6 +4204,7 @@ var require_plugin = __commonJS({
           if (w.length < 4 || /[0-9]/.test(w)) continue;
           if (this.info.has(w)) continue;
           spans[i].classList.add("epx-unknown");
+          spans[i].removeAttribute("title");
           const msg = "\u672A\u5165\u5178\uFF1A" + spans[i].textContent;
           spans[i].setAttribute("data-epx-lint", msg);
           spans[i].setAttribute("aria-label", msg);
@@ -4250,6 +4252,7 @@ var require_plugin = __commonJS({
           const msg = issue.message + (issue.approximate ? "\uFF08\u6B64\u884C\u9644\u8FD1\uFF09" : "");
           const old = line.getAttribute("data-epx-lint") || "";
           line.setAttribute("data-epx-lint", old ? old + "\n" + msg : msg);
+          line.removeAttribute("title");
           line.setAttribute("aria-label", line.getAttribute("data-epx-lint"));
         }
       }
@@ -4274,6 +4277,8 @@ var require_plugin = __commonJS({
       }
       highlightIn(root) {
         if (!root || !root.querySelectorAll) return;
+        const stale = root.querySelectorAll("[data-epx-lint][title], .epx-unknown[title]");
+        for (let s = 0; s < stale.length; s++) stale[s].removeAttribute("title");
         const nodes = root.querySelectorAll(CODE_SELECTOR);
         for (let i = 0; i < nodes.length; i++) this.highlightOne(nodes[i]);
       }

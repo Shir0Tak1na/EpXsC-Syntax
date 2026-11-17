@@ -25,6 +25,7 @@ function renderOrdBlockInner(el, source, mode, grammar, info, options) {
       if (w.length < 4 || /[0-9]/.test(w)) continue;
       if (info.has(w)) continue;
       spans[i].classList.add('epx-unknown');
+      spans[i].removeAttribute('title');
       const msg = '未入典：' + spans[i].textContent;
       spans[i].setAttribute('data-epx-lint', msg);
       spans[i].setAttribute('aria-label', msg);
