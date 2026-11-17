@@ -4115,6 +4115,38 @@ var require_plugin = __commonJS({
       async diagnose() {
         return diagnose(this, BUILD);
       }
+      async updateDiagnosticsStatus() {
+        const status = this._statusBar;
+        if (!status) return;
+        if (!this.settings || !this.settings.diagnostics || !this.settings.diagnostics.enabled) {
+          status.style.display = "none";
+          return;
+        }
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view || !view.file) {
+          status.style.display = "none";
+          return;
+        }
+        try {
+          const text = await this.app.vault.cachedRead(view.file);
+          const snapshot = { info: this.info, units: this.units, keys: this.keys, spells: this.spells };
+          const blocks = extractEpXsCBlocks(text);
+          let errors = 0;
+          let warnings = 0;
+          for (let b = 0; b < blocks.length; b++) {
+            const found = lintSource(blocks[b].source, snapshot, view.file.path);
+            for (let i = 0; i < found.length; i++) {
+              if (found[i].level === "error") errors += 1;
+              else warnings += 1;
+            }
+          }
+          status.setText("EpXsC: " + errors + " \u9519\u8BEF / " + warnings + " \u8B66\u544A");
+          status.style.display = "";
+          status.title = "\u70B9\u51FB\u6253\u5F00\u5F53\u524D\u7B14\u8BB0\u7684 EpXsC \u8BCA\u65AD";
+        } catch (e) {
+          status.style.display = "none";
+        }
+      }
       /* 检查当前笔记里的 EpXsC 代码块 */
       async lintActiveNote() {
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);

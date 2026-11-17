@@ -769,6 +769,35 @@ class EpXsCSyntaxPlugin extends Plugin {
   /* 生成诊断报告，写进库里，便于整段复制出来 */
   async diagnose() { return diagnose(this, BUILD); }
 
+  async updateDiagnosticsStatus() {
+    const status = this._statusBar;
+    if (!status) return;
+    if (!this.settings || !this.settings.diagnostics || !this.settings.diagnostics.enabled) {
+      status.style.display = 'none';
+      return;
+    }
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view || !view.file) { status.style.display = 'none'; return; }
+    try {
+      const text = await this.app.vault.cachedRead(view.file);
+      const snapshot = { info: this.info, units: this.units, keys: this.keys, spells: this.spells };
+      const blocks = extractEpXsCBlocks(text);
+      let errors = 0;
+      let warnings = 0;
+      for (let b = 0; b < blocks.length; b++) {
+        const found = lintSource(blocks[b].source, snapshot, view.file.path);
+        for (let i = 0; i < found.length; i++) {
+          if (found[i].level === 'error') errors += 1; else warnings += 1;
+        }
+      }
+      status.setText('EpXsC: ' + errors + ' 错误 / ' + warnings + ' 警告');
+      status.style.display = '';
+      status.title = '点击打开当前笔记的 EpXsC 诊断';
+    } catch (e) {
+      status.style.display = 'none';
+    }
+  }
+
   /* 检查当前笔记里的 EpXsC 代码块 */
   async lintActiveNote() {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
