@@ -87,13 +87,20 @@ breaking instanceof checks.
 
 This is now a root-cause conclusion, not just a hypothesis.
 
-R3/R4 remain **fix verification**: an externalized CM6 build still must prove it loads safely. The root cause does not authorize shipping D3 without that verification.
+R3/R4 remain **fix verification**: an externalized CM6 build still must prove it loads safely. The root cause does not authorize shipping D3 without that verification; the no-op spike now passes registration, but decorations/lifecycle gates remain.
 
 ## R3 — external build evidence
 
-Status: **pending** (fix verification).
+Status: **confirmed**.
 
-Root cause is now confirmed independently of R3; R3 is still required before loading a D3 build anywhere.
+External build:
+
+- `@codemirror/view` / `@codemirror/state` are external in esbuild;
+- `main.js` contains the external `require("@codemirror/view")` but no bundled CM6 implementation;
+- isolated vault `test-vault-d3-incident` loaded the plugin;
+- the no-op extension registered successfully after `loadData()`.
+
+Important timing finding: registering during `onload()` before `loadData()` skipped the extension because `editorDecorations` was still at its default. Registration must happen after settings are normalized.
 
 Required:
 
@@ -104,7 +111,7 @@ Required:
 
 ## R4 — fix verification
 
-Status: **pending** (depends on R0/R3).
+Status: **confirmed** in the isolated vault.
 
 - same isolated-vault operation set;
 - no crash; notes open;

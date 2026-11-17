@@ -25,11 +25,12 @@
 - only `epxsc-syntax` enabled;
 - `D3 incident repro.md` present.
 
-## Recording
+## Result
 
-- Console line for host CM6 registration:
-- Error text (if any):
-- Note opens: yes / no
-- Editor usable: yes / no
+- Host CM6 registration: **success**
+- Notice: `D3 spike：宿主 CM6 扩展注册成功`
+- Notes open: yes
+- Duplicate CM6 error: no
+- Finding: registration must run **after `loadData()`**; doing it in `onload()` skipped it because `editorDecorations` was still default false.
 
-Do not mark R3 passed until the runtime result is recorded.
+R3/R4 satisfied for the no-op spike; D3.1 lifecycle/error gates are next.
