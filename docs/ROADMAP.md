@@ -6,9 +6,29 @@
 
 ## 2.1 / 2.2
 
-- 2.1.0：多语言 T 块、自动翻译、设置页与词库导入。
-- 2.2.0：下划线、编辑器辅助。
-- 详见 [2.1.0-PLAN.md](2.1.0-PLAN.md)。
+- 2.1.0：多语言 T 块、语言选择、未翻译状态、自动翻译、作者参考翻译、设置与词库导入。
+- 2.2.0：下划线、CodeMirror 装饰器、Codex 式编辑器辅助。
+- 任务拆分见 [2.1.0-PLAN.md](2.1.0-PLAN.md)；2.1.0 先交付无网络阶段，再接网络阶段。
+
+### 2.1.0 tasks
+
+| ID | Task | DoD |
+| :---: | :--- | :--- |
+| F2 | 多语言 T 块解析与语言标签 | BCP-47 子集、旧块兼容、特殊字符测试 |
+| F3 | 按语言选择译文 | exact/base/fallback/default 顺序；不递归 |
+| F4 | 未翻译状态组件 | human/auto/pending/failed/untranslated 转换测试 |
+| F5 | 自动翻译 | 单句粒度、缓存、取消、超时、可见性、过期响应测试 |
+| F6 | 作者参考翻译 | 独立 service；Core 计算 lint/unknown；禁止自动写回 |
+| F7 | 设置页与词库 | 导入/合并冲突、配置迁移、密钥脱敏、endpoint 测试 |
+
+### 2.2.0 tasks
+
+| ID | Task | DoD |
+| :---: | :--- | :--- |
+| D1 | lint range 化 | line/column/start/end fixtures |
+| D2 | 阅读/Live Preview 红色虚线下划线 | 词级定位、tooltip、失败降级 |
+| D3 | CodeMirror 装饰器 | 源码内诊断；不破坏 Live Preview |
+| D4 | Codex 式辅助 | 补全/改写/语法解释；需单独安全与交互审查 |
 
 ## A. Current baseline
 
@@ -23,9 +43,7 @@
 
 ## B. Remaining work
 
-> **T1.0 checkpoint**: T1.1 is done. Pause here for review before T1.2.
->
-> 口径：B 与 D 以 Status Board 为准；本节已按 2026-11-17 状态回写。T4.2 / T4.3 / T5.2 / T5.3 仍为 open。
+> 口径：B 与 D 以 Status Board 为准；本节已按 2026-11-17 状态回写。T4.2 / T4.3 / T5.2 / T5.3 仍为 open；T5.2 的 2.0.0 资产为人工验证，自动化校验仍未完成。
 
 ### T0 — test baseline (first)
 
@@ -104,14 +122,18 @@ Do not start T1/T2 migration before T0 is complete.
 | T3.3 | DONE | C/T/G data renderer tests |
 | T3.4 | DONE | T/G refresh re-render invariant asserted |
 | T4.1 | DONE | `npm run bench` |
+| T4.2 | OPEN | watchdog optimization; needs metrics |
+| T4.3 | OPEN | bounded caches + invalidation tests |
 | T5.1 | DONE | CI now checks bundle freshness after build |
+| T5.2 | OPEN | release asset validation; 2.0.0 verified manually |
+| T5.3 | OPEN | one release/day; update assets instead of extra release |
 | T6.1 | DONE | CLI + exports + tests | |
 
 ## E. Definition of done per task
 
 1. Independent test/fixture; `npm test` passes.
 2. `npm run build && npm run check` passes.
-3. No language semantics, dictionary priority, highlight output, lint rules or interaction changes.
+3. 重构任务：No language semantics, dictionary priority, highlight output, lint rules or interaction changes. 2.1.0 功能任务不适用此条，按计划验收。
 4. Vault smoke test: C / T / G / hover.
 5. Failure paths log, no swallowed exceptions.
 6. Docs + CHANGELOG updated.
@@ -132,6 +154,6 @@ Current: **2.0.0** released 2026-11-16 as an authorized exception. Next checklis
 
 ## G. Next single action
 
-**T1.3–T5 architecture optimization is complete.**
+**核心拆分已完成；性能与发布验证仍有遗留。**
 
-Evidence: services, renderers, UI modules, adapter reduced from ~72KB to ~34KB; all tests, fixture runner, lexicon canonical check, bundle freshness and release asset validator pass. Optional next work is T6 (external core package), which is outside the current objective.
+Evidence: services, renderers, UI modules, adapter reduced from ~72KB to ~34KB; tests, fixture runner, lexicon canonical check and bundle freshness pass. Open: T4.2, T4.3, T5.2, T5.3. Next product work is 2.1.0 Phase 1 (F2/F3/F4), not T6.
