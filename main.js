@@ -1063,7 +1063,8 @@ var require_prompt = __commonJS({
         "If the source is ambiguous, choose the most literal reading and keep names unchanged.",
         "Target language: " + target + "."
       ].join(" ");
-      const user = "Translate this EpXsC sentence:\n" + source;
+      const context = String(o.context || "").trim();
+      const user = "Translate this EpXsC sentence:\n" + source + (context ? "\nDictionary context:\n" + context : "");
       return [
         { role: "system", content: system },
         { role: "user", content: user }
@@ -1183,7 +1184,7 @@ var require_openai_compatible = __commonJS({
         const text = String(input && input.text || "").trim();
         if (!text) return error("EMPTY_SOURCE", "\u6E90\u53E5\u4E3A\u7A7A", false);
         const target = String(input && input.targetLanguage || "zh-CN").trim() || "zh-CN";
-        return chat(buildTranslationMessages({ text, targetLanguage: target }), input);
+        return chat(buildTranslationMessages({ text, targetLanguage: target, context: input && input.context }), input);
       }
       return {
         id: "openai-compatible",
@@ -1276,6 +1277,7 @@ var require_translation_service = __commonJS({
           text: source,
           sourceLang: optsIn.sourceLang || "epxsc",
           targetLanguage: optsIn.targetLanguage || optsIn.targetLang || "zh-CN",
+          context: optsIn.context || "",
           signal: optsIn.signal
         }), timeoutMs).then(function(result) {
           if (startEpoch !== epoch) return cancelled();
@@ -1325,10 +1327,10 @@ var require_reference = __commonJS({
         "You are an EpXsC (Expaulxsirian Construct) translation assistant for an author.",
         "Convert the supplied Chinese sentence into EpXsC.",
         "Return JSON only, with this shape:",
-        '{"reference":"EpXsC sentence","backTranslation":"literal Chinese back-translation","notes":["optional note"]}',
+        '{"reference":"EpXsC sentence","backTranslation":"\u7B80\u4F53\u4E2D\u6587\u56DE\u8BD1","notes":["optional note"]}',
         "Do not return Markdown fences, explanations outside JSON, lint results, or invented dictionary entries.",
         "Use only words supported by the supplied dictionary context. If a word is unknown, choose the closest supported expression and mention it in notes.",
-        "The author will review the result; never claim it is authoritative."
+        "backTranslation must be Simplified Chinese, not English. The author will review the result; never claim it is authoritative."
       ].join(" ");
       const parts = ["Chinese sentence:", chinese];
       if (grammar) parts.push("Grammar constraints:", grammar);
@@ -3182,7 +3184,8 @@ var require_ord_dom = __commonJS({
               text: record.src,
               sourceLang: "epxsc",
               targetLanguage: options.requestedLanguage || "zh-CN",
-              lexiconVersion: options.lexiconVersion || ""
+              lexiconVersion: options.lexiconVersion || "",
+              context: options.translationContext ? options.translationContext(record.src) : ""
             })).then(function(result) {
               if (!zh.isConnected) return;
               if (result && result.ok) {
@@ -3748,13 +3751,27 @@ var require_plugin = __commonJS({
           analyze
         });
       }
+      getTranslationContext(text) {
+        const words = String(text || "").match(/[A-Za-z][A-Za-z0-9_-]*/g) || [];
+        const seen = /* @__PURE__ */ new Set();
+        const parts = [];
+        for (let i = 0; i < words.length; i++) {
+          const w = words[i].toLowerCase();
+          if (seen.has(w)) continue;
+          seen.add(w);
+          const e = this.info.get(w);
+          if (e) parts.push(words[i] + " = " + (e.meaning || e.pos || ""));
+        }
+        return parts.join("; ");
+      }
       getTranslationRenderOptions() {
         return {
           requestedLanguage: this.getRequestedLanguage(),
           fallbackLanguage: this.getFallbackLanguage(),
           autoTranslate: !!(this.settings && this.settings.translation && this.settings.translation.enabled),
           translationService: this.translationService || null,
-          lexiconVersion: this.lexiconVersion || ""
+          lexiconVersion: this.lexiconVersion || "",
+          translationContext: (text) => this.getTranslationContext(text)
         };
       }
       async testTranslation() {

@@ -13,7 +13,8 @@ function buildTranslationMessages(input) {
     'If the source is ambiguous, choose the most literal reading and keep names unchanged.',
     'Target language: ' + target + '.'
   ].join(' ');
-  const user = 'Translate this EpXsC sentence:\n' + source;
+  const context = String(o.context || '').trim();
+  const user = 'Translate this EpXsC sentence:\n' + source + (context ? '\nDictionary context:\n' + context : '');
   return [
     { role: 'system', content: system },
     { role: 'user', content: user }

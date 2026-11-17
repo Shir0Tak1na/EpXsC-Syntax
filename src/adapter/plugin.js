@@ -525,13 +525,28 @@ class EpXsCSyntaxPlugin extends Plugin {
     });
   }
 
+  getTranslationContext(text) {
+    const words = String(text || '').match(/[A-Za-z][A-Za-z0-9_-]*/g) || [];
+    const seen = new Set();
+    const parts = [];
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i].toLowerCase();
+      if (seen.has(w)) continue;
+      seen.add(w);
+      const e = this.info.get(w);
+      if (e) parts.push(words[i] + ' = ' + (e.meaning || e.pos || ''));
+    }
+    return parts.join('; ');
+  }
+
   getTranslationRenderOptions() {
     return {
       requestedLanguage: this.getRequestedLanguage(),
       fallbackLanguage: this.getFallbackLanguage(),
       autoTranslate: !!(this.settings && this.settings.translation && this.settings.translation.enabled),
       translationService: this.translationService || null,
-      lexiconVersion: this.lexiconVersion || ''
+      lexiconVersion: this.lexiconVersion || '',
+      translationContext: (text) => this.getTranslationContext(text)
     };
   }
 

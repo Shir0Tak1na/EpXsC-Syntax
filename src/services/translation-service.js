@@ -73,6 +73,7 @@ function createTranslationService(options) {
       text: source,
       sourceLang: optsIn.sourceLang || 'epxsc',
       targetLanguage: optsIn.targetLanguage || optsIn.targetLang || 'zh-CN',
+      context: optsIn.context || '',
       signal: optsIn.signal
     }), timeoutMs).then(function (result) {
       if (startEpoch !== epoch) return cancelled();
