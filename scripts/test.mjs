@@ -263,6 +263,11 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   const defaults = settingsCore.normalizeSettings(undefined);
   assert.deepEqual(defaults.lexicon.customPaths, []);
   assert.equal(defaults.display.language, 'auto');
+  assert.equal(defaults.diagnostics.enabled, true);
+  assert.equal(defaults.diagnostics.editorDecorations, false);
+  const diagOff = settingsCore.normalizeSettings({ diagnostics: { enabled: false, editorDecorations: true } });
+  assert.equal(diagOff.diagnostics.enabled, false);
+  assert.equal(diagOff.diagnostics.editorDecorations, true);
   const normalized = settingsCore.normalizeSettings({
     lexicon: { customPaths: ['  a.md ', 'a.md', '', 'b.md'] },
     display: { language: 'zh-cn', fallbackLanguage: ' en ' }

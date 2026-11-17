@@ -61,14 +61,14 @@ function ensureTipNode() {
   s.pointerEvents = 'none';
   s.opacity = '0';
   /* 浮层的观感也自己带一份：外部样式表万一没生效，它就不会变成裸文本留在页面上 */
-  s.maxWidth = '340px';
-  s.padding = '7px 11px';
+  s.maxWidth = 'min(480px, 80vw)';
+  s.padding = '10px 14px';
   s.border = '1px solid var(--background-modifier-border)';
   s.borderRadius = 'var(--radius-s, 6px)';
   s.background = 'var(--background-secondary)';
   s.color = 'var(--text-normal)';
   s.fontFamily = 'var(--font-interface)';
-  s.fontSize = '12px';
+  s.fontSize = '13px';
   s.lineHeight = '1.5';
   s.boxShadow = 'var(--shadow-s, 0 2px 8px rgba(0,0,0,.25))';
   s.transition = 'opacity 90ms ease';
@@ -331,6 +331,11 @@ class EpXsCSyntaxPlugin extends Plugin {
       hideTip();
       const el = ev.target;
       if (!el || !el.closest) return;
+      const diag = el.closest('[data-epx-lint]');
+      if (diag) {
+        const msg = diag.getAttribute('data-epx-lint');
+        if (msg) { showTipAt(ev.clientX, ev.clientY, { label: 'EpXsC 诊断', body: msg }); return; }
+      }
       const token = el.closest('span.token');
       if (token && el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)')) {
         const tip = tipForElement(token, self.info, self.ranks);
@@ -341,6 +346,14 @@ class EpXsCSyntaxPlugin extends Plugin {
       if (!word) return;
       const tip = buildTip('word', word, self.info, self.ranks);
       if (tip) showTipAt(ev.clientX, ev.clientY, tip);
+    });
+    this.registerDomEvent(document, 'click', function (ev) {
+      const el = ev.target;
+      if (!el || !el.closest) return;
+      const diag = el.closest('[data-epx-lint]');
+      if (!diag) return;
+      const msg = diag.getAttribute('data-epx-lint');
+      if (msg) showTipAt(ev.clientX, ev.clientY, { label: 'EpXsC 诊断', body: msg });
     });
     this.registerDomEvent(document, 'mouseout', hideTip);
     this.registerDomEvent(document, 'scroll', hideTip, true);
@@ -372,6 +385,20 @@ class EpXsCSyntaxPlugin extends Plugin {
       for (let i = 0; i < LANG_KEYS.length; i++) delete Prism.languages[LANG_KEYS[i]];
     });
     this.registerMarkdownPostProcessor(function (el) { self.highlightIn(el); });
+    const status = this.addStatusBarItem();
+    status.addClass('epx-status');
+    status.style.display = 'none';
+    this._statusBar = status;
+    status.addEventListener('click', function () { self.lintActiveNote(); });
+    const scheduleStatus = function () {
+      if (self._statusTimer) window.clearTimeout(self._statusTimer);
+      self._statusTimer = window.setTimeout(function () { self.updateDiagnosticsStatus(); }, 350);
+    };
+    this.registerEvent(this.app.workspace.on('active-leaf-change', scheduleStatus));
+    this.registerEvent(this.app.vault.on('modify', function (file) {
+      if (file && file === self.app.workspace.getActiveFile()) scheduleStatus();
+    }));
+    this.register(function () { if (self._statusTimer) window.clearTimeout(self._statusTimer); });
     /* 代码块处理器：Obsidian 的公开稳定 API（Mermaid／Dataview 同一条路），
        阅读视图与实时预览都会走它。实时预览里代码块本就「光标不在其中时渲染、进去显示源码」，
        所以这条路上色不需要碰 CodeMirror，也不受 CM6 版本变动影响。 */
@@ -405,8 +432,10 @@ class EpXsCSyntaxPlugin extends Plugin {
       el.__epxOrd = { source: source, mode: mode, ctx: ctx };
       renderOrdBlock(el, source, mode, self.grammar, self.info, self.getTranslationRenderOptions());
       try {
-        self.markUnknownTokens(el);
-        self.decorateOrdLint(el, self.lintForSource(source, ctx && ctx.sourcePath));
+        if (self.settings.diagnostics.enabled) {
+          self.markUnknownTokens(el);
+          self.decorateOrdLint(el, self.lintForSource(source, ctx && ctx.sourcePath));
+        }
       } catch (e) { /* best effort */ }
       bindClickToSource(el, self.app, el, ctx);
     };
@@ -703,6 +732,7 @@ class EpXsCSyntaxPlugin extends Plugin {
       new Promise(function (resolve) { window.setTimeout(function () { resolve('样式步骤超时，跳过'); }, 2000); })
     ]);
     this.rehighlight();
+    this.updateDiagnosticsStatus();
   }
 
   /* 样式兜底：外部 styles.css 没被加载时（颜色、右上角 EpXsC 标记、未入典点线、
@@ -783,6 +813,9 @@ class EpXsCSyntaxPlugin extends Plugin {
       if (w.length < 4 || /[0-9]/.test(w)) continue;
       if (this.info.has(w)) continue;
       spans[i].classList.add('epx-unknown');
+      const msg = '未入典：' + spans[i].textContent;
+      spans[i].setAttribute('data-epx-lint', msg);
+      spans[i].setAttribute('aria-label', msg);
     }
   }
 
@@ -809,8 +842,8 @@ class EpXsCSyntaxPlugin extends Plugin {
       const n = i + 1;
       const list = byLine.get(n);
       const level = list && list.length ? (list.some(function (x) { return x.level === 'error'; }) ? 'error' : 'warn') : '';
-      const title = list && list.length ? list.map(function (x) { return x.message; }).join('\n') : '';
-      return '<span class="epx-code-line' + (level ? ' epx-lint-' + level : '') + '" data-epx-line="' + n + '"' + (title ? ' title="' + title.replace(/"/g, '&quot;') + '"' : '') + '>' + (html || ' ') + '</span>';
+      const title = list && list.length ? list.map(function (x) { return x.message + (x.approximate ? '（此行附近）' : ''); }).join('\n') : '';
+      return '<span class="epx-code-line' + (level ? ' epx-lint-' + level : '') + '" data-epx-line="' + n + '"' + (title ? ' data-epx-lint="' + title.replace(/"/g, '&quot;') + '" aria-label="' + title.replace(/"/g, '&quot;') + '"' : '') + '>' + (html || ' ') + '</span>';
     }).join('\n');
   }
 
@@ -822,7 +855,10 @@ class EpXsCSyntaxPlugin extends Plugin {
       const line = lines[Number(issue.line) - 1];
       if (!line) continue;
       line.classList.add('epx-lint-' + (issue.level === 'error' ? 'error' : 'warn'));
-      line.title = (line.title ? line.title + '\n' : '') + issue.message;
+      const msg = issue.message + (issue.approximate ? '（此行附近）' : '');
+      const old = line.getAttribute('data-epx-lint') || '';
+      line.setAttribute('data-epx-lint', old ? old + '\n' + msg : msg);
+      line.setAttribute('aria-label', line.getAttribute('data-epx-lint'));
     }
   }
 
@@ -883,9 +919,9 @@ class EpXsCSyntaxPlugin extends Plugin {
       if (rendered.skip) return;
       varTypesOf.set(code, rendered.vars);
       code.innerHTML = rendered.html;
-      this.markUnknown(code);
+      if (this.settings.diagnostics.enabled) this.markUnknown(code);
       this.markNegation(code);
-      if (code.__epxLintSource) {
+      if (code.__epxLintSource && this.settings.diagnostics.enabled) {
         try { this.decorateLint(code, this.lintForSource(code.__epxLintSource, code.__epxLintPath)); } catch (e) { /* best effort */ }
       }
     } catch (err) {

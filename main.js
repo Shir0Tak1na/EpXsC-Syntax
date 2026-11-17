@@ -833,6 +833,7 @@ var require_settings = __commonJS({
       schemaVersion: 1,
       lexicon: { customPaths: [] },
       display: { language: "auto", fallbackLanguage: "" },
+      diagnostics: { enabled: true, editorDecorations: false },
       translation: {
         enabled: false,
         grammarPath: "",
@@ -856,6 +857,7 @@ var require_settings = __commonJS({
       const lexicon = d.lexicon && typeof d.lexicon === "object" ? d.lexicon : {};
       const display = d.display && typeof d.display === "object" ? d.display : {};
       const translation = d.translation && typeof d.translation === "object" ? d.translation : {};
+      const diagnostics = d.diagnostics && typeof d.diagnostics === "object" ? d.diagnostics : {};
       const language = String(display.language || "auto").trim() || "auto";
       const fallback = String(display.fallbackLanguage || "").trim();
       return {
@@ -864,6 +866,10 @@ var require_settings = __commonJS({
         display: {
           language: language === "auto" ? "auto" : language,
           fallbackLanguage: fallback
+        },
+        diagnostics: {
+          enabled: diagnostics.enabled !== false,
+          editorDecorations: diagnostics.editorDecorations === true
         },
         translation: {
           enabled: translation.enabled === true,
@@ -949,6 +955,16 @@ var require_settings_tab = __commonJS({
         });
         new Setting(containerEl).setName("\u5907\u7528\u8BED\u8A00").setDesc("\u5F53\u524D\u8BED\u8A00\u6CA1\u6709\u8BD1\u6587\u65F6\uFF0C\u518D\u5C1D\u8BD5\u8FD9\u4E2A\u8BED\u8A00\uFF1B\u7559\u7A7A\u5219\u4E0D\u542F\u7528\u3002").addText((text) => text.setPlaceholder("\u4F8B\u5982 zh-CN").setValue(this.plugin.settings.display.fallbackLanguage || "").onChange(async (value) => {
           this.plugin.settings.display.fallbackLanguage = String(value || "").trim();
+          await this.persist();
+        }));
+        containerEl.createEl("h3", { text: "\u8BCA\u65AD" });
+        const dg = this.plugin.settings.diagnostics;
+        new Setting(containerEl).setName("\u542F\u7528\u8BCA\u65AD").setDesc("\u63A7\u5236\u9605\u8BFB/Live Preview \u7684 lint \u4E0B\u5212\u7EBF\u3001\u672A\u5165\u5178\u8BCD\u6807\u8BB0\u3001\u72B6\u6001\u680F\u548C\u8BCA\u65AD\u547D\u4EE4\u3002\u9ED8\u8BA4\u5F00\u542F\uFF1B\u5173\u95ED\u540E\u4E0D\u8FD0\u884C\u8BCA\u65AD\u3002").addToggle((toggle) => toggle.setValue(!!dg.enabled).onChange(async (value) => {
+          dg.enabled = !!value;
+          await this.persist();
+        }));
+        new Setting(containerEl).setName("\u7F16\u8F91\u5668\u5185\u8054\u88C5\u9970\uFF08\u5B9E\u9A8C\uFF09").setDesc("\u4E3A\u5C06\u6765\u7684 CodeMirror \u884C\u5185\u4E0B\u5212\u7EBF\u9884\u7559\uFF1B\u5F53\u524D\u7248\u672C\u4E0D\u5305\u542B\u8BE5\u529F\u80FD\uFF0C\u9ED8\u8BA4\u5173\u95ED\u3002").addToggle((toggle) => toggle.setValue(!!dg.editorDecorations).onChange(async (value) => {
+          dg.editorDecorations = !!value;
           await this.persist();
         }));
         containerEl.createEl("h3", { text: "\u7FFB\u8BD1\uFF082.2.0\uFF09" });
@@ -1963,6 +1979,7 @@ var require_lint = __commonJS({
     var BRANCH_WORDS = ["keal", "keol", "tam", "dum", "nisi", "quan"];
     function lintText(text, ctx) {
       const issues = [];
+      text = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
       const lines = text.split("\n");
       const push = function(level, line, message, start, end) {
         const content = String(lines[line - 1] || "");
@@ -2189,7 +2206,8 @@ var require_lint = __commonJS({
         let m;
         while (m = re.exec(lines[i])) {
           if (units.has(m[2].toLowerCase())) continue;
-          push("warn", i + 1, "\u300C" + m[1] + " " + m[2] + "\u300D\u2014\u2014" + m[2] + " \u4E0D\u662F\u767B\u8BB0\u8FC7\u7684\u5355\u4F4D");
+          const unitStart = m.index + m[0].length - m[2].length;
+          push("warn", i + 1, "\u300C" + m[1] + " " + m[2] + "\u300D\u2014\u2014" + m[2] + " \u4E0D\u662F\u767B\u8BB0\u8FC7\u7684\u5355\u4F4D", unitStart, unitStart + m[2].length);
         }
       }
       for (let i = 0; i < lines.length; i++) {
@@ -3199,7 +3217,9 @@ var require_ord_dom = __commonJS({
           if (w.length < 4 || /[0-9]/.test(w)) continue;
           if (info.has(w)) continue;
           spans[i].classList.add("epx-unknown");
-          spans[i].setAttribute("title", "\u672A\u5165\u5178\uFF1A" + spans[i].textContent);
+          const msg = "\u672A\u5165\u5178\uFF1A" + spans[i].textContent;
+          spans[i].setAttribute("data-epx-lint", msg);
+          spans[i].setAttribute("aria-label", msg);
         }
       };
       const lineEl = function() {
@@ -3354,14 +3374,14 @@ var require_plugin = __commonJS({
       s.zIndex = "9999";
       s.pointerEvents = "none";
       s.opacity = "0";
-      s.maxWidth = "340px";
-      s.padding = "7px 11px";
+      s.maxWidth = "min(480px, 80vw)";
+      s.padding = "10px 14px";
       s.border = "1px solid var(--background-modifier-border)";
       s.borderRadius = "var(--radius-s, 6px)";
       s.background = "var(--background-secondary)";
       s.color = "var(--text-normal)";
       s.fontFamily = "var(--font-interface)";
-      s.fontSize = "12px";
+      s.fontSize = "13px";
       s.lineHeight = "1.5";
       s.boxShadow = "var(--shadow-s, 0 2px 8px rgba(0,0,0,.25))";
       s.transition = "opacity 90ms ease";
@@ -3622,6 +3642,14 @@ var require_plugin = __commonJS({
           hideTip();
           const el = ev.target;
           if (!el || !el.closest) return;
+          const diag = el.closest("[data-epx-lint]");
+          if (diag) {
+            const msg = diag.getAttribute("data-epx-lint");
+            if (msg) {
+              showTipAt(ev.clientX, ev.clientY, { label: "EpXsC \u8BCA\u65AD", body: msg });
+              return;
+            }
+          }
           const token = el.closest("span.token");
           if (token && el.closest(':is(code[class*="language-EpXsC" i], .epx-ord)')) {
             const tip2 = tipForElement(token, self.info, self.ranks);
@@ -3635,6 +3663,14 @@ var require_plugin = __commonJS({
           if (!word) return;
           const tip = buildTip("word", word, self.info, self.ranks);
           if (tip) showTipAt(ev.clientX, ev.clientY, tip);
+        });
+        this.registerDomEvent(document, "click", function(ev) {
+          const el = ev.target;
+          if (!el || !el.closest) return;
+          const diag = el.closest("[data-epx-lint]");
+          if (!diag) return;
+          const msg = diag.getAttribute("data-epx-lint");
+          if (msg) showTipAt(ev.clientX, ev.clientY, { label: "EpXsC \u8BCA\u65AD", body: msg });
         });
         this.registerDomEvent(document, "mouseout", hideTip);
         this.registerDomEvent(document, "scroll", hideTip, true);
@@ -3674,6 +3710,26 @@ var require_plugin = __commonJS({
         this.registerMarkdownPostProcessor(function(el) {
           self.highlightIn(el);
         });
+        const status = this.addStatusBarItem();
+        status.addClass("epx-status");
+        status.style.display = "none";
+        this._statusBar = status;
+        status.addEventListener("click", function() {
+          self.lintActiveNote();
+        });
+        const scheduleStatus = function() {
+          if (self._statusTimer) window.clearTimeout(self._statusTimer);
+          self._statusTimer = window.setTimeout(function() {
+            self.updateDiagnosticsStatus();
+          }, 350);
+        };
+        this.registerEvent(this.app.workspace.on("active-leaf-change", scheduleStatus));
+        this.registerEvent(this.app.vault.on("modify", function(file) {
+          if (file && file === self.app.workspace.getActiveFile()) scheduleStatus();
+        }));
+        this.register(function() {
+          if (self._statusTimer) window.clearTimeout(self._statusTimer);
+        });
         const renderBlock = function(source, el, ctx) {
           try {
             if (el && el.empty) el.empty();
@@ -3700,8 +3756,10 @@ var require_plugin = __commonJS({
           el.__epxOrd = { source, mode, ctx };
           renderOrdBlock(el, source, mode, self.grammar, self.info, self.getTranslationRenderOptions());
           try {
-            self.markUnknownTokens(el);
-            self.decorateOrdLint(el, self.lintForSource(source, ctx && ctx.sourcePath));
+            if (self.settings.diagnostics.enabled) {
+              self.markUnknownTokens(el);
+              self.decorateOrdLint(el, self.lintForSource(source, ctx && ctx.sourcePath));
+            }
           } catch (e) {
           }
           bindClickToSource(el, self.app, el, ctx);
@@ -4015,6 +4073,7 @@ var require_plugin = __commonJS({
           })
         ]);
         this.rehighlight();
+        this.updateDiagnosticsStatus();
       }
       /* 样式兜底：外部 styles.css 没被加载时（颜色、右上角 EpXsC 标记、未入典点线、
          悬停浮层样式会一起消失），自己把样式塞进页面。先试读插件目录里的 styles.css，读不到就用内置那份。 */
@@ -4103,6 +4162,9 @@ var require_plugin = __commonJS({
           if (w.length < 4 || /[0-9]/.test(w)) continue;
           if (this.info.has(w)) continue;
           spans[i].classList.add("epx-unknown");
+          const msg = "\u672A\u5165\u5178\uFF1A" + spans[i].textContent;
+          spans[i].setAttribute("data-epx-lint", msg);
+          spans[i].setAttribute("aria-label", msg);
         }
       }
       markUnknown(code) {
@@ -4131,9 +4193,9 @@ var require_plugin = __commonJS({
             return x.level === "error";
           }) ? "error" : "warn" : "";
           const title = list && list.length ? list.map(function(x) {
-            return x.message;
+            return x.message + (x.approximate ? "\uFF08\u6B64\u884C\u9644\u8FD1\uFF09" : "");
           }).join("\n") : "";
-          return '<span class="epx-code-line' + (level ? " epx-lint-" + level : "") + '" data-epx-line="' + n + '"' + (title ? ' title="' + title.replace(/"/g, "&quot;") + '"' : "") + ">" + (html || " ") + "</span>";
+          return '<span class="epx-code-line' + (level ? " epx-lint-" + level : "") + '" data-epx-line="' + n + '"' + (title ? ' data-epx-lint="' + title.replace(/"/g, "&quot;") + '" aria-label="' + title.replace(/"/g, "&quot;") + '"' : "") + ">" + (html || " ") + "</span>";
         }).join("\n");
       }
       decorateOrdLint(el, issues) {
@@ -4144,7 +4206,10 @@ var require_plugin = __commonJS({
           const line = lines[Number(issue.line) - 1];
           if (!line) continue;
           line.classList.add("epx-lint-" + (issue.level === "error" ? "error" : "warn"));
-          line.title = (line.title ? line.title + "\n" : "") + issue.message;
+          const msg = issue.message + (issue.approximate ? "\uFF08\u6B64\u884C\u9644\u8FD1\uFF09" : "");
+          const old = line.getAttribute("data-epx-lint") || "";
+          line.setAttribute("data-epx-lint", old ? old + "\n" + msg : msg);
+          line.setAttribute("aria-label", line.getAttribute("data-epx-lint"));
         }
       }
       /* 自检：当前视图里到底有没有 token、词表读进来没有 */
@@ -4200,9 +4265,9 @@ var require_plugin = __commonJS({
           if (rendered.skip) return;
           varTypesOf.set(code, rendered.vars);
           code.innerHTML = rendered.html;
-          this.markUnknown(code);
+          if (this.settings.diagnostics.enabled) this.markUnknown(code);
           this.markNegation(code);
-          if (code.__epxLintSource) {
+          if (code.__epxLintSource && this.settings.diagnostics.enabled) {
             try {
               this.decorateLint(code, this.lintForSource(code.__epxLintSource, code.__epxLintPath));
             } catch (e) {

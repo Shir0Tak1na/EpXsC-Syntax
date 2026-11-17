@@ -1,0 +1,20 @@
+{
+  "name": "crlf-unit",
+  "input": "Foo() {\r\n\tluss 1 XU;\r\n}",
+  "context": {
+    "path": "a.md",
+    "units": [
+      "mu"
+    ]
+  },
+  "expected": [
+    {
+      "level": "warn",
+      "line": 2,
+      "column": 8,
+      "start": 8,
+      "end": 10,
+      "message": "「1 XU」——XU 不是登记过的单位"
+    }
+  ]
+}

@@ -8,6 +8,7 @@ const DEFAULT_SETTINGS = {
   schemaVersion: 1,
   lexicon: { customPaths: [] },
   display: { language: 'auto', fallbackLanguage: '' },
+  diagnostics: { enabled: true, editorDecorations: false },
   translation: {
     enabled: false,
     grammarPath: '',
@@ -33,6 +34,7 @@ function normalizeSettings(data) {
   const lexicon = d.lexicon && typeof d.lexicon === 'object' ? d.lexicon : {};
   const display = d.display && typeof d.display === 'object' ? d.display : {};
   const translation = d.translation && typeof d.translation === 'object' ? d.translation : {};
+  const diagnostics = d.diagnostics && typeof d.diagnostics === 'object' ? d.diagnostics : {};
   const language = String(display.language || 'auto').trim() || 'auto';
   const fallback = String(display.fallbackLanguage || '').trim();
   return {
@@ -41,6 +43,10 @@ function normalizeSettings(data) {
     display: {
       language: language === 'auto' ? 'auto' : language,
       fallbackLanguage: fallback
+    },
+    diagnostics: {
+      enabled: diagnostics.enabled !== false,
+      editorDecorations: diagnostics.editorDecorations === true
     },
     translation: {
       enabled: translation.enabled === true,

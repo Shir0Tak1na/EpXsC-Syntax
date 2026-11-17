@@ -92,6 +92,24 @@ class EpXsSettingsTab extends PluginSettingTab {
         await this.persist();
       }));
 
+    containerEl.createEl('h3', { text: '诊断' });
+    const dg = this.plugin.settings.diagnostics;
+    new Setting(containerEl)
+      .setName('启用诊断')
+      .setDesc('控制阅读/Live Preview 的 lint 下划线、未入典词标记、状态栏和诊断命令。默认开启；关闭后不运行诊断。')
+      .addToggle((toggle) => toggle.setValue(!!dg.enabled).onChange(async (value) => {
+        dg.enabled = !!value;
+        await this.persist();
+      }));
+
+    new Setting(containerEl)
+      .setName('编辑器内联装饰（实验）')
+      .setDesc('为将来的 CodeMirror 行内下划线预留；当前版本不包含该功能，默认关闭。')
+      .addToggle((toggle) => toggle.setValue(!!dg.editorDecorations).onChange(async (value) => {
+        dg.editorDecorations = !!value;
+        await this.persist();
+      }));
+
     containerEl.createEl('h3', { text: '翻译（2.2.0）' });
     const tr = this.plugin.settings.translation;
     new Setting(containerEl)

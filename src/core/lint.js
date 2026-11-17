@@ -7,6 +7,7 @@ const BRANCH_WORDS = ['keal', 'keol', 'tam', 'dum', 'nisi', 'quan'];
 /* 逐块检查；返回 [{ level, line, message }]。ctx 需要 info / units / keys */
 function lintText(text, ctx) {
   const issues = [];
+  text = String(text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const lines = text.split('\n');
   const push = function (level, line, message, start, end) {
     const content = String(lines[line - 1] || '');
@@ -207,7 +208,8 @@ function lintText(text, ctx) {
     let m;
     while ((m = re.exec(lines[i]))) {
       if (units.has(m[2].toLowerCase())) continue;
-      push('warn', i + 1, '「' + m[1] + ' ' + m[2] + '」——' + m[2] + ' 不是登记过的单位');
+      const unitStart = m.index + m[0].length - m[2].length;
+      push('warn', i + 1, '「' + m[1] + ' ' + m[2] + '」——' + m[2] + ' 不是登记过的单位', unitStart, unitStart + m[2].length);
     }
   }
 
