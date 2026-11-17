@@ -1,13 +1,12 @@
 # Next release checklist
 
-> Current release: **2.0.0**（2026-11-16，架构稳定版）.
-> 2.0.0 was an explicitly authorized exception to the normal one-release-per-day rule.
-> From now on: at most one public GitHub Release per Asia/Shanghai calendar day.
+> Release candidate: **2.1.0**（2026-11-17，无网络阅读层；尚未发布）.
+> Current public release: **2.0.0**. At most one public GitHub Release per Asia/Shanghai calendar day.
 
 ## Candidate
 
-- Next version: **2.0.1** or **2.1.0** depending on whether the next batch is fix-only or includes new behavior.
-- Base: current `main` after 2.0.0.
+- Next version: **2.2.0**（联网翻译层；F5/F6/Provider）.
+- Base: current `main` after 2.1.0.
 
 ## Steps
 

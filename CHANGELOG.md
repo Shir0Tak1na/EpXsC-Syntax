@@ -1,5 +1,42 @@
 # Changelog
 
+## 2.1.0
+
+发布日期：2026-11-17
+
+**2.1.0 是无网络阅读层：不引入模型请求，也不改变 EpXsC 语言语义。**
+
+### 多语言 T 块
+
+- 支持语言标签：> (zh-CN) 译文、> (en) translation。
+- 旧式 > 文本 继续作为默认译文。
+- 无标签旧块、括号开头的默认译文、it/no/he 等语言码与转义规则均有测试。
+- 按 Obsidian 界面语言选择译文；fallbackLanguage 为单次精确/基础语言回退，不递归。
+- 缺译文时显示 尚未翻译 / Untranslated，不回退 G 词注。
+
+### 设置与词库
+
+- 新增 EpXsC Syntax 设置页：自定义词库路径、导入 md/json、显示语言、备用语言、诊断。
+- 新增左侧栏 EpXsC 设置按钮和“打开 EpXsC 设置”命令。
+- 自定义词库按路径顺序覆盖默认词库；以 word 为身份整条覆盖，并生成冲突报告。
+- 自定义词库缺失、读取失败或格式错误时保留旧快照，并显示错误。
+- 设置读取失败时使用默认值；不因缺少字段报错。
+- 2.1.0 全程不发起网络请求。
+
+### Core API
+
+- 新增 src/core/ord/parse.js：parseOrdLines、parseTranslations、normalizeLang、pickTranslation、sourceHash。
+- 新增 src/core/settings.js：设置规范化。
+- 新增 src/core/lexicon/merge.js：词库整条覆盖与冲突报告。
+- 新增 src/ui/settings-tab.js。
+
+### 测试与构建
+
+- 新增语言标签、旧块兼容、默认译文、重复语言、fallback、设置规范化、自定义词库合并和零网络静态测试。
+- npm run build、npm test、npm run check、npm run release:check 全部通过。
+
+---
+
 ## 2.0.0
 
 发布日期：2026-11-16
