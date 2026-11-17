@@ -3751,11 +3751,14 @@ var require_plugin = __commonJS({
             if (ext) {
               this.registerEditorExtension(ext);
               console.log("[EpXsC D3 spike] host CM6 extension registered");
+              new Notice("D3 spike\uFF1A\u5BBF\u4E3B CM6 \u6269\u5C55\u6CE8\u518C\u6210\u529F");
             } else {
               console.warn("[EpXsC D3 spike] host CM6 module unavailable; extension not registered");
+              new Notice("D3 spike\uFF1A\u5BBF\u4E3B CM6 \u4E0D\u53EF\u7528\uFF0C\u6269\u5C55\u672A\u6CE8\u518C");
             }
           } catch (e) {
             console.warn("[EpXsC D3 spike] extension registration failed:", e && e.message ? e.message : e);
+            new Notice("D3 spike\uFF1A\u6269\u5C55\u6CE8\u518C\u5931\u8D25\uFF1A" + (e && e.message ? e.message : e));
           }
         }
         const status = this.addStatusBarItem();

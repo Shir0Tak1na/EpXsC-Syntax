@@ -404,11 +404,14 @@ class EpXsCSyntaxPlugin extends Plugin {
         if (ext) {
           this.registerEditorExtension(ext);
           console.log('[EpXsC D3 spike] host CM6 extension registered');
+          new Notice('D3 spike：宿主 CM6 扩展注册成功');
         } else {
           console.warn('[EpXsC D3 spike] host CM6 module unavailable; extension not registered');
+          new Notice('D3 spike：宿主 CM6 不可用，扩展未注册');
         }
       } catch (e) {
         console.warn('[EpXsC D3 spike] extension registration failed:', e && e.message ? e.message : e);
+        new Notice('D3 spike：扩展注册失败：' + (e && e.message ? e.message : e));
       }
     }
     const status = this.addStatusBarItem();
