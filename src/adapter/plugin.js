@@ -38,7 +38,7 @@ const LANG_KEYS = ['EpXsC', 'epxsc', 'EPXSC'];
 const CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
 const { DICT_PATH, RANK_PATH, SYNTAX_PATH, GRAMMAR_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES } = require('./config.js');
 
-const BUILD = '2.1.0';
+const BUILD = '2.2.0';
 
 /* 一个 token 可能带多个类（如 typeParam + type），按语义优先级取第一个 */
 const { SECTION_POS, EXTRA_WORDS, SYMBOL_INFO, pickClass, bracketTip, variableTip, negScopeText, coordTip, rankDef, rankSpan, buildTip } = require('../ui/tooltip.js');

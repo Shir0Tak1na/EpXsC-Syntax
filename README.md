@@ -24,6 +24,7 @@ An Obsidian plugin for **EpXsC (Expaulxsirian Construct)**, a fictional conlang 
 - **Reading view + Live Preview**: both render; click a rendered block to go back to source editing.
 - **Mobile friendly**: narrow screens keep the frame, translation and gloss lines readable.
 - **Optional CSS snippet** for users who only want the visual style.
+- **Optional model-assisted translation**: when enabled, an OpenAI-compatible local endpoint can translate untranslated T blocks and draft an EpXs reference from Chinese. Off by default.
 - **Reusable core**: tokenizer, grammar, parsers and linter are Obsidian-free and can be consumed by CLI or other editors.
 
 ## Installation
@@ -76,6 +77,10 @@ Tallse aris agrus nec manis humal.
 Language, fallback language, and custom lexicons are configured in **Settings → EpXsC Syntax**.
 
 Translation is opt-in and off by default. When enabled, T-block source sentences are sent to the configured OpenAI-compatible endpoint; no other vault content is sent. API keys are stored in the plugin settings file, so do not use a high-privilege long-lived token.
+
+### Optional local-model translation
+
+Open **Settings → EpXsC Syntax → 翻译**. Enable automatic translation only when needed, then configure an OpenAI-compatible endpoint (for example Ollama at `http://127.0.0.1:11434/v1`, model `qwen2.5:7b`). The plugin does not install or start a model server. Model output is a reference only; it is never written into Markdown. The **从中文生成 EpXs 参考** command uses the same endpoint and validates unknown words and lint before allowing insertion.
 
 ### Hover
 

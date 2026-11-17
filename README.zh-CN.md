@@ -26,6 +26,7 @@ Syntax highlighting, hover tooltips, and linting for EpXsC fenced code blocks.
 - **阅读视图 + 实时预览** —— 两个视图都渲染；点一下渲染块即落回源码继续编辑。
 - **移动端可用** —— 窄屏下外框、译文与词注不会挤成正文。
 - **可选 CSS 片段** —— 不想开插件、只要配色的场合，可单独使用 `snippets/EpXsC-Highlight.css`。
+- **可选的模型辅助翻译** —— 开启后可调用 OpenAI-compatible 本地端点，为缺译文的 T 块生成译文，或从中文生成 EpXs 参考；默认关闭。
 - **可复用 core** —— 词法、语法构造、解析、Lint 逻辑不依赖 Obsidian，可给 CLI / 编辑器 / 其他翻译工程直接使用。
 
 ## Installation / 安装
@@ -79,6 +80,10 @@ Tallse aris agrus nec manis humal.
 
 翻译是可选功能，默认关闭。开启后，T 块的源句会发送到配置的 OpenAI-compatible endpoint；不会发送其他库内容。API Key 保存在插件设置文件中，请勿使用高权限长期令牌。
 
+### 可选：本地模型翻译
+
+打开 **设置 → EpXsC Syntax → 翻译**。需要时再开启自动翻译，然后配置 OpenAI-compatible endpoint（例如 Ollama：`http://127.0.0.1:11434/v1`，模型 `qwen2.5:7b`）。插件不会安装或启动模型服务，模型输出只是参考，不会自动写入 Markdown。命令 **从中文生成 EpXs 参考** 使用同一端点，并在允许插入前校验未知词和 lint。
+
 ### 悬停
 
 阅读视图和实时预览里，鼠标停在 token 上会浮出类别与释义。移动端没有鼠标悬停，但是会有触摸悬停，不双击代码块且在阅读模式下可以看到词义。
@@ -92,6 +97,7 @@ Tallse aris agrus nec manis humal.
 | 检查当前笔记的 EpXsC 代码块 | 打开语法检查面板，点结果跳转到对应行 |
 | 重新载入词表与释义 | 词典/术式语法/维度模型改动后手动刷新 |
 | EpXsC 自检（视图／token／颜色／样式表） | 排查“为什么没颜色/没悬停” |
+| 从中文生成 EpXs 参考 | 用已配置的模型生成 EpXs 参考，经词表/lint 校验后由你决定是否插入 |
 | EpXsC 诊断报告 | 在库根目录生成诊断文件，便于贴出排查 |
 | 重载 EpXsC 插件 | 提示到设置里关闭再启用 |
 
@@ -121,7 +127,7 @@ Tallse aris agrus nec manis humal.
 - 阅读视图、实时预览都支持；实时预览中光标进入代码块会暂时显示源码，这是 Obsidian 的默认行为。
 - **超过 50 行**的代码块只保留普通代码块外观，不做 token 着色（性能考虑）。
 - 外框由插件给 `<pre>` 加 `pre.epx-pre` 类，不再依赖 `:has()`；token 着色与外框互不影响。
-- 插件不发起网络请求，不修改笔记内容。
+- 默认不发起网络请求；只有显式启用自动翻译或执行“从中文生成 EpXs 参考”时，才会向配置的 endpoint 发送当前 T 块源句/中文输入。插件不自动修改笔记内容。
 
 ## Core API / 复用
 

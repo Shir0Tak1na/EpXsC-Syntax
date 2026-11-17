@@ -2,7 +2,7 @@
 
 > Source review: architecture review task book (2026-11-16).
 > Rules: verify before fixing, test before refactoring, one verifiable boundary at a time.
-> Current release: **2.1.0**（2026-11-17，无网络阅读层）. Previous: **2.0.0**（2026-11-16）. Next planned: **2.2.0**. At most **one GitHub Release per Asia/Shanghai calendar day**.
+> Current release: **2.1.0**（2026-11-17，无网络阅读层）. Previous: **2.0.0**（2026-11-16）. Next: **2.2.0 release candidate**, planned 2026-11-18. At most **one GitHub Release per Asia/Shanghai calendar day**.
 
 ## 2.1 / 2.2 / 2.3
 
@@ -22,7 +22,7 @@
 
 Progress 2026-11-17: F2/F3/F4/F7 complete; Obsidian settings/ribbon smoke passed; **2.1.0 released**. Next: 2.2.0 F5/F6/F8.
 
-Progress 2026-11-17: 2.2.0 F5/F6/F8 implemented (provider/service/settings, auto translation, author reference panel, redaction and cache/cancel tests); no 2.2.0 release yet.
+Progress 2026-11-17: 2.2.0 F5/F6/F8 complete; version bumped to 2.2.0; release gates pass. Auto translation is opt-in and off by default. Release planned 2026-11-18 (one release per Asia/Shanghai day).
 
 ### 2.2.0 tasks
 

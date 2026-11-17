@@ -1,5 +1,42 @@
 # Changelog
 
+## 2.2.0
+
+发布日期：2026-11-18（计划）
+
+**2.2.0 是可选联网翻译层；默认关闭，不配置模型也能正常阅读。**
+
+### 自动翻译（F5）
+
+- T 块缺当前语言译文时，可选择请求 OpenAI-compatible 模型生成译文。
+- 默认关闭；关闭时不创建翻译服务、不发起请求、不加载模型。
+- 发送源句、目标语言、源句词典释义、语法摘要和少量已验证译例。
+- 译例与源句分区，明确禁止照抄现有文本。
+- 内存缓存、in-flight 去重、超时和逻辑取消。
+- 缓存键包含源句、语言、词库版本和 provider fingerprint；不含 API Key。
+- 人工译文始终优先；自动译文仅显示在内存中，不写入 Markdown。
+
+### 作者参考（F6）
+
+- 新增命令“从中文生成 EpXs 参考”。
+- 模型返回 JSON；Core 计算逐词、未知词和 lint。
+- 只使用与中文源句相关的词典条目，并附带最小语法上下文。
+- 有未知词或 lint error 时标记未通过校验，并禁用“插入参考块”。
+- 插入必须由用户点击确认。
+
+### Provider 与隐私（F8）
+
+- 支持本地 Ollama / LM Studio 等 OpenAI-compatible endpoint。
+- 非回环地址强制 HTTPS；默认不启用云服务。
+- API Key 只保存在插件设置；请求头、URL 敏感参数和异常文本脱敏。
+- 首次开启自动翻译时提示请求范围与设备负荷。
+- 设置页支持 Base URL、Endpoint、Model、Headers、超时、maxTokens、temperature、连接测试和语法上下文文件。
+
+### 测试与构建
+
+- 新增 provider/service/reference、endpoint、缓存 LRU、取消、超时、脱敏、设置和零网络默认测试。
+- `npm run build`、`npm test`、`npm run check`、`npm run release:check` 通过。
+
 ## 2.1.0
 
 发布日期：2026-11-17
