@@ -431,6 +431,47 @@ class EpXsCSyntaxPlugin extends Plugin {
     this.registerInterval(window.setInterval(function () { self.ensureRendered(); }, 2500));
   }
 
+  getRequestedLanguage() {
+    const set = this.settings && this.settings.display && this.settings.display.language;
+    return (set && set !== 'auto') ? set : this.translationLanguage;
+  }
+
+  getFallbackLanguage() {
+    return (this.settings && this.settings.display && this.settings.display.fallbackLanguage) || '';
+  }
+
+  async saveSettings() {
+    await this.saveData(this.settings);
+    await this.refresh();
+  }
+
+  async openSettings() {
+    try {
+      const setting = this.app.setting;
+      if (!setting) {
+        new Notice('请打开 设置 → 第三方插件 → EpXsC Syntax。');
+        return;
+      }
+      if (typeof setting.open === 'function') {
+        const opening = setting.open();
+        if (opening && typeof opening.then === 'function') await opening;
+      }
+      if (typeof setting.openTabById !== 'function') {
+        new Notice('已打开设置，请在 第三方插件 中找到 EpXsC Syntax。');
+        return;
+      }
+      const tab = setting.openTabById(this.manifest.id);
+      if (!tab) {
+        window.setTimeout(() => {
+          try { setting.openTabById(this.manifest.id); } catch (e) { /* noop */ }
+        }, 50);
+      }
+    } catch (err) {
+      console.warn('[EpXsC Syntax] 无法直接打开设置页：', err);
+      new Notice('请打开 设置 → 第三方插件 → EpXsC Syntax。');
+    }
+  }
+
   install() {
     const Prism = window.Prism;
     if (!Prism || !Prism.languages) return false;

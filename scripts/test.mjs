@@ -388,6 +388,8 @@ assert.ok(source.includes('renderOrdBlockInner'), 'rehighlight must import the T
 {
   assert.ok(source.includes('addSettingTab'), 'adapter must register settings tab');
   assert.ok(source.includes('addRibbonIcon'), 'adapter must add settings ribbon icon');
+  assert.ok(source.includes('async openSettings()'), 'adapter must define the settings opener');
+  assert.ok(source.includes('getRequestedLanguage()'), 'adapter must define language resolution methods');
   assert.ok(source.includes('getRequestedLanguage'), 'adapter must resolve settings language');
   const settingsTabSrc = fs.readFileSync('src/ui/settings-tab.js', 'utf8');
   assert.ok(settingsTabSrc.includes('PluginSettingTab'), 'settings tab must extend PluginSettingTab');

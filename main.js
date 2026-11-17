@@ -2963,6 +2963,46 @@ var require_plugin = __commonJS({
           self.ensureRendered();
         }, 2500));
       }
+      getRequestedLanguage() {
+        const set = this.settings && this.settings.display && this.settings.display.language;
+        return set && set !== "auto" ? set : this.translationLanguage;
+      }
+      getFallbackLanguage() {
+        return this.settings && this.settings.display && this.settings.display.fallbackLanguage || "";
+      }
+      async saveSettings() {
+        await this.saveData(this.settings);
+        await this.refresh();
+      }
+      async openSettings() {
+        try {
+          const setting = this.app.setting;
+          if (!setting) {
+            new Notice("\u8BF7\u6253\u5F00 \u8BBE\u7F6E \u2192 \u7B2C\u4E09\u65B9\u63D2\u4EF6 \u2192 EpXsC Syntax\u3002");
+            return;
+          }
+          if (typeof setting.open === "function") {
+            const opening = setting.open();
+            if (opening && typeof opening.then === "function") await opening;
+          }
+          if (typeof setting.openTabById !== "function") {
+            new Notice("\u5DF2\u6253\u5F00\u8BBE\u7F6E\uFF0C\u8BF7\u5728 \u7B2C\u4E09\u65B9\u63D2\u4EF6 \u4E2D\u627E\u5230 EpXsC Syntax\u3002");
+            return;
+          }
+          const tab = setting.openTabById(this.manifest.id);
+          if (!tab) {
+            window.setTimeout(() => {
+              try {
+                setting.openTabById(this.manifest.id);
+              } catch (e) {
+              }
+            }, 50);
+          }
+        } catch (err) {
+          console.warn("[EpXsC Syntax] \u65E0\u6CD5\u76F4\u63A5\u6253\u5F00\u8BBE\u7F6E\u9875\uFF1A", err);
+          new Notice("\u8BF7\u6253\u5F00 \u8BBE\u7F6E \u2192 \u7B2C\u4E09\u65B9\u63D2\u4EF6 \u2192 EpXsC Syntax\u3002");
+        }
+      }
       install() {
         const Prism = window.Prism;
         if (!Prism || !Prism.languages) return false;
