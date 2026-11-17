@@ -397,6 +397,20 @@ class EpXsCSyntaxPlugin extends Plugin {
       for (let i = 0; i < LANG_KEYS.length; i++) delete Prism.languages[LANG_KEYS[i]];
     });
     this.registerMarkdownPostProcessor(function (el) { self.highlightIn(el); });
+    if (this.settings && this.settings.diagnostics && this.settings.diagnostics.editorDecorations) {
+      try {
+        const { createNoopExtension } = require('../editor/noop-extension.js');
+        const ext = createNoopExtension();
+        if (ext) {
+          this.registerEditorExtension(ext);
+          console.log('[EpXsC D3 spike] host CM6 extension registered');
+        } else {
+          console.warn('[EpXsC D3 spike] host CM6 module unavailable; extension not registered');
+        }
+      } catch (e) {
+        console.warn('[EpXsC D3 spike] extension registration failed:', e && e.message ? e.message : e);
+      }
+    }
     const status = this.addStatusBarItem();
     status.addClass('epx-status');
     status.style.display = 'none';

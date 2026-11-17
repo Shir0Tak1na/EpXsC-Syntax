@@ -3322,6 +3322,31 @@ var require_ord_dom = __commonJS({
   }
 });
 
+// src/editor/noop-extension.js
+var require_noop_extension = __commonJS({
+  "src/editor/noop-extension.js"(exports2, module2) {
+    "use strict";
+    var ViewPlugin;
+    try {
+      const cmView = require("@codemirror/view");
+      ViewPlugin = cmView.ViewPlugin;
+    } catch (e) {
+      console.warn("[EpXsC D3 spike] host CM6 module is unavailable:", e && e.message ? e.message : e);
+    }
+    function createNoopExtension() {
+      if (!ViewPlugin || typeof ViewPlugin.fromClass !== "function") return null;
+      return ViewPlugin.fromClass(class {
+        constructor() {
+          this.enabled = true;
+        }
+        update() {
+        }
+      });
+    }
+    module2.exports = { createNoopExtension };
+  }
+});
+
 // data/builtin-lexicon.json
 var require_builtin_lexicon = __commonJS({
   "data/builtin-lexicon.json"(exports2, module2) {
@@ -3719,6 +3744,20 @@ var require_plugin = __commonJS({
         this.registerMarkdownPostProcessor(function(el) {
           self.highlightIn(el);
         });
+        if (this.settings && this.settings.diagnostics && this.settings.diagnostics.editorDecorations) {
+          try {
+            const { createNoopExtension } = require_noop_extension();
+            const ext = createNoopExtension();
+            if (ext) {
+              this.registerEditorExtension(ext);
+              console.log("[EpXsC D3 spike] host CM6 extension registered");
+            } else {
+              console.warn("[EpXsC D3 spike] host CM6 module unavailable; extension not registered");
+            }
+          } catch (e) {
+            console.warn("[EpXsC D3 spike] extension registration failed:", e && e.message ? e.message : e);
+          }
+        }
         const status = this.addStatusBarItem();
         status.addClass("epx-status");
         status.style.display = "none";

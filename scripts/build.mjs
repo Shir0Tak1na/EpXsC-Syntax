@@ -6,7 +6,7 @@ await build({
   platform: 'node',
   format: 'cjs',
   target: 'es2018',
-  external: ['obsidian'],
+  external: ['obsidian', '@codemirror/view', '@codemirror/state', '@lezer/common', '@lezer/lr'],
   outfile: 'main.js',
   legalComments: 'none',
   logLevel: 'warning'
