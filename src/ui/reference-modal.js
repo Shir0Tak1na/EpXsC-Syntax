@@ -39,7 +39,9 @@ class ReferenceModal extends Modal {
             status.textContent = '生成失败：' + (result && result.error ? result.error.message : '未知错误');
             return;
           }
-          status.textContent = '参考结果；请自行核对，不会自动写入正文。';
+          const invalid = result.valid === false || (result.unknownWords && result.unknownWords.length > 0) || (result.lint && result.lint.some(function (x) { return x && x.level === 'error'; }));
+          status.textContent = invalid ? '未通过词表/语法校验；请勿直接采用，先修正未知词或 lint 错误。' : '参考结果；请自行核对，不会自动写入正文。';
+          if (invalid) status.style.color = 'var(--color-red)';
           output.createEl('h3', { text: '参考 EpXs' });
           const pre = output.createEl('pre');
           pre.textContent = result.reference;
@@ -82,7 +84,11 @@ class ReferenceModal extends Modal {
             .addButton((b) => b.setButtonText('复制参考').onClick(async () => {
               try { await navigator.clipboard.writeText(result.reference); new Notice('已复制'); } catch (e) { new Notice('复制失败'); }
             }))
-            .addButton((b) => b.setButtonText('插入参考块').onClick(() => this.insertReference(result.reference, text)));
+            .addButton((b) => {
+              b.setButtonText('插入参考块');
+              if (invalid) b.setDisabled(true);
+              b.onClick(() => this.insertReference(result.reference, text));
+            });
         } catch (err) {
           status.textContent = '生成失败：' + (err && err.message ? err.message : err);
         } finally {

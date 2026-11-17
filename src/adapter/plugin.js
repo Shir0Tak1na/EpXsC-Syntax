@@ -499,6 +499,25 @@ class EpXsCSyntaxPlugin extends Plugin {
     return parts.join('; ');
   }
 
+  getReferenceDictionaryContext(chinese) {
+    const chars = new Set();
+    const src = String(chinese || '');
+    for (let i = 0; i < src.length; i++) {
+      if (/[\u3400-\u9fff]/.test(src.charAt(i))) chars.add(src.charAt(i));
+    }
+    const out = [];
+    if (chars.size) {
+      this.info.forEach(function (v, k) {
+        const meaning = String(v.meaning || '');
+        let hit = false;
+        chars.forEach(function (c) { if (meaning.indexOf(c) >= 0) hit = true; });
+        if (hit && out.length < 80) out.push(k + ' = ' + meaning);
+      });
+    }
+    if (!out.length) return this.getDictionaryContext(80);
+    return out.join('; ');
+  }
+
   async generateReference(chinese) {
     if (!this.referenceService) this.configureTranslation();
     if (!this.referenceService) {
@@ -520,7 +539,7 @@ class EpXsCSyntaxPlugin extends Plugin {
     };
     return await this.referenceService.generate({
       chinese: chinese,
-      dictionaryContext: this.getDictionaryContext(),
+      dictionaryContext: this.getReferenceDictionaryContext(chinese),
       analyze: analyze
     });
   }

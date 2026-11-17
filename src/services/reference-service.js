@@ -26,14 +26,18 @@ function createReferenceService(options) {
     if (typeof o.analyze === 'function') {
       try { analysis = await o.analyze(parsed.data.reference); } catch (e) { /* analysis is best-effort */ }
     }
+    const unknownWords = analysis.unknownWords || [];
+    const lint = analysis.lint || [];
+    const valid = unknownWords.length === 0 && !lint.some(function (x) { return x && x.level === 'error'; });
     return {
       ok: true,
+      valid: valid,
       reference: parsed.data.reference,
       backTranslation: parsed.data.backTranslation,
       notes: parsed.data.notes,
       wordBreakdown: analysis.wordBreakdown || [],
-      unknownWords: analysis.unknownWords || [],
-      lint: analysis.lint || [],
+      unknownWords: unknownWords,
+      lint: lint,
       promptVersion: REFERENCE_PROMPT_VERSION
     };
   }

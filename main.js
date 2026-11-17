@@ -1329,7 +1329,7 @@ var require_reference = __commonJS({
         "Return JSON only, with this shape:",
         '{"reference":"EpXsC sentence","backTranslation":"\u7B80\u4F53\u4E2D\u6587\u56DE\u8BD1","notes":["optional note"]}',
         "Do not return Markdown fences, explanations outside JSON, lint results, or invented dictionary entries.",
-        "Use only words supported by the supplied dictionary context. If a word is unknown, choose the closest supported expression and mention it in notes.",
+        "The supplied dictionary context is exhaustive for this request. Use only EpXs words explicitly listed there. Never invent a word. If no listed word fits, return an empty reference and explain in notes.",
         "backTranslation must be Simplified Chinese, not English. The author will review the result; never claim it is authoritative."
       ].join(" ");
       const parts = ["Chinese sentence:", chinese];
@@ -1399,14 +1399,20 @@ var require_reference_service = __commonJS({
           } catch (e) {
           }
         }
+        const unknownWords = analysis.unknownWords || [];
+        const lint = analysis.lint || [];
+        const valid = unknownWords.length === 0 && !lint.some(function(x) {
+          return x && x.level === "error";
+        });
         return {
           ok: true,
+          valid,
           reference: parsed.data.reference,
           backTranslation: parsed.data.backTranslation,
           notes: parsed.data.notes,
           wordBreakdown: analysis.wordBreakdown || [],
-          unknownWords: analysis.unknownWords || [],
-          lint: analysis.lint || [],
+          unknownWords,
+          lint,
           promptVersion: REFERENCE_PROMPT_VERSION
         };
       }
@@ -1458,7 +1464,11 @@ var require_reference_modal = __commonJS({
               status.textContent = "\u751F\u6210\u5931\u8D25\uFF1A" + (result && result.error ? result.error.message : "\u672A\u77E5\u9519\u8BEF");
               return;
             }
-            status.textContent = "\u53C2\u8003\u7ED3\u679C\uFF1B\u8BF7\u81EA\u884C\u6838\u5BF9\uFF0C\u4E0D\u4F1A\u81EA\u52A8\u5199\u5165\u6B63\u6587\u3002";
+            const invalid = result.valid === false || result.unknownWords && result.unknownWords.length > 0 || result.lint && result.lint.some(function(x) {
+              return x && x.level === "error";
+            });
+            status.textContent = invalid ? "\u672A\u901A\u8FC7\u8BCD\u8868/\u8BED\u6CD5\u6821\u9A8C\uFF1B\u8BF7\u52FF\u76F4\u63A5\u91C7\u7528\uFF0C\u5148\u4FEE\u6B63\u672A\u77E5\u8BCD\u6216 lint \u9519\u8BEF\u3002" : "\u53C2\u8003\u7ED3\u679C\uFF1B\u8BF7\u81EA\u884C\u6838\u5BF9\uFF0C\u4E0D\u4F1A\u81EA\u52A8\u5199\u5165\u6B63\u6587\u3002";
+            if (invalid) status.style.color = "var(--color-red)";
             output.createEl("h3", { text: "\u53C2\u8003 EpXs" });
             const pre = output.createEl("pre");
             pre.textContent = result.reference;
@@ -1504,7 +1514,11 @@ var require_reference_modal = __commonJS({
               } catch (e) {
                 new Notice("\u590D\u5236\u5931\u8D25");
               }
-            })).addButton((b) => b.setButtonText("\u63D2\u5165\u53C2\u8003\u5757").onClick(() => this.insertReference(result.reference, text)));
+            })).addButton((b) => {
+              b.setButtonText("\u63D2\u5165\u53C2\u8003\u5757");
+              if (invalid) b.setDisabled(true);
+              b.onClick(() => this.insertReference(result.reference, text));
+            });
           } catch (err) {
             status.textContent = "\u751F\u6210\u5931\u8D25\uFF1A" + (err && err.message ? err.message : err);
           } finally {
@@ -3726,6 +3740,26 @@ var require_plugin = __commonJS({
         });
         return parts.join("; ");
       }
+      getReferenceDictionaryContext(chinese) {
+        const chars = /* @__PURE__ */ new Set();
+        const src = String(chinese || "");
+        for (let i = 0; i < src.length; i++) {
+          if (/[\u3400-\u9fff]/.test(src.charAt(i))) chars.add(src.charAt(i));
+        }
+        const out = [];
+        if (chars.size) {
+          this.info.forEach(function(v, k) {
+            const meaning = String(v.meaning || "");
+            let hit = false;
+            chars.forEach(function(c) {
+              if (meaning.indexOf(c) >= 0) hit = true;
+            });
+            if (hit && out.length < 80) out.push(k + " = " + meaning);
+          });
+        }
+        if (!out.length) return this.getDictionaryContext(80);
+        return out.join("; ");
+      }
       async generateReference(chinese) {
         if (!this.referenceService) this.configureTranslation();
         if (!this.referenceService) {
@@ -3747,7 +3781,7 @@ var require_plugin = __commonJS({
         };
         return await this.referenceService.generate({
           chinese,
-          dictionaryContext: this.getDictionaryContext(),
+          dictionaryContext: this.getReferenceDictionaryContext(chinese),
           analyze
         });
       }
