@@ -382,11 +382,12 @@ class EpXsCSyntaxPlugin extends Plugin {
         const pre = document.createElement('pre');
         const code = document.createElement('code');
         code.className = 'language-EpXsC';
+        code.__epxLintSource = source;
+        code.__epxLintPath = (ctx && ctx.sourcePath) || '';
         code.textContent = source;
         pre.appendChild(code);
         el.appendChild(pre);
         self.highlightOne(code);
-        try { self.decorateLint(code, self.lintForSource(source, ctx && ctx.sourcePath)); } catch (e) { /* lint decoration is best-effort */ }
         bindClickToSource(pre, self.app, el, ctx);
       } catch (err) {
         console.warn('[EpXsC Syntax] 代码块渲染失败：', err);
@@ -845,6 +846,9 @@ class EpXsCSyntaxPlugin extends Plugin {
       code.innerHTML = rendered.html;
       this.markUnknown(code);
       this.markNegation(code);
+      if (code.__epxLintSource) {
+        try { this.decorateLint(code, this.lintForSource(code.__epxLintSource, code.__epxLintPath)); } catch (e) { /* best effort */ }
+      }
     } catch (err) {
       console.warn('[EpXsC Syntax]', err);
     }
