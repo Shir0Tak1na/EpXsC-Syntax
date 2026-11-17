@@ -28,7 +28,6 @@ function renderOrdBlockInner(el, source, mode, grammar, info, options) {
       spans[i].removeAttribute('title');
       const msg = '未入典：' + spans[i].textContent;
       spans[i].setAttribute('data-epx-lint', msg);
-      spans[i].setAttribute('aria-label', msg);
     }
   };
   const lineEl = function () {

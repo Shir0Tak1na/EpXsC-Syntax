@@ -3220,7 +3220,6 @@ var require_ord_dom = __commonJS({
           spans[i].removeAttribute("title");
           const msg = "\u672A\u5165\u5178\uFF1A" + spans[i].textContent;
           spans[i].setAttribute("data-epx-lint", msg);
-          spans[i].setAttribute("aria-label", msg);
         }
       };
       const lineEl = function() {
@@ -4207,7 +4206,6 @@ var require_plugin = __commonJS({
           spans[i].removeAttribute("title");
           const msg = "\u672A\u5165\u5178\uFF1A" + spans[i].textContent;
           spans[i].setAttribute("data-epx-lint", msg);
-          spans[i].setAttribute("aria-label", msg);
         }
       }
       markUnknown(code) {
@@ -4238,7 +4236,7 @@ var require_plugin = __commonJS({
           const title = list && list.length ? list.map(function(x) {
             return x.message + (x.approximate ? "\uFF08\u6B64\u884C\u9644\u8FD1\uFF09" : "");
           }).join("\n") : "";
-          return '<span class="epx-code-line' + (level ? " epx-lint-" + level : "") + '" data-epx-line="' + n + '"' + (title ? ' data-epx-lint="' + title.replace(/"/g, "&quot;") + '" aria-label="' + title.replace(/"/g, "&quot;") + '"' : "") + ">" + (html || " ") + "</span>";
+          return '<span class="epx-code-line' + (level ? " epx-lint-" + level : "") + '" data-epx-line="' + n + '"' + (title ? ' data-epx-lint="' + title.replace(/"/g, "&quot;") + '"' : "") + ">" + (html || " ") + "</span>";
         }).join("\n");
       }
       decorateOrdLint(el, issues) {
@@ -4253,7 +4251,6 @@ var require_plugin = __commonJS({
           const old = line.getAttribute("data-epx-lint") || "";
           line.setAttribute("data-epx-lint", old ? old + "\n" + msg : msg);
           line.removeAttribute("title");
-          line.setAttribute("aria-label", line.getAttribute("data-epx-lint"));
         }
       }
       /* 自检：当前视图里到底有没有 token、词表读进来没有 */

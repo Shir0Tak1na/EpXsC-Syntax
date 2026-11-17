@@ -857,7 +857,6 @@ class EpXsCSyntaxPlugin extends Plugin {
       spans[i].removeAttribute('title');
       const msg = '未入典：' + spans[i].textContent;
       spans[i].setAttribute('data-epx-lint', msg);
-      spans[i].setAttribute('aria-label', msg);
     }
   }
 
@@ -885,7 +884,7 @@ class EpXsCSyntaxPlugin extends Plugin {
       const list = byLine.get(n);
       const level = list && list.length ? (list.some(function (x) { return x.level === 'error'; }) ? 'error' : 'warn') : '';
       const title = list && list.length ? list.map(function (x) { return x.message + (x.approximate ? '（此行附近）' : ''); }).join('\n') : '';
-      return '<span class="epx-code-line' + (level ? ' epx-lint-' + level : '') + '" data-epx-line="' + n + '"' + (title ? ' data-epx-lint="' + title.replace(/"/g, '&quot;') + '" aria-label="' + title.replace(/"/g, '&quot;') + '"' : '') + '>' + (html || ' ') + '</span>';
+      return '<span class="epx-code-line' + (level ? ' epx-lint-' + level : '') + '" data-epx-line="' + n + '"' + (title ? ' data-epx-lint="' + title.replace(/"/g, '&quot;') + '"' : '') + '>' + (html || ' ') + '</span>';
     }).join('\n');
   }
 
@@ -901,7 +900,6 @@ class EpXsCSyntaxPlugin extends Plugin {
       const old = line.getAttribute('data-epx-lint') || '';
       line.setAttribute('data-epx-lint', old ? old + '\n' + msg : msg);
       line.removeAttribute('title');
-      line.setAttribute('aria-label', line.getAttribute('data-epx-lint'));
     }
   }
 
