@@ -41,7 +41,13 @@ class ReferenceModal extends Modal {
           }
           status.textContent = '参考结果；请自行核对，不会自动写入正文。';
           output.createEl('h3', { text: '参考 EpXs' });
-          output.createEl('pre', { text: result.reference });
+          const pre = output.createEl('pre');
+          pre.textContent = result.reference;
+          pre.style.color = 'var(--text-normal)';
+          pre.style.background = 'var(--background-secondary)';
+          pre.style.padding = '0.7em 0.9em';
+          pre.style.borderRadius = 'var(--radius-s)';
+          pre.style.whiteSpace = 'pre-wrap';
           if (result.backTranslation) {
             output.createEl('h3', { text: '模型回译（非权威）' });
             output.createEl('p', { text: result.backTranslation });

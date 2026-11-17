@@ -1415,7 +1415,13 @@ var require_reference_modal = __commonJS({
             }
             status.textContent = "\u53C2\u8003\u7ED3\u679C\uFF1B\u8BF7\u81EA\u884C\u6838\u5BF9\uFF0C\u4E0D\u4F1A\u81EA\u52A8\u5199\u5165\u6B63\u6587\u3002";
             output.createEl("h3", { text: "\u53C2\u8003 EpXs" });
-            output.createEl("pre", { text: result.reference });
+            const pre = output.createEl("pre");
+            pre.textContent = result.reference;
+            pre.style.color = "var(--text-normal)";
+            pre.style.background = "var(--background-secondary)";
+            pre.style.padding = "0.7em 0.9em";
+            pre.style.borderRadius = "var(--radius-s)";
+            pre.style.whiteSpace = "pre-wrap";
             if (result.backTranslation) {
               output.createEl("h3", { text: "\u6A21\u578B\u56DE\u8BD1\uFF08\u975E\u6743\u5A01\uFF09" });
               output.createEl("p", { text: result.backTranslation });
@@ -3143,6 +3149,7 @@ var require_ord_dom = __commonJS({
               } else {
                 zh.textContent = "\u81EA\u52A8\u7FFB\u8BD1\u5931\u8D25\uFF08\u53EF\u91CD\u8BD5\uFF09";
                 zh.classList.add("epx-t-failed");
+                console.warn("[EpXsC Syntax] \u81EA\u52A8\u7FFB\u8BD1\u5931\u8D25\uFF1A", result && result.error);
               }
             }).catch(function() {
               if (zh.isConnected) zh.textContent = "\u81EA\u52A8\u7FFB\u8BD1\u5931\u8D25\uFF08\u53EF\u91CD\u8BD5\uFF09";

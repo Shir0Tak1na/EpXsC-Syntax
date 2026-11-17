@@ -85,6 +85,7 @@ function renderOrdBlockInner(el, source, mode, grammar, info, options) {
           } else {
             zh.textContent = '自动翻译失败（可重试）';
             zh.classList.add('epx-t-failed');
+            console.warn('[EpXsC Syntax] 自动翻译失败：', result && result.error);
           }
         }).catch(function () {
           if (zh.isConnected) zh.textContent = '自动翻译失败（可重试）';
