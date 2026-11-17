@@ -20,7 +20,7 @@
 | F4 | 未翻译状态组件 | human/untranslated 转换测试；不混 G |
 | F7 | 设置页与词库 | 导入/合并冲突、配置迁移、customPaths 顺序；零网络 |
 
-Progress 2026-11-17: F2 core parser + tests implemented; F3 core selection and UI-language wiring implemented; F4 untranslated placeholder implemented; F7 settings/lexicon still open.
+Progress 2026-11-17: F2 core parser + tests implemented; F3 core selection and UI-language wiring implemented; F4 untranslated placeholder implemented; F7 settings/lexicon implemented in core/service/UI; pending vault smoke test.
 
 ### 2.2.0 tasks
 

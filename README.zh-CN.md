@@ -67,6 +67,16 @@ Tallse aris agrus nec manis humal.
 
 `EpXsG` 则是逐词的语法标记：每个词下面标出词类，再列出译文。
 
+译文可以带 BCP-47 语言标签。只显示与当前 Obsidian 语言匹配的一条；无标签的 `>` 行仍作为默认译文。缺译文时显示 `尚未翻译 / Untranslated`。
+
+```EpXsT
+Tallse aris agrus nec manis humal.
+> (zh-CN) 凡耕田，必须保持湿润。
+> (en) Fields must stay moist when plowing.
+```
+
+显示语言、备用语言与自定义词库在 **设置 → EpXsC Syntax** 中配置。
+
 ### 悬停
 
 阅读视图和实时预览里，鼠标停在 token 上会浮出类别与释义。移动端没有鼠标悬停，但是会有触摸悬停，不双击代码块且在阅读模式下可以看到词义。

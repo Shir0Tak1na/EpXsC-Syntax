@@ -65,6 +65,16 @@ Tallse aris agrus nec manis humal.
 
 `EpXsG` annotates each word with its part of speech, followed by the translation.
 
+Translations can also carry BCP-47 language tags. Only the translation matching the current Obsidian language is shown; untagged `>` lines remain the default translation. A missing translation renders `尚未翻译 / Untranslated`.
+
+```EpXsT
+Tallse aris agrus nec manis humal.
+> (zh-CN) 凡耕田，必须保持湿润。
+> (en) Fields must stay moist when plowing.
+```
+
+Language, fallback language, and custom lexicons are configured in **Settings → EpXsC Syntax**.
+
 ### Hover
 
 In Reading view and Live Preview, hover a token to see its category and meaning. On mobile, touch-hover works without double-clicking the block.
