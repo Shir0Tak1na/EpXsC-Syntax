@@ -333,6 +333,7 @@ class EpXsCSyntaxPlugin extends Plugin {
       self.settings = normalizeSettings(data);
       self.translationLanguage = (self.settings.display.language !== 'auto') ? self.settings.display.language : detectLanguage(self.app);
       self.configureTranslation();
+      self.installD3Spike();
       self.getGrammarContext().then(function (g) { self.translationGrammarContext = g; });
       self.refresh();
     }).catch(function (err) { console.warn('[EpXsC Syntax] 设置读取失败，使用默认值：', err); });
@@ -398,23 +399,6 @@ class EpXsCSyntaxPlugin extends Plugin {
       for (let i = 0; i < LANG_KEYS.length; i++) delete Prism.languages[LANG_KEYS[i]];
     });
     this.registerMarkdownPostProcessor(function (el) { self.highlightIn(el); });
-    if (this.settings && this.settings.diagnostics && this.settings.diagnostics.editorDecorations) {
-      try {
-        const { createNoopExtension } = require('../editor/noop-extension.js');
-        const ext = createNoopExtension();
-        if (ext) {
-          this.registerEditorExtension(ext);
-          console.log('[EpXsC D3 spike] host CM6 extension registered');
-          new Notice('D3 spike：宿主 CM6 扩展注册成功');
-        } else {
-          console.warn('[EpXsC D3 spike] host CM6 module unavailable; extension not registered');
-          new Notice('D3 spike：宿主 CM6 不可用，扩展未注册');
-        }
-      } catch (e) {
-        console.warn('[EpXsC D3 spike] extension registration failed:', e && e.message ? e.message : e);
-        new Notice('D3 spike：扩展注册失败：' + (e && e.message ? e.message : e));
-      }
-    }
     const status = this.addStatusBarItem();
     status.addClass('epx-status');
     status.style.display = 'none';
@@ -651,6 +635,28 @@ class EpXsCSyntaxPlugin extends Plugin {
       if (e) parts.push(words[i] + ' = ' + (e.meaning || e.pos || ''));
     }
     return parts.join('; ');
+  }
+
+  installD3Spike() {
+    if (!this.settings || !this.settings.diagnostics || !this.settings.diagnostics.editorDecorations) {
+      console.log('[EpXsC D3 spike] editorDecorations is off');
+      return;
+    }
+    try {
+      const { createNoopExtension } = require('../editor/noop-extension.js');
+      const ext = createNoopExtension();
+      if (ext) {
+        this.registerEditorExtension(ext);
+        console.log('[EpXsC D3 spike] host CM6 extension registered');
+        new Notice('D3 spike：宿主 CM6 扩展注册成功');
+      } else {
+        console.warn('[EpXsC D3 spike] host CM6 module unavailable; extension not registered');
+        new Notice('D3 spike：宿主 CM6 不可用，扩展未注册');
+      }
+    } catch (e) {
+      console.warn('[EpXsC D3 spike] extension registration failed:', e && e.message ? e.message : e);
+      new Notice('D3 spike：扩展注册失败：' + (e && e.message ? e.message : e));
+    }
   }
 
   getTranslationRenderOptions() {

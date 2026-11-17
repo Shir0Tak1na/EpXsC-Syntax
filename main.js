@@ -3665,6 +3665,7 @@ var require_plugin = __commonJS({
           self.settings = normalizeSettings(data);
           self.translationLanguage = self.settings.display.language !== "auto" ? self.settings.display.language : detectLanguage(self.app);
           self.configureTranslation();
+          self.installD3Spike();
           self.getGrammarContext().then(function(g) {
             self.translationGrammarContext = g;
           });
@@ -3745,23 +3746,6 @@ var require_plugin = __commonJS({
         this.registerMarkdownPostProcessor(function(el) {
           self.highlightIn(el);
         });
-        if (this.settings && this.settings.diagnostics && this.settings.diagnostics.editorDecorations) {
-          try {
-            const { createNoopExtension } = require_noop_extension();
-            const ext = createNoopExtension();
-            if (ext) {
-              this.registerEditorExtension(ext);
-              console.log("[EpXsC D3 spike] host CM6 extension registered");
-              new Notice("D3 spike\uFF1A\u5BBF\u4E3B CM6 \u6269\u5C55\u6CE8\u518C\u6210\u529F");
-            } else {
-              console.warn("[EpXsC D3 spike] host CM6 module unavailable; extension not registered");
-              new Notice("D3 spike\uFF1A\u5BBF\u4E3B CM6 \u4E0D\u53EF\u7528\uFF0C\u6269\u5C55\u672A\u6CE8\u518C");
-            }
-          } catch (e) {
-            console.warn("[EpXsC D3 spike] extension registration failed:", e && e.message ? e.message : e);
-            new Notice("D3 spike\uFF1A\u6269\u5C55\u6CE8\u518C\u5931\u8D25\uFF1A" + (e && e.message ? e.message : e));
-          }
-        }
         const status = this.addStatusBarItem();
         status.addClass("epx-status");
         status.style.display = "none";
@@ -4010,6 +3994,27 @@ var require_plugin = __commonJS({
           if (e) parts.push(words[i] + " = " + (e.meaning || e.pos || ""));
         }
         return parts.join("; ");
+      }
+      installD3Spike() {
+        if (!this.settings || !this.settings.diagnostics || !this.settings.diagnostics.editorDecorations) {
+          console.log("[EpXsC D3 spike] editorDecorations is off");
+          return;
+        }
+        try {
+          const { createNoopExtension } = require_noop_extension();
+          const ext = createNoopExtension();
+          if (ext) {
+            this.registerEditorExtension(ext);
+            console.log("[EpXsC D3 spike] host CM6 extension registered");
+            new Notice("D3 spike\uFF1A\u5BBF\u4E3B CM6 \u6269\u5C55\u6CE8\u518C\u6210\u529F");
+          } else {
+            console.warn("[EpXsC D3 spike] host CM6 module unavailable; extension not registered");
+            new Notice("D3 spike\uFF1A\u5BBF\u4E3B CM6 \u4E0D\u53EF\u7528\uFF0C\u6269\u5C55\u672A\u6CE8\u518C");
+          }
+        } catch (e) {
+          console.warn("[EpXsC D3 spike] extension registration failed:", e && e.message ? e.message : e);
+          new Notice("D3 spike\uFF1A\u6269\u5C55\u6CE8\u518C\u5931\u8D25\uFF1A" + (e && e.message ? e.message : e));
+        }
       }
       getTranslationRenderOptions() {
         return {
