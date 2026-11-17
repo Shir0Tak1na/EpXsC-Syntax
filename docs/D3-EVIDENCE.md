@@ -43,6 +43,16 @@ Obsidian: 1.15.1 (current installed build).
 Vault: main vault (not isolated during the incident).
 ```
 
+### Isolated reproduction package
+
+Prepared at `E:\ObsidianPulgins\test-vault-d3-incident`:
+
+- incident build `b89caed` installed;
+- `epxsc-syntax` is the only enabled community plugin;
+- `D3 incident repro.md` contains EpXsC/T samples.
+
+Attempted `obsidian://open?vault=test-vault-d3-incident`; Obsidian opened the registered original `test-vault` instead, so the copy is not registered as a vault. It must be opened once via **Open folder as vault** before console capture.
+
 ## R2 — error signature
 
 Status: **pending** (depends on R0).
