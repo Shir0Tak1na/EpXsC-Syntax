@@ -2,7 +2,7 @@
 
 > Source review: architecture review task book (2026-11-16).
 > Rules: verify before fixing, test before refactoring, one verifiable boundary at a time.
-> Current release: **2.0.0**（2026-11-16）. Previous stable: **1.31.0**. Next planned: **2.1.0**. At most **one GitHub Release per Asia/Shanghai calendar day**.
+> Current release: **2.1.0**（2026-11-17，无网络阅读层）. Previous: **2.0.0**（2026-11-16）. Next planned: **2.2.0**. At most **one GitHub Release per Asia/Shanghai calendar day**.
 
 ## 2.1 / 2.2 / 2.3
 
@@ -20,7 +20,7 @@
 | F4 | 未翻译状态组件 | human/untranslated 转换测试；不混 G |
 | F7 | 设置页与词库 | 导入/合并冲突、配置迁移、customPaths 顺序；零网络 |
 
-Progress 2026-11-17: F2 core parser + tests implemented; F3 core selection and UI-language wiring implemented; F4 untranslated placeholder implemented; F7 settings/lexicon implemented; Obsidian settings/ribbon smoke passed. 2.1.0 is release-candidate ready.
+Progress 2026-11-17: F2/F3/F4/F7 complete; Obsidian settings/ribbon smoke passed; **2.1.0 released**. Next: 2.2.0 F5/F6/F8.
 
 ### 2.2.0 tasks
 
