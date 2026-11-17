@@ -10,6 +10,7 @@ const DEFAULT_SETTINGS = {
   display: { language: 'auto', fallbackLanguage: '' },
   translation: {
     enabled: false,
+    grammarPath: '',
     provider: Object.assign({}, DEFAULT_PROVIDER)
   }
 };
@@ -43,6 +44,7 @@ function normalizeSettings(data) {
     },
     translation: {
       enabled: translation.enabled === true,
+      grammarPath: String(translation.grammarPath || '').trim(),
       provider: normalizeProviderConfig(translation.provider)
     }
   };

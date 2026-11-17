@@ -835,6 +835,7 @@ var require_settings = __commonJS({
       display: { language: "auto", fallbackLanguage: "" },
       translation: {
         enabled: false,
+        grammarPath: "",
         provider: Object.assign({}, DEFAULT_PROVIDER)
       }
     };
@@ -866,6 +867,7 @@ var require_settings = __commonJS({
         },
         translation: {
           enabled: translation.enabled === true,
+          grammarPath: String(translation.grammarPath || "").trim(),
           provider: normalizeProviderConfig(translation.provider)
         }
       };
@@ -988,6 +990,10 @@ var require_settings_tab = __commonJS({
             }
           });
         });
+        new Setting(containerEl).setName("\u8BED\u6CD5\u4E0A\u4E0B\u6587\u6587\u4EF6").setDesc("\u7559\u7A7A\u5219\u4F7F\u7528\u9ED8\u8BA4\u8FF0\u65E0\u7A7A\u8BED\u8BED\u6CD5\uFF1B\u53EF\u586B\u5199 Vault \u5185\u7684\u8DEF\u5F84\u3002").addText((text) => text.setPlaceholder("\u4E16\u754C\u8BBE\u5B9A\u96C6/.../\u8FF0\u65E0\u7A7A\u8BED\u8BED\u6CD5.md").setValue(tr.grammarPath || "").onChange(async (value) => {
+          tr.grammarPath = String(value || "").trim();
+          this.scheduleSave();
+        }));
         new Setting(containerEl).setName("\u53C2\u6570").setDesc("timeoutMs / maxTokens / temperature").addText((text) => text.setValue(String(tr.provider.timeoutMs || 3e4)).onChange((value) => {
           tr.provider.timeoutMs = Number(value) || 3e4;
           this.scheduleSave();
@@ -1330,7 +1336,7 @@ var require_reference = __commonJS({
         '{"reference":"EpXsC sentence","backTranslation":"\u7B80\u4F53\u4E2D\u6587\u56DE\u8BD1","notes":["optional note"]}',
         "Do not return Markdown fences, explanations outside JSON, lint results, or invented dictionary entries.",
         "The supplied dictionary context is exhaustive for this request. Use only EpXs words explicitly listed there. Never invent a word. If no listed word fits, return an empty reference and explain in notes.",
-        "backTranslation must be Simplified Chinese, not English. The author will review the result; never claim it is authoritative."
+        "backTranslation must be Simplified Chinese, not English. Be minimal: do not add synonyms, extra adjectives, or words not required by the Chinese source. Each EpXs word must correspond to a part of the source. The author will review the result; never claim it is authoritative."
       ].join(" ");
       const parts = ["Chinese sentence:", chinese];
       if (grammar) parts.push("Grammar constraints:", grammar);
@@ -1545,8 +1551,31 @@ var require_reference_modal = __commonJS({
   }
 });
 
-// src/core/grammar.js
+// src/core/translation/grammar.js
 var require_grammar = __commonJS({
+  "src/core/translation/grammar.js"(exports2, module2) {
+    "use strict";
+    var DEFAULT_GRAMMAR_CONTEXT = [
+      "EpXsC syntax constraints:",
+      "- Basic clause order: predicate (verb) - subject - object (VSO). The predicate is first.",
+      "- Noun phrase order: determiner - adjective - noun - prepositional complement.",
+      "- Nouns do not inflect for case or plural; number and reference come from determiners and context.",
+      "- Modifiers precede the noun; prepositional phrases follow it.",
+      "- Use only words explicitly listed in the dictionary context.",
+      "- Be minimal: do not add adjectives, synonyms, or words that are not required by the Chinese source.",
+      "- Examples: \u6C34 -> aqua; \u51C0\u5316\u6C34 -> plur aqua; \u4FDD\u5B58\u6C34 -> expual aqua."
+    ].join("\n");
+    function extractGrammarContext(text) {
+      const src = String(text || "").trim();
+      if (!src) return DEFAULT_GRAMMAR_CONTEXT;
+      return src.slice(0, 6e3);
+    }
+    module2.exports = { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext };
+  }
+});
+
+// src/core/grammar.js
+var require_grammar2 = __commonJS({
   "src/core/grammar.js"(exports2, module2) {
     "use strict";
     var { FALLBACK, ELEMENTS } = require_parsers();
@@ -1678,7 +1707,7 @@ var require_grammar = __commonJS({
 var require_markup = __commonJS({
   "src/core/markup.js"(exports2, module2) {
     "use strict";
-    var { TYPES, MODIFIERS } = require_grammar();
+    var { TYPES, MODIFIERS } = require_grammar2();
     var { ELEMENTS } = require_parsers();
     function markSpellRefs(html) {
       return String(html).split("\n").map(function(line) {
@@ -2802,10 +2831,11 @@ var require_config = __commonJS({
     var DICT_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u8BCD\u5178.md";
     var RANK_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u7EF4\u5EA6/\u7EF4\u5EA6\u6A21\u578B.md";
     var SYNTAX_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u672F\u5F0F\u8BED\u6CD5.md";
+    var GRAMMAR_PATH = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8FF0\u65E0\u7A7A\u8BED\u8BED\u6CD5.md";
     var ROOTS_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u5730\u57DF\u6587\u5316\u56FE\u9274/\u8BED\u8A00/\u8FF0\u65E0\u7A7A\u8BED/\u8BCD\u5E93/\u8BCD\u6839\u8868/";
     var SPELL_DIR = "\u4E16\u754C\u8BBE\u5B9A\u96C6/\u8BBE\u5B9A\u6982\u5FF5\u96C6\u5408/\u9B54\u6CD5";
     var MAX_HIGHLIGHT_LINES = 50;
-    module2.exports = { DICT_PATH, RANK_PATH, SYNTAX_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES };
+    module2.exports = { DICT_PATH, RANK_PATH, SYNTAX_PATH, GRAMMAR_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES };
   }
 });
 
@@ -3260,8 +3290,9 @@ var require_plugin = __commonJS({
     var { createReferenceService } = require_reference_service();
     var { ReferenceModal } = require_reference_modal();
     var { normalizeProviderConfig, validateProviderConfig } = require_request();
+    var { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext } = require_grammar();
     var { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require_markup();
-    var { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require_grammar();
+    var { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require_grammar2();
     var { tokenizeText } = require_tokenizer();
     var { collectSpells } = require_spells();
     var { lintSource } = require_lint_service();
@@ -3272,7 +3303,7 @@ var require_plugin = __commonJS({
     var { FALLBACK, SECTIONS, ELEMENTS, splitSections, parseEntries, parseRanks, parseFilterKeys, parseUnits, parseRoots, wordsFrom } = require_parsers();
     var LANG_KEYS = ["EpXsC", "epxsc", "EPXSC"];
     var CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
-    var { DICT_PATH, RANK_PATH, SYNTAX_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES } = require_config();
+    var { DICT_PATH, RANK_PATH, SYNTAX_PATH, GRAMMAR_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES } = require_config();
     var BUILD = "2.1.0";
     var { SECTION_POS, EXTRA_WORDS, SYMBOL_INFO, pickClass, bracketTip, variableTip, negScopeText, coordTip, rankDef, rankSpan, buildTip } = require_tooltip();
     var FALLBACK_CSS = '/* EpXsC Syntax \u5185\u7F6E\u515C\u5E95\u6837\u5F0F\uFF08\u4E0E styles.css \u7B2C 1\uFF0F2\uFF0F3\uFF0F5\uFF0F6 \u8282\u4E00\u81F4\uFF09 */\nbody{--epx-comment:var(--text-faint);--epx-pretium:var(--color-red);--epx-keyword:var(--color-purple);--epx-judge:var(--color-purple);--epx-clause:var(--color-red);--epx-verb:var(--color-blue);--epx-decl:var(--color-yellow);--epx-element:var(--color-cyan);--epx-type:var(--color-cyan);--epx-unit:var(--color-orange);--epx-number:var(--color-orange);--epx-degree:var(--color-pink);--epx-axis:var(--color-green);--epx-pointer:var(--text-accent);--epx-operator:var(--text-muted);--epx-punct:var(--text-muted);--epx-paren:var(--text-muted);--epx-bracket:var(--text-muted);--epx-brace:var(--text-muted);--epx-rank:var(--color-orange);--epx-b2:var(--text-muted);--epx-b3:var(--text-muted);--epx-variable:var(--color-pink);--epx-modifier:var(--color-red)}\npre.epx-pre{position:relative;padding:1.1em 1.15em 1.15em;background:var(--code-background);border:1px solid var(--background-modifier-border);border-left:3px solid var(--text-accent);border-radius:var(--radius-m)}\npre.epx-pre::before{content:"EpXsC";position:absolute;inset:0 0 auto auto;padding:0 .7em;font-family:var(--font-interface);font-size:.62em;font-weight:600;letter-spacing:.09em;line-height:1.8;color:var(--text-on-accent);background:var(--text-accent);border-radius:0 var(--radius-m) 0 var(--radius-s);opacity:.85;pointer-events:none;user-select:none}\n:is(code[class*="language-EpXsC" i], .epx-ord){font-family:var(--font-monospace);font-size:.9em;line-height:1.65;tab-size:4;color:var(--code-normal,var(--text-normal));background:none;padding:0;text-shadow:none}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.comment{color:var(--epx-comment);font-style:italic}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.pretium{color:var(--epx-pretium);font-weight:700}:is(code[class*="language-EpXsC" i], .epx-ord) .token.clause{color:var(--epx-clause);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.keyword{color:var(--epx-keyword);font-weight:600}:is(code[class*="language-EpXsC" i], .epx-ord) .token.judge{color:var(--epx-judge);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.negPrefix{color:var(--epx-keyword);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.function{color:var(--epx-verb)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.spellRef{color:var(--epx-verb);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.predicate{color:var(--epx-verb)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.declaration{color:var(--epx-decl);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.element{color:var(--epx-element);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.type{color:var(--epx-type)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.variable{color:var(--epx-variable);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.unit{color:var(--epx-unit);font-style:italic}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.number{color:var(--epx-number)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.rankRange{color:var(--epx-rank);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.degree{color:var(--epx-degree);font-style:italic}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.axis{color:var(--epx-axis)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.pointer{color:var(--epx-pointer);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.coordRun{color:var(--text-muted);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier{color:var(--epx-modifier);font-style:italic;font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.declTarget{color:var(--epx-variable);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.varUse{color:var(--epx-variable)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.operator{color:var(--epx-operator)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.bracket{color:var(--epx-bracket);color:color-mix(in srgb,var(--color-cyan) 40%,var(--text-muted));font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.paren{color:var(--epx-paren)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.brace{color:var(--epx-brace)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.punctuation{color:var(--epx-punct)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-d2{color:var(--epx-b2);color:color-mix(in srgb,var(--color-pink) 35%,var(--text-muted))}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-d3{color:var(--epx-b3);color:color-mix(in srgb,var(--color-green) 35%,var(--text-muted))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.declaration{color:#7e691f;color:color-mix(in srgb,var(--color-yellow) 45%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.element,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.type{color:#17797a;color:color-mix(in srgb,var(--color-cyan) 50%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.unit,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.number,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.rankRange{color:#a05b16;color:color-mix(in srgb,var(--color-orange) 60%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.axis{color:#197d44;color:color-mix(in srgb,var(--color-green) 55%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.degree,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.variable,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.declTarget,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.varUse{color:#c4387c;color:color-mix(in srgb,var(--color-pink) 90%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.pretium,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.clause,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier{color:#cd3145;color:color-mix(in srgb,var(--color-red) 85%,var(--text-normal))}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-unknown{text-decoration:underline dotted var(--color-orange);text-underline-offset:.2em}\n.epx-tip{position:fixed;z-index:9999;max-width:340px;padding:7px 11px;border:1px solid var(--background-modifier-border);border-radius:var(--radius-s);background:var(--background-secondary);color:var(--text-normal);font-family:var(--font-interface);font-size:12px;line-height:1.5;box-shadow:var(--shadow-s);pointer-events:none;opacity:0}\n.epx-tip.is-visible{opacity:1}\n.epx-tip .epx-tip-head{font-weight:600;color:var(--text-accent)}\n.epx-tip .epx-tip-body{color:var(--text-muted)}\n/* \u666E\u901A\u53E5\u5757\uFF1A\u5916\u6846 + \u53F3\u4E0A\u89D2\u8BED\u8A00\u7B7E\uFF0C\u8DDF\u672F\u5F0F\u5757\u540C\u5F62\uFF0C\u53EA\u6309\u6A21\u5F0F\u6362\u8272\uFF08G \u9752 \xB7 T \u6A59\uFF09\n   \u5916\u5C42\u662F code.language-EpXsC\uFF1Atoken \u914D\u8272\u4E0E\u60AC\u505C\u6CBF\u7528\u672F\u5F0F\u90A3\u5957\u9009\u62E9\u5668\uFF0C\u8FD9\u91CC\u53EA\u7BA1\u7248\u9762\u3002 */\n.epx-ord {\n  --epx-ord-tint: var(--color-cyan);\n  display: block;\n  position: relative;\n  line-height: 1.9;\n  padding: 1.1em 1.15em 1.15em;\n  background: var(--code-background);\n  border: 1px solid var(--background-modifier-border);\n  border-left: 3px solid var(--epx-ord-tint);\n  border-radius: var(--radius-m);\n  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);\n}\n.epx-ord-T { --epx-ord-tint: var(--color-orange); }\n.epx-ord::before {\n  content: "EpXsG";\n  position: absolute;\n  inset: 0 0 auto auto;\n  padding: 0 0.7em;\n  font-family: var(--font-interface);\n  font-size: 0.62em;\n  font-weight: 600;\n  letter-spacing: 0.09em;\n  line-height: 1.8;\n  color: var(--epx-ord-tint);\n  background: var(--background-secondary);\n  background: color-mix(in srgb, var(--epx-ord-tint) 22%, var(--background-primary));\n  border-radius: 0 var(--radius-m) 0 var(--radius-s);\n  opacity: 0.95;\n  pointer-events: none;\n  user-select: none;\n}\n.epx-ord-T::before { content: "EpXsT"; }\n/* \u8BCD\u4E0E\u8BCD\u6CE8\u90FD\u662F inline-block\uFF1A\u5FC5\u987B top \u5BF9\u9F50\uFF0C\u5426\u5219\u6709\u8BCD\u6CE8\u7684\u8BCD\u88AB\u9876\u9AD8\u3001\u6574\u884C\u5B57\u4E0A\u4E0B\u8DF3\u3002 */\n.epx-oline { display: block; margin: .18em 0; }\n.epx-gs { display: block; }\n.epx-gw { display: inline-block; text-align: center; margin: 0 .16em; vertical-align: top; }\n.epx-gsrc { display: block; line-height: 1.3; }\n.epx-ggl { display: block; font-size: .74em; line-height: 1.2; opacity: .7; font-family: var(--font-text); }\n.epx-tsrc { display: block; }\n.epx-tzh { display: block; font-family: var(--font-text); opacity: .78; font-size: .92em; }\n.epx-gap { display: block; height: .45em; }\n.epx-ord-wrap { display: block; }\n/* \u6709\u4E9B\u4E3B\u9898\u4F1A\u7ED9\u5757\u7EA7\u5143\u7D20\u7EE7\u627F\u9996\u884C\u7F29\u8FDB\uFF1BT/G \u662F\u4EE3\u7801\u5757\uFF0C\u9996\u884C\u5FC5\u987B\u8D34\u5DE6 */\n.epx-ord, .epx-ord .epx-oline, .epx-ord .epx-tsrc, .epx-ord .epx-tzh { text-indent: 0; }\n.epx-ord { padding: 1.1em 1.15em 1.15em !important; }\n@media (max-width: 640px) { .epx-ord { padding: 0 0.9em 0.9em !important; } }\n.epx-ord > .epx-oline:first-child { margin-top: 0; }\n.epx-ord { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }\n@media (max-width:640px){.epx-ord,pre.epx-pre{white-space:pre-wrap;overflow-wrap:break-word;padding:0 .9em .9em}.epx-ord{line-height:1.8}.epx-ord::before,pre.epx-pre::before{position:static;display:block;margin:0 -.9em .75em;padding:.22em .9em;text-align:right;line-height:1.7;border-radius:var(--radius-m) var(--radius-m) 0 0;opacity:1}.epx-ggl{line-height:1.25}.epx-tzh{margin-top:.15em}}';
@@ -3740,6 +3771,30 @@ var require_plugin = __commonJS({
         });
         return parts.join("; ");
       }
+      extractGrammarContext(text) {
+        const src = String(text || "");
+        const parts = src.split(/^## /m);
+        const wanted = [];
+        for (let i = 0; i < parts.length; i++) {
+          const head = parts[i].split("\n")[0] || "";
+          if (/句子|语序|名词短语|短语|修饰|从句|构词|词类|限定|数量|代词|否定|谓词|宾语/.test(head)) wanted.push(parts[i]);
+        }
+        const picked = wanted.length ? wanted.join("\n## ") : src;
+        return picked.slice(0, 6e3);
+      }
+      async getGrammarContext() {
+        const custom = this.settings && this.settings.translation && this.settings.translation.grammarPath;
+        if (!custom) return DEFAULT_GRAMMAR_CONTEXT;
+        try {
+          const file = this.app.vault.getAbstractFileByPath(custom);
+          let text = "";
+          if (file instanceof TFile) text = await this.app.vault.cachedRead(file);
+          else if (this.app.vault.adapter) text = await this.app.vault.adapter.read(custom);
+          return extractGrammarContext(text);
+        } catch (e) {
+          return DEFAULT_GRAMMAR_CONTEXT;
+        }
+      }
       getReferenceDictionaryContext(chinese) {
         const chars = /* @__PURE__ */ new Set();
         const src = String(chinese || "");
@@ -3767,7 +3822,7 @@ var require_plugin = __commonJS({
         }
         const self = this;
         const analyze = function(reference) {
-          const words = String(reference || "").match(/[A-Za-z][A-Za-z0-9_-]*/g) || [];
+          const words = String(reference || "").match(/[A-Za-z][A-Za-z0-9_-]*|[\u3400-\u9fff]/g) || [];
           const wordBreakdown = [];
           const unknownWords = [];
           for (let i = 0; i < words.length; i++) {
@@ -3779,8 +3834,10 @@ var require_plugin = __commonJS({
           const issues = lintSource(reference, { info: self.info, units: self.units, keys: self.keys, spells: self.spells }, "reference");
           return { wordBreakdown, unknownWords, lint: issues };
         };
+        const grammarContext = await this.getGrammarContext();
         return await this.referenceService.generate({
           chinese,
+          grammarContext,
           dictionaryContext: this.getReferenceDictionaryContext(chinese),
           analyze
         });

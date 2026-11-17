@@ -22,6 +22,7 @@ const { createTranslationService } = require('../services/translation-service.js
 const { createReferenceService } = require('../services/reference-service.js');
 const { ReferenceModal } = require('../ui/reference-modal.js');
 const { normalizeProviderConfig, validateProviderConfig } = require('../core/translation/request.js');
+const { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext } = require('../core/translation/grammar.js');
 const { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require('../core/markup.js');
 const { TYPES, MODIFIERS, makeGrammar, BASE_LISTS } = require('../core/grammar.js');
 const { tokenizeText } = require('../core/tokenizer.js');
@@ -35,7 +36,7 @@ const { FALLBACK, SECTIONS, ELEMENTS, splitSections, parseEntries, parseRanks, p
 
 const LANG_KEYS = ['EpXsC', 'epxsc', 'EPXSC'];
 const CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
-const { DICT_PATH, RANK_PATH, SYNTAX_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES } = require('./config.js');
+const { DICT_PATH, RANK_PATH, SYNTAX_PATH, GRAMMAR_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES } = require('./config.js');
 
 const BUILD = '2.1.0';
 
@@ -499,6 +500,31 @@ class EpXsCSyntaxPlugin extends Plugin {
     return parts.join('; ');
   }
 
+  extractGrammarContext(text) {
+    const src = String(text || '');
+    const parts = src.split(/^## /m);
+    const wanted = [];
+    for (let i = 0; i < parts.length; i++) {
+      const head = parts[i].split('\n')[0] || '';
+      if (/句子|语序|名词短语|短语|修饰|从句|构词|词类|限定|数量|代词|否定|谓词|宾语/.test(head)) wanted.push(parts[i]);
+    }
+    const picked = wanted.length ? wanted.join('\n## ') : src;
+    return picked.slice(0, 6000);
+  }
+
+  async getGrammarContext() {
+    const custom = this.settings && this.settings.translation && this.settings.translation.grammarPath;
+    if (!custom) return DEFAULT_GRAMMAR_CONTEXT;
+    try {
+      const file = this.app.vault.getAbstractFileByPath(custom);
+      let text = '';
+      if (file instanceof TFile) text = await this.app.vault.cachedRead(file);
+      else if (this.app.vault.adapter) text = await this.app.vault.adapter.read(custom);
+      return extractGrammarContext(text);
+    } catch (e) {
+      return DEFAULT_GRAMMAR_CONTEXT;
+    }
+  }
   getReferenceDictionaryContext(chinese) {
     const chars = new Set();
     const src = String(chinese || '');
@@ -525,7 +551,7 @@ class EpXsCSyntaxPlugin extends Plugin {
     }
     const self = this;
     const analyze = function (reference) {
-      const words = String(reference || '').match(/[A-Za-z][A-Za-z0-9_-]*/g) || [];
+      const words = String(reference || '').match(/[A-Za-z][A-Za-z0-9_-]*|[\u3400-\u9fff]/g) || [];
       const wordBreakdown = [];
       const unknownWords = [];
       for (let i = 0; i < words.length; i++) {
@@ -537,8 +563,10 @@ class EpXsCSyntaxPlugin extends Plugin {
       const issues = lintSource(reference, { info: self.info, units: self.units, keys: self.keys, spells: self.spells }, 'reference');
       return { wordBreakdown: wordBreakdown, unknownWords: unknownWords, lint: issues };
     };
+    const grammarContext = await this.getGrammarContext();
     return await this.referenceService.generate({
       chinese: chinese,
+      grammarContext: grammarContext,
       dictionaryContext: this.getReferenceDictionaryContext(chinese),
       analyze: analyze
     });

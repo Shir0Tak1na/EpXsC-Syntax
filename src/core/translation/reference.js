@@ -14,7 +14,7 @@ function buildReferenceMessages(input) {
     '{"reference":"EpXsC sentence","backTranslation":"简体中文回译","notes":["optional note"]}',
     'Do not return Markdown fences, explanations outside JSON, lint results, or invented dictionary entries.',
     'The supplied dictionary context is exhaustive for this request. Use only EpXs words explicitly listed there. Never invent a word. If no listed word fits, return an empty reference and explain in notes.',
-    'backTranslation must be Simplified Chinese, not English. The author will review the result; never claim it is authoritative.'
+    'backTranslation must be Simplified Chinese, not English. Be minimal: do not add synonyms, extra adjectives, or words not required by the Chinese source. Each EpXs word must correspond to a part of the source. The author will review the result; never claim it is authoritative.'
   ].join(' ');
   const parts = ['Chinese sentence:', chinese];
   if (grammar) parts.push('Grammar constraints:', grammar);

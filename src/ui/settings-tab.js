@@ -154,6 +154,14 @@ class EpXsSettingsTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName('语法上下文文件')
+      .setDesc('留空则使用默认述无空语语法；可填写 Vault 内的路径。')
+      .addText((text) => text.setPlaceholder('世界设定集/.../述无空语语法.md').setValue(tr.grammarPath || '').onChange(async (value) => {
+        tr.grammarPath = String(value || '').trim();
+        this.scheduleSave();
+      }));
+
+    new Setting(containerEl)
       .setName('参数')
       .setDesc('timeoutMs / maxTokens / temperature')
       .addText((text) => text.setValue(String(tr.provider.timeoutMs || 30000)).onChange((value) => {
