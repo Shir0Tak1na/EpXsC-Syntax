@@ -47,7 +47,7 @@ const server = http.createServer((req, res) => {
     const messages = body && Array.isArray(body.messages) ? body.messages : [];
     const system = (messages.filter((m) => m && m.role === 'system')[0] || {}).content || '';
     const src = sourceFrom(body);
-    const out = system.indexOf('EpXsC translation assistant') >= 0
+    const out = /translation assistant/i.test(system)
       ? JSON.stringify({ reference: 'Plur Aqua', backTranslation: '净水（mock 回译）', notes: ['mock reference'] })
       : (src === 'Plur Aqua' ? '净水（mock）' : ('[mock] ' + src));
     setTimeout(() => {
