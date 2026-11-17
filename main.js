@@ -1067,10 +1067,20 @@ var require_prompt = __commonJS({
         "Translate the supplied EpXsC sentence into the requested target language.",
         "Output only the translation. Do not add explanations, labels, Markdown fences or multiple variants.",
         "If the source is ambiguous, choose the most literal reading and keep names unchanged.",
-        "Target language: " + target + "."
+        "Target language: " + target + ". Preserve names. Use the dictionary meanings and grammar constraints. Output only one natural sentence."
       ].join(" ");
       const context = String(o.context || "").trim();
-      const user = "Translate this EpXsC sentence:\n" + source + (context ? "\nDictionary context:\n" + context : "");
+      const grammar = String(o.grammarContext || "").trim();
+      const examples = [
+        "Navis draco nos. -> \u9F99\u5F15\u5BFC\u6211\u4EEC\u3002",
+        "Retase quinq pna kor. -> \u4E94\u4E2A\u4EBA\u7559\u4E0B\u6765\u9A7B\u5B88\u3002",
+        "Es hopas nos de silzone. -> \u6211\u4EEC\u7684\u8425\u5730\u5728\u68EE\u6797\u4E4B\u533A\u3002",
+        "Vid nauta mar. -> \u6C34\u624B\u671B\u6D77\u3002"
+      ].join("\n");
+      let user = "Translate this EpXsC sentence:\n" + source;
+      if (context) user += "\nDictionary context:\n" + context;
+      if (grammar) user += "\nGrammar constraints:\n" + grammar;
+      user += "\nReference translations (do not copy blindly):\n" + examples;
       return [
         { role: "system", content: system },
         { role: "user", content: user }
@@ -1190,7 +1200,7 @@ var require_openai_compatible = __commonJS({
         const text = String(input && input.text || "").trim();
         if (!text) return error("EMPTY_SOURCE", "\u6E90\u53E5\u4E3A\u7A7A", false);
         const target = String(input && input.targetLanguage || "zh-CN").trim() || "zh-CN";
-        return chat(buildTranslationMessages({ text, targetLanguage: target, context: input && input.context }), input);
+        return chat(buildTranslationMessages({ text, targetLanguage: target, context: input && input.context, grammarContext: input && input.grammarContext }), input);
       }
       return {
         id: "openai-compatible",
@@ -1284,6 +1294,7 @@ var require_translation_service = __commonJS({
           sourceLang: optsIn.sourceLang || "epxsc",
           targetLanguage: optsIn.targetLanguage || optsIn.targetLang || "zh-CN",
           context: optsIn.context || "",
+          grammarContext: optsIn.grammarContext || "",
           signal: optsIn.signal
         }), timeoutMs).then(function(result) {
           if (startEpoch !== epoch) return cancelled();
@@ -3229,7 +3240,8 @@ var require_ord_dom = __commonJS({
               sourceLang: "epxsc",
               targetLanguage: options.requestedLanguage || "zh-CN",
               lexiconVersion: options.lexiconVersion || "",
-              context: options.translationContext ? options.translationContext(record.src) : ""
+              context: options.translationContext ? options.translationContext(record.src) : "",
+              grammarContext: options.grammarContext || ""
             })).then(function(result) {
               if (!zh.isConnected) return;
               if (result && result.ok) {
@@ -3547,6 +3559,7 @@ var require_plugin = __commonJS({
         this.grammar = makeGrammar(BASE_LISTS);
         this.info = /* @__PURE__ */ new Map();
         this.translationLanguage = detectLanguage(this.app);
+        this.translationGrammarContext = DEFAULT_GRAMMAR_CONTEXT;
         this.settings = normalizeSettings(null);
         this.lexiconConflicts = [];
         this.customDictionaryErrors = [];
@@ -3575,6 +3588,9 @@ var require_plugin = __commonJS({
           self.settings = normalizeSettings(data);
           self.translationLanguage = self.settings.display.language !== "auto" ? self.settings.display.language : detectLanguage(self.app);
           self.configureTranslation();
+          self.getGrammarContext().then(function(g) {
+            self.translationGrammarContext = g;
+          });
           self.refresh();
         }).catch(function(err) {
           console.warn("[EpXsC Syntax] \u8BBE\u7F6E\u8BFB\u53D6\u5931\u8D25\uFF0C\u4F7F\u7528\u9ED8\u8BA4\u503C\uFF1A", err);
@@ -3862,6 +3878,7 @@ var require_plugin = __commonJS({
           autoTranslate: !!(this.settings && this.settings.translation && this.settings.translation.enabled),
           translationService: this.translationService || null,
           lexiconVersion: this.lexiconVersion || "",
+          grammarContext: this.translationGrammarContext || DEFAULT_GRAMMAR_CONTEXT,
           translationContext: (text) => this.getTranslationContext(text)
         };
       }
