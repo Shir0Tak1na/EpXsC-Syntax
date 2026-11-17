@@ -3,6 +3,7 @@
 /* Pure EpXsT / EpXsG block parsing: source -> ordered line records. */
 
 const { tokenizeText } = require('../core/tokenizer.js');
+const { parseOrdLines, pickTranslation } = require('../core/ord/parse.js');
 
 function ordTokens(line, grammar) {
   const html = tokenizeText(line, grammar);
@@ -29,39 +30,29 @@ function ordGlossOf(tok, info, posMap) {
   return '';
 }
 
-function parseOrdBlocks(source, mode, grammar, info, posMap) {
-  const lines = String(source || '').replace(/\r/g, '').split('\n');
+function parseOrdBlocks(source, mode, grammar, info, posMap, options) {
+  const parsed = parseOrdLines(source);
+  const opts = options || {};
   const out = [];
-  let pending = null;
-  const flush = function (pair) {
-    if (!pair) return;
+  for (let i = 0; i < parsed.records.length; i++) {
+    const record = parsed.records[i];
+    if (record.kind === 'gap') { out.push({ kind: 'gap' }); continue; }
+    const picked = pickTranslation({
+      translations: record.translations,
+      requestedLanguage: opts.requestedLanguage,
+      fallbackLanguage: opts.fallbackLanguage,
+      defaultTranslation: record.defaultTranslation
+    });
+    const zh = picked.kind === 'untranslated' ? '' : picked.text;
+    const state = picked.kind === 'human' || picked.kind === 'default' ? 'human' : 'untranslated';
     if (mode === 'G') {
-      const toks = ordTokens(pair.src, grammar);
+      const toks = ordTokens(record.src, grammar);
       const tokens = toks.map(function (tok) { return { cls: tok.cls, text: tok.text, gloss: ordGlossOf(tok, info, posMap) }; });
-      out.push({ kind: 'line', src: pair.src, zh: pair.zh, tokens: tokens });
+      out.push({ kind: 'line', src: record.src, zh: zh, translationState: state, translations: record.translations, sourceHash: record.sourceHash, tokens: tokens });
     } else {
-      out.push({ kind: 'line', src: pair.src, zh: pair.zh, html: tokenizeText(pair.src, grammar) });
+      out.push({ kind: 'line', src: record.src, zh: zh, translationState: state, translations: record.translations, sourceHash: record.sourceHash, html: tokenizeText(record.src, grammar) });
     }
-  };
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i];
-    const t = raw.trim();
-    if (!t) {
-      flush(pending); pending = null;
-      out.push({ kind: 'gap' });
-      continue;
-    }
-    if (t.charAt(0) === '>') {
-      if (pending) pending.zh = t.slice(1).trim();
-      else out.push({ kind: 'line', src: '', zh: t.slice(1).trim() });
-      continue;
-    }
-    if (pending && !pending.zh && /[\u3400-\u9fff]/.test(t)) { pending.zh = t; continue; }
-    flush(pending);
-    pending = { src: t, zh: '' };
   }
-  flush(pending);
   return out;
 }
-
 module.exports = { ordTokens, ordGlossOf, parseOrdBlocks };

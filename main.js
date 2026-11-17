@@ -1371,11 +1371,213 @@ var require_epxsc_renderer = __commonJS({
   }
 });
 
+// src/core/ord/parse.js
+var require_parse = __commonJS({
+  "src/core/ord/parse.js"(exports2, module2) {
+    "use strict";
+    var CJK_RE = /[\u3400-\u9fff]/;
+    var LANG_RE = /^[A-Za-z]{2,3}(?:-[A-Za-z]{4})?(?:-(?:[A-Za-z]{2}|[0-9]{3}))?(?:-[A-Za-z0-9]{5,8})*$/;
+    function baseLang(tag) {
+      const n = normalizeLang(tag);
+      return n ? n.split("-")[0].toLowerCase() : "";
+    }
+    function normalizeLang(tag) {
+      if (typeof tag !== "string") return null;
+      const raw = tag.trim();
+      if (!raw || !LANG_RE.test(raw)) return null;
+      const parts = raw.split("-").map(function(p) {
+        return p.toLowerCase();
+      });
+      const out = [parts[0]];
+      let i = 1;
+      if (i < parts.length && /^[a-z]{4}$/.test(parts[i])) {
+        out.push(parts[i].charAt(0).toUpperCase() + parts[i].slice(1));
+        i += 1;
+      }
+      if (i < parts.length && /^(?:[a-z]{2}|[0-9]{3})$/.test(parts[i])) {
+        out.push(parts[i].toUpperCase());
+        i += 1;
+      }
+      while (i < parts.length) {
+        out.push(parts[i]);
+        i += 1;
+      }
+      return out.join("-");
+    }
+    function stableHash(text) {
+      const s = String(text || "");
+      let h = 2166136261;
+      for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return ("00000000" + (h >>> 0).toString(16)).slice(-8);
+    }
+    function normalizeSource(text) {
+      return String(text || "").replace(/\r/g, "").replace(/[ \t]+/g, " ").trim();
+    }
+    function sourceHash(text) {
+      return stableHash(normalizeSource(text));
+    }
+    function parseTranslationLine(raw) {
+      let body = String(raw || "").replace(/^\s*>?\s?/, "");
+      body = body.replace(/^\s+/, "");
+      if (!body) return { lang: null, text: "", empty: true };
+      if (body.slice(0, 2) === "\\(") {
+        return { lang: null, text: body.slice(1) };
+      }
+      const m = /^\(([^()]*)\)(?:\s+)?([\s\S]*)$/.exec(body);
+      if (m) {
+        const lang = normalizeLang(m[1]);
+        if (lang) return { lang, text: m[2] };
+        return { lang: null, text: body };
+      }
+      return { lang: null, text: body };
+    }
+    function parseTranslations(lines) {
+      const out = [];
+      for (let i = 0; i < lines.length; i++) {
+        const raw = String(lines[i] || "");
+        if (!/^\s*>/.test(raw)) continue;
+        const t = parseTranslationLine(raw);
+        if (t.empty) continue;
+        out.push({ lang: t.lang, text: t.text, line: i + 1 });
+      }
+      return out;
+    }
+    function parseOrdLines(source) {
+      const lines = String(source || "").replace(/\r/g, "").split("\n");
+      const records = [];
+      const warnings = [];
+      let pending = null;
+      function addTranslation(record, t) {
+        if (!t.text) {
+          warnings.push({ code: "EMPTY_TRANSLATION", line: record.line, message: "\u7A7A\u8BD1\u6587\u5DF2\u5FFD\u7565" });
+          return;
+        }
+        if (t.lang === null) {
+          if (record.defaultTranslation) warnings.push({ code: "DUPLICATE_DEFAULT", line: record.line, message: "\u9ED8\u8BA4\u8BD1\u6587\u91CD\u590D\uFF0C\u6700\u540E\u4E00\u6761\u751F\u6548" });
+          record.defaultTranslation = t.text;
+          return;
+        }
+        const old = record.translations.filter(function(x) {
+          return x.lang === t.lang;
+        })[0];
+        if (old) warnings.push({ code: "DUPLICATE_LANGUAGE", line: record.line, message: "\u8BED\u8A00 " + t.lang + " \u7684\u8BD1\u6587\u91CD\u590D\uFF0C\u6700\u540E\u4E00\u6761\u751F\u6548" });
+        record.translations = record.translations.filter(function(x) {
+          return x.lang !== t.lang;
+        });
+        record.translations.push({ lang: t.lang, text: t.text, line: record.line });
+      }
+      function flush() {
+        if (!pending) return;
+        records.push(pending);
+        pending = null;
+      }
+      for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i];
+        const t = raw.trim();
+        if (!t) {
+          flush();
+          records.push({ kind: "gap", line: i + 1 });
+          continue;
+        }
+        if (t.charAt(0) === ">") {
+          if (!pending) {
+            warnings.push({ code: "ORPHAN_TRANSLATION", line: i + 1, message: "\u8BD1\u6587\u884C\u524D\u9762\u6CA1\u6709\u6E90\u53E5" });
+            const orphan = {
+              kind: "line",
+              line: i + 1,
+              sourceLine: null,
+              src: "",
+              sourceHash: "",
+              translations: [],
+              defaultTranslation: ""
+            };
+            addTranslation(orphan, parseTranslationLine(raw));
+            records.push(orphan);
+            continue;
+          }
+          addTranslation(pending, parseTranslationLine(raw));
+          continue;
+        }
+        if (pending && !pending.defaultTranslation && !pending.translations.length && CJK_RE.test(t)) {
+          pending.defaultTranslation = t;
+          continue;
+        }
+        flush();
+        pending = {
+          kind: "line",
+          line: i + 1,
+          sourceLine: i + 1,
+          src: t,
+          sourceHash: sourceHash(t),
+          translations: [],
+          defaultTranslation: ""
+        };
+      }
+      flush();
+      return { records, warnings };
+    }
+    function matchTranslation(translations, lang) {
+      if (!lang) return null;
+      const exact = translations.filter(function(t) {
+        return t.lang === lang;
+      })[0];
+      if (exact) return exact;
+      const base = baseLang(lang);
+      const sameBase = translations.filter(function(t) {
+        return t.lang === base;
+      })[0];
+      if (sameBase) return sameBase;
+      return translations.filter(function(t) {
+        return baseLang(t.lang) === base;
+      })[0] || null;
+    }
+    function pickTranslation(input) {
+      const opts = input || {};
+      const translations = opts.translations || [];
+      const requested = normalizeLang(opts.requestedLanguage) || "";
+      const fallback = normalizeLang(opts.fallbackLanguage) || "";
+      const tryOrder = [];
+      if (requested) {
+        tryOrder.push(requested);
+        if (baseLang(requested)) tryOrder.push(baseLang(requested));
+      }
+      if (fallback) {
+        tryOrder.push(fallback);
+        if (baseLang(fallback)) tryOrder.push(baseLang(fallback));
+      }
+      const seen = /* @__PURE__ */ new Set();
+      for (let i = 0; i < tryOrder.length; i++) {
+        const lang = tryOrder[i];
+        if (!lang || seen.has(lang)) continue;
+        seen.add(lang);
+        const hit = matchTranslation(translations, lang);
+        if (hit) return { kind: "human", lang: hit.lang, text: hit.text };
+      }
+      if (opts.defaultTranslation) return { kind: "default", lang: null, text: opts.defaultTranslation };
+      return { kind: "untranslated", lang: null, text: "" };
+    }
+    module2.exports = {
+      normalizeLang,
+      baseLang,
+      parseTranslationLine,
+      parseTranslations,
+      parseOrdLines,
+      pickTranslation,
+      stableHash,
+      sourceHash
+    };
+  }
+});
+
 // src/renderers/ord-renderer.js
 var require_ord_renderer = __commonJS({
   "src/renderers/ord-renderer.js"(exports2, module2) {
     "use strict";
     var { tokenizeText } = require_tokenizer();
+    var { parseOrdLines, pickTranslation } = require_parse();
     function ordTokens(line, grammar) {
       const html = tokenizeText(line, grammar);
       const out = [];
@@ -1399,44 +1601,34 @@ var require_ord_renderer = __commonJS({
       for (const k in map) if (tok.cls.indexOf(k) >= 0) return map[k];
       return "";
     }
-    function parseOrdBlocks(source, mode, grammar, info, posMap) {
-      const lines = String(source || "").replace(/\r/g, "").split("\n");
+    function parseOrdBlocks(source, mode, grammar, info, posMap, options) {
+      const parsed = parseOrdLines(source);
+      const opts = options || {};
       const out = [];
-      let pending = null;
-      const flush = function(pair) {
-        if (!pair) return;
-        if (mode === "G") {
-          const toks = ordTokens(pair.src, grammar);
-          const tokens = toks.map(function(tok) {
-            return { cls: tok.cls, text: tok.text, gloss: ordGlossOf(tok, info, posMap) };
-          });
-          out.push({ kind: "line", src: pair.src, zh: pair.zh, tokens });
-        } else {
-          out.push({ kind: "line", src: pair.src, zh: pair.zh, html: tokenizeText(pair.src, grammar) });
-        }
-      };
-      for (let i = 0; i < lines.length; i++) {
-        const raw = lines[i];
-        const t = raw.trim();
-        if (!t) {
-          flush(pending);
-          pending = null;
+      for (let i = 0; i < parsed.records.length; i++) {
+        const record = parsed.records[i];
+        if (record.kind === "gap") {
           out.push({ kind: "gap" });
           continue;
         }
-        if (t.charAt(0) === ">") {
-          if (pending) pending.zh = t.slice(1).trim();
-          else out.push({ kind: "line", src: "", zh: t.slice(1).trim() });
-          continue;
+        const picked = pickTranslation({
+          translations: record.translations,
+          requestedLanguage: opts.requestedLanguage,
+          fallbackLanguage: opts.fallbackLanguage,
+          defaultTranslation: record.defaultTranslation
+        });
+        const zh = picked.kind === "untranslated" ? "" : picked.text;
+        const state = picked.kind === "human" || picked.kind === "default" ? "human" : "untranslated";
+        if (mode === "G") {
+          const toks = ordTokens(record.src, grammar);
+          const tokens = toks.map(function(tok) {
+            return { cls: tok.cls, text: tok.text, gloss: ordGlossOf(tok, info, posMap) };
+          });
+          out.push({ kind: "line", src: record.src, zh, translationState: state, translations: record.translations, sourceHash: record.sourceHash, tokens });
+        } else {
+          out.push({ kind: "line", src: record.src, zh, translationState: state, translations: record.translations, sourceHash: record.sourceHash, html: tokenizeText(record.src, grammar) });
         }
-        if (pending && !pending.zh && /[\u3400-\u9fff]/.test(t)) {
-          pending.zh = t;
-          continue;
-        }
-        flush(pending);
-        pending = { src: t, zh: "" };
       }
-      flush(pending);
       return out;
     }
     module2.exports = { ordTokens, ordGlossOf, parseOrdBlocks };
@@ -1990,8 +2182,8 @@ var require_ord_dom = __commonJS({
     "use strict";
     var { parseOrdBlocks } = require_ord_renderer();
     var { SECTION_POS } = require_tooltip();
-    function renderOrdBlockInner(el, source, mode, grammar, info) {
-      const records = parseOrdBlocks(source, mode, grammar, info, SECTION_POS);
+    function renderOrdBlockInner(el, source, mode, grammar, info, options) {
+      const records = parseOrdBlocks(source, mode, grammar, info, SECTION_POS, options);
       const wrap = document.createElement("div");
       wrap.className = "epx-ord-wrap";
       const code = document.createElement("div");
@@ -2048,15 +2240,20 @@ var require_ord_dom = __commonJS({
           zh.className = "epx-tzh";
           zh.textContent = record.zh;
           line.appendChild(zh);
+        } else if (mode === "T") {
+          const zh = document.createElement("div");
+          zh.className = "epx-tzh epx-tuntranslated";
+          zh.textContent = "\u5C1A\u672A\u7FFB\u8BD1 / Untranslated";
+          line.appendChild(zh);
         }
         code.appendChild(line);
       }
       el.textContent = "";
       el.appendChild(wrap);
     }
-    function renderOrdBlock(el, source, mode, grammar, info) {
+    function renderOrdBlock(el, source, mode, grammar, info, options) {
       try {
-        renderOrdBlockInner(el, source, mode, grammar, info);
+        renderOrdBlockInner(el, source, mode, grammar, info, options);
       } catch (err) {
         console.warn("[EpXsC Syntax] \u666E\u901A\u53E5\u6E32\u67D3\u5931\u8D25\uFF1A", err);
         try {
@@ -2314,11 +2511,34 @@ var require_plugin = __commonJS({
         }
       });
     }
+    function detectLanguage(app) {
+      try {
+        if (app && typeof app.getLocale === "function") {
+          const loc = app.getLocale();
+          if (loc) return loc;
+        }
+      } catch (e) {
+      }
+      try {
+        if (window.moment && typeof window.moment.locale === "function") {
+          const loc = window.moment.locale();
+          if (loc) return loc;
+        }
+      } catch (e) {
+      }
+      try {
+        const loc = window.localStorage && window.localStorage.getItem("language");
+        if (loc) return loc;
+      } catch (e) {
+      }
+      return typeof navigator !== "undefined" && navigator.language || "zh-CN";
+    }
     var EpXsCSyntaxPlugin = class extends Plugin2 {
       onload() {
         const self = this;
         this.grammar = makeGrammar(BASE_LISTS);
         this.info = /* @__PURE__ */ new Map();
+        this.translationLanguage = detectLanguage(this.app);
         this.ranks = /* @__PURE__ */ new Map();
         for (const w in EXTRA_WORDS) this.info.set(w, EXTRA_WORDS[w]);
         this.install();
@@ -2400,7 +2620,7 @@ var require_plugin = __commonJS({
         this.registerMarkdownCodeBlockProcessor("EPXSC", renderBlock);
         const ord = function(source, el, ctx, mode) {
           el.__epxOrd = { source, mode, ctx };
-          renderOrdBlock(el, source, mode, self.grammar, self.info);
+          renderOrdBlock(el, source, mode, self.grammar, self.info, { requestedLanguage: self.translationLanguage });
           bindClickToSource(el, self.app, el, ctx);
         };
         const ordG = (source, el, ctx) => ord(source, el, ctx, "G");
@@ -2620,7 +2840,7 @@ var require_plugin = __commonJS({
           const rec = el && el.__epxOrd;
           if (!rec) continue;
           try {
-            renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info);
+            renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info, { requestedLanguage: this.translationLanguage });
             bindClickToSource(el, this.app, el, rec.ctx);
           } catch (e) {
           }

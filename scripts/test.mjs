@@ -20,6 +20,7 @@ const { lintSource } = nodeRequire('../src/services/lint-service.js');
 const { renderEpXsC } = nodeRequire('../src/renderers/epxsc-renderer.js');
 const tooltipCore = nodeRequire('../src/ui/tooltip.js');
 const { parseOrdBlocks } = nodeRequire('../src/renderers/ord-renderer.js');
+const ordParse = nodeRequire('../src/core/ord/parse.js');
 
 const source = fs.readFileSync('src/adapter/plugin.js', 'utf8');
 const adapterConfig = fs.readFileSync('src/adapter/config.js', 'utf8');
@@ -281,6 +282,57 @@ assert.ok(source.includes('renderOrdBlockInner'), 'rehighlight must import the T
   const gRecs = parseOrdBlocks('de', 'G', g, info, {});
   assert.equal(gRecs[0].tokens[0].gloss, '介词');
   assert.ok(source.includes('parseOrdBlocks'), 'adapter must use ord renderer');
+  const langRecs = parseOrdBlocks('A\n> (zh-CN) 甲\n> (en) Alpha', 'T', g, new Map(), {}, { requestedLanguage: 'en' });
+  assert.equal(langRecs[0].zh, 'Alpha');
+  const missingRecs = parseOrdBlocks('A', 'T', g, new Map(), {}, { requestedLanguage: 'en' });
+  assert.equal(missingRecs[0].zh, '');
+  assert.equal(missingRecs[0].translationState, 'untranslated');
+}
+
+// 16b) F2/F3 ordinal translations: language tags, legacy default, selection
+{
+  assert.equal(ordParse.normalizeLang('zh-cn'), 'zh-CN');
+  assert.equal(ordParse.normalizeLang('zh-Hans'), 'zh-Hans');
+  assert.equal(ordParse.normalizeLang('EN-us'), 'en-US');
+  assert.equal(ordParse.normalizeLang('it'), 'it');
+  assert.equal(ordParse.normalizeLang('(他笑了)'), null);
+
+  const doc = ordParse.parseOrdLines('A\n> (zh-CN) 甲\n> (en) Alpha\n\nB');
+  assert.equal(doc.records.filter((x) => x.kind === 'line').length, 2);
+  const a = doc.records[0];
+  assert.equal(a.src, 'A');
+  assert.equal(a.translations.length, 2);
+  assert.equal(a.translations[0].lang, 'zh-CN');
+  assert.equal(a.translations[1].text, 'Alpha');
+  assert.ok(a.sourceHash, 'source hash must exist');
+
+  const legacy = ordParse.parseOrdLines('A\n> B');
+  assert.equal(legacy.records[0].defaultTranslation, 'B');
+  assert.equal(legacy.records[0].translations.length, 0);
+
+  const parenthetical = ordParse.parseOrdLines('A\n> (他笑了) 你来了。');
+  assert.equal(parenthetical.records[0].defaultTranslation, '(他笑了) 你来了。');
+  assert.equal(parenthetical.records[0].translations.length, 0);
+
+  const escaped = ordParse.parseOrdLines('A\n> \\(it) 默认译文');
+  assert.equal(escaped.records[0].defaultTranslation, '(it) 默认译文');
+
+  const dup = ordParse.parseOrdLines('A\n> (en) one\n> (en) two');
+  assert.equal(dup.records[0].translations.length, 1);
+  assert.equal(dup.records[0].translations[0].text, 'two');
+  assert.ok(dup.warnings.some((w) => w.code === 'DUPLICATE_LANGUAGE'));
+
+  const trans = [
+    { lang: 'zh-CN', text: '中文' },
+    { lang: 'en', text: 'English' }
+  ];
+  assert.equal(ordParse.pickTranslation({ translations: trans, requestedLanguage: 'zh-cn' }).text, '中文');
+  assert.equal(ordParse.pickTranslation({ translations: trans, requestedLanguage: 'zh-Hans' }).text, '中文');
+  assert.equal(ordParse.pickTranslation({ translations: trans, requestedLanguage: 'fr', fallbackLanguage: 'en' }).text, 'English');
+  assert.equal(ordParse.pickTranslation({ translations: trans, requestedLanguage: 'fr', defaultTranslation: '默认' }).kind, 'default');
+  assert.equal(ordParse.pickTranslation({ translations: trans, requestedLanguage: 'fr' }).kind, 'untranslated');
+  assert.equal(coreIndex.parseOrdLines, ordParse.parseOrdLines);
+  assert.equal(coreIndex.pickTranslation, ordParse.pickTranslation);
 }
 
 // 17) tooltip data module

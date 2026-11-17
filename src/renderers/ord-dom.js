@@ -5,8 +5,8 @@
 const { parseOrdBlocks } = require('./ord-renderer.js');
 const { SECTION_POS } = require('../ui/tooltip.js');
 
-function renderOrdBlockInner(el, source, mode, grammar, info) {
-  const records = parseOrdBlocks(source, mode, grammar, info, SECTION_POS);
+function renderOrdBlockInner(el, source, mode, grammar, info, options) {
+  const records = parseOrdBlocks(source, mode, grammar, info, SECTION_POS, options);
   const wrap = document.createElement('div');
   wrap.className = 'epx-ord-wrap';
   const code = document.createElement('div');
@@ -63,6 +63,11 @@ function renderOrdBlockInner(el, source, mode, grammar, info) {
       zh.className = 'epx-tzh';
       zh.textContent = record.zh;
       line.appendChild(zh);
+    } else if (mode === 'T') {
+      const zh = document.createElement('div');
+      zh.className = 'epx-tzh epx-tuntranslated';
+      zh.textContent = '尚未翻译 / Untranslated';
+      line.appendChild(zh);
     }
     code.appendChild(line);
   }
@@ -70,9 +75,9 @@ function renderOrdBlockInner(el, source, mode, grammar, info) {
   el.appendChild(wrap);
 }
 /* 包一层：普通句渲染出错时退化成普通代码块，不要变成 Obsidian 的「代码块渲染错误」。 */
-function renderOrdBlock(el, source, mode, grammar, info) {
+function renderOrdBlock(el, source, mode, grammar, info, options) {
   try {
-    renderOrdBlockInner(el, source, mode, grammar, info);
+    renderOrdBlockInner(el, source, mode, grammar, info, options);
   } catch (err) {
     console.warn('[EpXsC Syntax] 普通句渲染失败：', err);
     try {

@@ -267,11 +267,32 @@ function bindClickToSource(target, app, el, ctx) {
   });
 }
 
+function detectLanguage(app) {
+  try {
+    if (app && typeof app.getLocale === 'function') {
+      const loc = app.getLocale();
+      if (loc) return loc;
+    }
+  } catch (e) { /* fall through */ }
+  try {
+    if (window.moment && typeof window.moment.locale === 'function') {
+      const loc = window.moment.locale();
+      if (loc) return loc;
+    }
+  } catch (e) { /* fall through */ }
+  try {
+    const loc = window.localStorage && window.localStorage.getItem('language');
+    if (loc) return loc;
+  } catch (e) { /* fall through */ }
+  return (typeof navigator !== 'undefined' && navigator.language) || 'zh-CN';
+}
+
 class EpXsCSyntaxPlugin extends Plugin {
   onload() {
     const self = this;
     this.grammar = makeGrammar(BASE_LISTS);
     this.info = new Map();
+    this.translationLanguage = detectLanguage(this.app);
     this.ranks = new Map();
     for (const w in EXTRA_WORDS) this.info.set(w, EXTRA_WORDS[w]);
     this.install();
@@ -349,7 +370,7 @@ class EpXsCSyntaxPlugin extends Plugin {
        TypeError（表现为代码块显示「渲染错误」）。 */
     const ord = function (source, el, ctx, mode) {
       el.__epxOrd = { source: source, mode: mode, ctx: ctx };
-      renderOrdBlock(el, source, mode, self.grammar, self.info);
+      renderOrdBlock(el, source, mode, self.grammar, self.info, { requestedLanguage: self.translationLanguage });
       bindClickToSource(el, self.app, el, ctx);
     };
     const ordG = (source, el, ctx) => ord(source, el, ctx, 'G');
@@ -537,7 +558,7 @@ class EpXsCSyntaxPlugin extends Plugin {
       const rec = el && el.__epxOrd;
       if (!rec) continue;
       try {
-        renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info);
+        renderOrdBlockInner(el, rec.source, rec.mode, this.grammar, this.info, { requestedLanguage: this.translationLanguage });
         bindClickToSource(el, this.app, el, rec.ctx);
       } catch (e) { /* keep previous render */ }
     }
