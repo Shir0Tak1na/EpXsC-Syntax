@@ -3191,6 +3191,17 @@ var require_ord_dom = __commonJS({
         tpl.innerHTML = html;
         parent.appendChild(tpl.content);
       };
+      const markUnknownIn = function(root) {
+        if (!info || !root || !root.querySelectorAll) return;
+        const spans = root.querySelectorAll("span.token.word");
+        for (let i = 0; i < spans.length; i++) {
+          const w = (spans[i].textContent || "").toLowerCase();
+          if (w.length < 4 || /[0-9]/.test(w)) continue;
+          if (info.has(w)) continue;
+          spans[i].classList.add("epx-unknown");
+          spans[i].setAttribute("title", "\u672A\u5165\u5178\uFF1A" + spans[i].textContent);
+        }
+      };
       const lineEl = function() {
         const d = document.createElement("div");
         d.className = "epx-oline";
@@ -3217,6 +3228,7 @@ var require_ord_dom = __commonJS({
             srcEl.className = "epx-gsrc token " + tok.cls;
             srcEl.textContent = tok.text;
             gw.appendChild(srcEl);
+            markUnknownIn(gw);
             if (tok.gloss) {
               const gg = document.createElement("span");
               gg.className = "epx-ggl";
@@ -3230,6 +3242,7 @@ var require_ord_dom = __commonJS({
           const srcEl = document.createElement("div");
           srcEl.className = "epx-tsrc";
           appendHTML(srcEl, record.html || "");
+          markUnknownIn(srcEl);
           line.appendChild(srcEl);
         }
         if (record.zh) {
