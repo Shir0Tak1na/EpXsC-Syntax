@@ -4,11 +4,12 @@
 > Rules: verify before fixing, test before refactoring, one verifiable boundary at a time.
 > Current release: **2.0.0**（2026-11-16）. Previous stable: **1.31.0**. Next planned: **2.1.0**. At most **one GitHub Release per Asia/Shanghai calendar day**.
 
-## 2.1 / 2.2
+## 2.1 / 2.2 / 2.3
 
-- 2.1.0：多语言 T 块、语言选择、未翻译状态、自动翻译、作者参考翻译、设置与词库导入。
-- 2.2.0：下划线、CodeMirror 装饰器、Codex 式编辑器辅助。
-- 任务拆分见 [2.1.0-PLAN.md](2.1.0-PLAN.md)；2.1.0 先交付无网络阶段，再接网络阶段。
+- 2.1.0：无网络阅读层——多语言 T 块、语言选择、未翻译状态、词库与设置。
+- 2.2.0：联网层——自动翻译、作者参考、Provider 与隐私。
+- 2.3.0：编辑器层——下划线、CodeMirror 装饰器、Codex 式辅助。
+- 任务拆分见 [2.1.0-PLAN.md](2.1.0-PLAN.md)。
 
 ### 2.1.0 tasks
 
@@ -16,12 +17,20 @@
 | :---: | :--- | :--- |
 | F2 | 多语言 T 块解析与语言标签 | BCP-47 子集、旧块兼容、特殊字符测试 |
 | F3 | 按语言选择译文 | exact/base/fallback/default 顺序；不递归 |
-| F4 | 未翻译状态组件 | human/auto/pending/failed/untranslated 转换测试 |
-| F5 | 自动翻译 | 单句粒度、缓存、取消、超时、可见性、过期响应测试 |
-| F6 | 作者参考翻译 | 独立 service；Core 计算 lint/unknown；禁止自动写回 |
-| F7 | 设置页与词库 | 导入/合并冲突、配置迁移、密钥脱敏、endpoint 测试 |
+| F4 | 未翻译状态组件 | human/untranslated 转换测试；不混 G |
+| F7 | 设置页与词库 | 导入/合并冲突、配置迁移、customPaths 顺序；零网络 |
+
+Progress 2026-11-17: F2 core parser + tests implemented; F3 core selection and UI-language wiring implemented; F4 untranslated placeholder implemented; F7 settings/lexicon still open.
 
 ### 2.2.0 tasks
+
+| ID | Task | DoD |
+| :---: | :--- | :--- |
+| F5 | 自动翻译 | 单句粒度、缓存、取消、超时、可见性、过期响应测试 |
+| F6 | 作者参考翻译 | 独立 service；Core 计算 lint/unknown；禁止自动写回 |
+| F8 | Provider 与隐私 | endpoint、密钥脱敏、HTTPS、零请求默认 |
+
+### 2.3.0 tasks
 
 | ID | Task | DoD |
 | :---: | :--- | :--- |
