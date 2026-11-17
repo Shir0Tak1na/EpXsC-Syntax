@@ -98,7 +98,9 @@ class EpXsSettingsTab extends PluginSettingTab {
       .setName('启用自动翻译')
       .setDesc('默认关闭；开启后仅在 T 块缺当前语言译文时请求本地模型。')
       .addToggle((toggle) => toggle.setValue(!!tr.enabled).onChange(async (value) => {
+        const was = !!tr.enabled;
         tr.enabled = !!value;
+        if (tr.enabled && !was) new Notice('自动翻译会把 T 块源句发送到你配置的 endpoint；关闭时不会发起请求。');
         await this.persist();
       }));
 

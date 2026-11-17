@@ -952,7 +952,9 @@ var require_settings_tab = __commonJS({
         containerEl.createEl("h3", { text: "\u7FFB\u8BD1\uFF082.2.0\uFF09" });
         const tr = this.plugin.settings.translation;
         new Setting(containerEl).setName("\u542F\u7528\u81EA\u52A8\u7FFB\u8BD1").setDesc("\u9ED8\u8BA4\u5173\u95ED\uFF1B\u5F00\u542F\u540E\u4EC5\u5728 T \u5757\u7F3A\u5F53\u524D\u8BED\u8A00\u8BD1\u6587\u65F6\u8BF7\u6C42\u672C\u5730\u6A21\u578B\u3002").addToggle((toggle) => toggle.setValue(!!tr.enabled).onChange(async (value) => {
+          const was = !!tr.enabled;
           tr.enabled = !!value;
+          if (tr.enabled && !was) new Notice("\u81EA\u52A8\u7FFB\u8BD1\u4F1A\u628A T \u5757\u6E90\u53E5\u53D1\u9001\u5230\u4F60\u914D\u7F6E\u7684 endpoint\uFF1B\u5173\u95ED\u65F6\u4E0D\u4F1A\u53D1\u8D77\u8BF7\u6C42\u3002");
           await this.persist();
         }));
         new Setting(containerEl).setName("Base URL").setDesc("\u4F8B\u5982 http://127.0.0.1:11434/v1\uFF1B\u975E\u56DE\u73AF\u5730\u5740\u5FC5\u987B HTTPS\u3002").addText((text) => text.setPlaceholder("http://127.0.0.1:11434/v1").setValue(tr.provider.baseUrl || "").onChange(async (value) => {
@@ -1077,12 +1079,53 @@ var require_prompt = __commonJS({
   }
 });
 
+// src/core/translation/redact.js
+var require_redact = __commonJS({
+  "src/core/translation/redact.js"(exports2, module2) {
+    "use strict";
+    var SECRET_HEADER = /^(authorization|cookie|set-cookie|x-api-key|api-key|x-auth-token|proxy-authorization)$/i;
+    function redactHeaders(headers) {
+      const out = {};
+      if (!headers || typeof headers !== "object") return out;
+      for (const key in headers) {
+        if (!Object.prototype.hasOwnProperty.call(headers, key)) continue;
+        out[key] = SECRET_HEADER.test(key) ? "***" : String(headers[key]);
+      }
+      return out;
+    }
+    function redactUrl(raw) {
+      try {
+        const u = new URL(String(raw));
+        u.username = "";
+        u.password = "";
+        const keys = [];
+        u.searchParams.forEach(function(v, k) {
+          if (/key|token|secret|auth/i.test(k)) keys.push(k);
+        });
+        keys.forEach(function(k) {
+          u.searchParams.set(k, "***");
+        });
+        return u.toString();
+      } catch (e) {
+        return "[invalid-url]";
+      }
+    }
+    function safeErrorText(err) {
+      return String(err && err.message ? err.message : err).replace(/https?:\/\/[^\s'"]+/g, function(m) {
+        return redactUrl(m);
+      }).replace(/(authorization|cookie|x-api-key|api-key)\s*[:=]\s*[^,\s]+/gi, "$1: ***");
+    }
+    module2.exports = { redactHeaders, redactUrl, safeErrorText };
+  }
+});
+
 // src/providers/openai-compatible.js
 var require_openai_compatible = __commonJS({
   "src/providers/openai-compatible.js"(exports2, module2) {
     "use strict";
     var { validateProviderConfig, resolveEndpoint, normalizeProviderConfig, providerFingerprint } = require_request();
     var { PROMPT_VERSION, buildTranslationMessages, cleanModelText } = require_prompt();
+    var { safeErrorText } = require_redact();
     function error(code, message, retryable) {
       return { ok: false, error: { code, message, retryable: !!retryable } };
     }
@@ -1117,7 +1160,7 @@ var require_openai_compatible = __commonJS({
             signal: input && input.signal
           });
         } catch (e) {
-          return error("REQUEST_FAILED", String(e && e.message || e), true);
+          return error("REQUEST_FAILED", safeErrorText(e), true);
         }
         if (!res) return error("EMPTY_RESPONSE", "\u6A21\u578B\u6CA1\u6709\u8FD4\u56DE\u54CD\u5E94", true);
         if (res.status === 401 || res.status === 403) return error("AUTH_FAILED", "\u8BA4\u8BC1\u5931\u8D25\uFF08HTTP " + res.status + "\uFF09", false);

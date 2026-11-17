@@ -27,6 +27,7 @@ const translationPrompt = nodeRequire('../src/core/translation/prompt.js');
 const { createOpenAICompatibleProvider } = nodeRequire('../src/providers/openai-compatible.js');
 const { createTranslationService } = nodeRequire('../src/services/translation-service.js');
 const referenceCore = nodeRequire('../src/core/translation/reference.js');
+const redactCore = nodeRequire('../src/core/translation/redact.js');
 const { createReferenceService } = nodeRequire('../src/services/reference-service.js');
 const ordParse = nodeRequire('../src/core/ord/parse.js');
 
@@ -354,6 +355,40 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   assert.equal(out.reference, 'Plur Aqua');
   assert.equal(out.wordBreakdown.length, 1);
   assert.equal(out.backTranslation, '净水');
+}
+
+// 13e) 2.2.0 privacy, cache limit and logical cancellation
+{
+  const headers = redactCore.redactHeaders({ Authorization: 'Bearer secret', 'X-Api-Key': 'secret', 'X-Trace': 'ok' });
+  assert.equal(headers.Authorization, '***');
+  assert.equal(headers['X-Api-Key'], '***');
+  assert.equal(headers['X-Trace'], 'ok');
+  const redacted = redactCore.redactUrl('http://127.0.0.1:11434/v1?token=secret');
+  assert.ok(redacted.includes('token=%2A%2A%2A') || redacted.includes('token=***'));
+
+  let calls = 0;
+  const provider = createOpenAICompatibleProvider({
+    config: { baseUrl: 'http://127.0.0.1:11434/v1', endpoint: '/chat/completions', model: 'lru' },
+    request: async () => { calls += 1; return { status: 200, json: { choices: [{ message: { content: 'v' } }] } }; }
+  });
+  const service = createTranslationService({ provider: provider, timeoutMs: 1000, cacheLimit: 2 });
+  await service.translate({ text: 'A', targetLanguage: 'zh-CN' });
+  await service.translate({ text: 'B', targetLanguage: 'zh-CN' });
+  await service.translate({ text: 'C', targetLanguage: 'zh-CN' });
+  assert.equal(service.cacheSize, 2);
+  await service.translate({ text: 'A', targetLanguage: 'zh-CN' });
+  assert.equal(calls, 4, 'evicted entry must call provider again');
+
+  const slow = createOpenAICompatibleProvider({
+    config: { baseUrl: 'http://127.0.0.1:11434/v1', endpoint: '/chat/completions', model: 'slow2' },
+    request: async () => { await new Promise((r) => setTimeout(r, 50)); return { status: 200, json: { choices: [{ message: { content: 'late' } }] } }; }
+  });
+  const cancelService = createTranslationService({ provider: slow, timeoutMs: 1000 });
+  const pending = cancelService.translate({ text: 'D', targetLanguage: 'zh-CN' });
+  cancelService.cancelAll();
+  const stopped = await pending;
+  assert.equal(stopped.ok, false);
+  assert.equal(stopped.error.code, 'CANCELLED');
 }
 
 // 14) SpellRegistry / LintService 薄服务

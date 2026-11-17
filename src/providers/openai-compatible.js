@@ -4,6 +4,7 @@
 
 const { validateProviderConfig, resolveEndpoint, normalizeProviderConfig, providerFingerprint } = require('../core/translation/request.js');
 const { PROMPT_VERSION, buildTranslationMessages, cleanModelText } = require('../core/translation/prompt.js');
+const { safeErrorText } = require('../core/translation/redact.js');
 
 function error(code, message, retryable) {
   return { ok: false, error: { code: code, message: message, retryable: !!retryable } };
@@ -41,7 +42,7 @@ function createOpenAICompatibleProvider(options) {
         signal: input && input.signal
       });
     } catch (e) {
-      return error('REQUEST_FAILED', String(e && e.message || e), true);
+      return error('REQUEST_FAILED', safeErrorText(e), true);
     }
     if (!res) return error('EMPTY_RESPONSE', '模型没有返回响应', true);
     if (res.status === 401 || res.status === 403) return error('AUTH_FAILED', '认证失败（HTTP ' + res.status + '）', false);
