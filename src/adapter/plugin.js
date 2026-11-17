@@ -21,7 +21,6 @@ const { createOpenAICompatibleProvider } = require('../providers/openai-compatib
 const { createTranslationService } = require('../services/translation-service.js');
 const { createReferenceService } = require('../services/reference-service.js');
 const { ReferenceModal } = require('../ui/reference-modal.js');
-const { createLintExtension } = require('../editor/lint-extension.js');
 const { normalizeProviderConfig, validateProviderConfig } = require('../core/translation/request.js');
 const { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext } = require('../core/translation/grammar.js');
 const { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require('../core/markup.js');
@@ -373,7 +372,6 @@ class EpXsCSyntaxPlugin extends Plugin {
       for (let i = 0; i < LANG_KEYS.length; i++) delete Prism.languages[LANG_KEYS[i]];
     });
     this.registerMarkdownPostProcessor(function (el) { self.highlightIn(el); });
-    this.registerEditorExtension(createLintExtension(function (text) { return self.lintDocument(text); }));
     /* 代码块处理器：Obsidian 的公开稳定 API（Mermaid／Dataview 同一条路），
        阅读视图与实时预览都会走它。实时预览里代码块本就「光标不在其中时渲染、进去显示源码」，
        所以这条路上色不需要碰 CodeMirror，也不受 CM6 版本变动影响。 */
