@@ -387,6 +387,7 @@ assert.ok(source.includes('renderOrdBlockInner'), 'rehighlight must import the T
 // 18) F7 settings tab wiring / zero network in 2.1
 {
   assert.ok(source.includes('addSettingTab'), 'adapter must register settings tab');
+  assert.ok(source.includes('addRibbonIcon'), 'adapter must add settings ribbon icon');
   assert.ok(source.includes('getRequestedLanguage'), 'adapter must resolve settings language');
   const settingsTabSrc = fs.readFileSync('src/ui/settings-tab.js', 'utf8');
   assert.ok(settingsTabSrc.includes('PluginSettingTab'), 'settings tab must extend PluginSettingTab');

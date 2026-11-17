@@ -302,6 +302,12 @@ class EpXsCSyntaxPlugin extends Plugin {
     for (const w in EXTRA_WORDS) this.info.set(w, EXTRA_WORDS[w]);
     this.install();
     this.addSettingTab(new EpXsSettingsTab(this.app, this));
+    this.addRibbonIcon('languages', 'EpXsC 设置', function () { self.openSettings(); });
+    this.addCommand({
+      id: 'open-settings',
+      name: '打开 EpXsC 设置',
+      callback: function () { self.openSettings(); }
+    });
     this.loadData().then(function (data) {
       self.settings = normalizeSettings(data);
       self.translationLanguage = (self.settings.display.language !== 'auto') ? self.settings.display.language : detectLanguage(self.app);

@@ -2806,6 +2806,16 @@ var require_plugin = __commonJS({
         for (const w in EXTRA_WORDS) this.info.set(w, EXTRA_WORDS[w]);
         this.install();
         this.addSettingTab(new EpXsSettingsTab(this.app, this));
+        this.addRibbonIcon("languages", "EpXsC \u8BBE\u7F6E", function() {
+          self.openSettings();
+        });
+        this.addCommand({
+          id: "open-settings",
+          name: "\u6253\u5F00 EpXsC \u8BBE\u7F6E",
+          callback: function() {
+            self.openSettings();
+          }
+        });
         this.loadData().then(function(data) {
           self.settings = normalizeSettings(data);
           self.translationLanguage = self.settings.display.language !== "auto" ? self.settings.display.language : detectLanguage(self.app);
