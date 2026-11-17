@@ -834,6 +834,7 @@ var require_settings = __commonJS({
       lexicon: { customPaths: [] },
       display: { language: "auto", fallbackLanguage: "" },
       diagnostics: { enabled: true, editorDecorations: false },
+      assistance: { enabled: false },
       translation: {
         enabled: false,
         grammarPath: "",
@@ -858,6 +859,7 @@ var require_settings = __commonJS({
       const display = d.display && typeof d.display === "object" ? d.display : {};
       const translation = d.translation && typeof d.translation === "object" ? d.translation : {};
       const diagnostics = d.diagnostics && typeof d.diagnostics === "object" ? d.diagnostics : {};
+      const assistance = d.assistance && typeof d.assistance === "object" ? d.assistance : {};
       const language = String(display.language || "auto").trim() || "auto";
       const fallback = String(display.fallbackLanguage || "").trim();
       return {
@@ -871,6 +873,7 @@ var require_settings = __commonJS({
           enabled: diagnostics.enabled !== false,
           editorDecorations: diagnostics.editorDecorations === true
         },
+        assistance: { enabled: assistance.enabled === true },
         translation: {
           enabled: translation.enabled === true,
           grammarPath: String(translation.grammarPath || "").trim(),
@@ -955,6 +958,12 @@ var require_settings_tab = __commonJS({
         });
         new Setting(containerEl).setName("\u5907\u7528\u8BED\u8A00").setDesc("\u5F53\u524D\u8BED\u8A00\u6CA1\u6709\u8BD1\u6587\u65F6\uFF0C\u518D\u5C1D\u8BD5\u8FD9\u4E2A\u8BED\u8A00\uFF1B\u7559\u7A7A\u5219\u4E0D\u542F\u7528\u3002").addText((text) => text.setPlaceholder("\u4F8B\u5982 zh-CN").setValue(this.plugin.settings.display.fallbackLanguage || "").onChange(async (value) => {
           this.plugin.settings.display.fallbackLanguage = String(value || "").trim();
+          await this.persist();
+        }));
+        containerEl.createEl("h3", { text: "\u8F85\u52A9" });
+        const asst = this.plugin.settings.assistance;
+        new Setting(containerEl).setName("\u542F\u7528\u79BB\u7EBF\u8BCD\u5178\u8865\u5168").setDesc("\u9ED8\u8BA4\u5173\u95ED\u3002\u542F\u7528\u540E\u53EF\u7528\u547D\u4EE4\u201CEpXsC \u8BCD\u6761\u8865\u5168\u201D\u4ECE\u8BCD\u5178/\u8BED\u6CD5\u4E2D\u9009\u62E9\u5E76\u63D2\u5165\uFF1B\u4E0D\u8054\u7F51\u3001\u4E0D\u81EA\u52A8\u6539\u5199\u3002").addToggle((toggle) => toggle.setValue(!!asst.enabled).onChange(async (value) => {
+          asst.enabled = !!value;
           await this.persist();
         }));
         containerEl.createEl("h3", { text: "\u8BCA\u65AD" });
@@ -1576,6 +1585,119 @@ var require_reference_modal = __commonJS({
       }
     };
     module2.exports = { ReferenceModal };
+  }
+});
+
+// src/core/completion.js
+var require_completion = __commonJS({
+  "src/core/completion.js"(exports2, module2) {
+    "use strict";
+    function normalizePrefix(prefix) {
+      return String(prefix || "").trim().toLowerCase();
+    }
+    function wordCandidates(info, prefix, limit) {
+      const p = normalizePrefix(prefix);
+      const max = Number(limit) > 0 ? Number(limit) : 40;
+      const out = [];
+      if (!info || typeof info.forEach !== "function") return out;
+      info.forEach(function(entry, word) {
+        if (!word) return;
+        if (p && String(word).toLowerCase().indexOf(p) !== 0) return;
+        out.push({
+          kind: "word",
+          word: String(word),
+          pos: entry && entry.pos ? String(entry.pos) : "",
+          meaning: entry && entry.meaning ? String(entry.meaning) : "",
+          abbr: entry && entry.abbr ? String(entry.abbr) : ""
+        });
+      });
+      out.sort(function(a, b) {
+        if (a.word.length !== b.word.length) return a.word.length - b.word.length;
+        return a.word < b.word ? -1 : a.word > b.word ? 1 : 0;
+      });
+      return out.slice(0, max);
+    }
+    function grammarCandidates(grammar, prefix, limit) {
+      const p = normalizePrefix(prefix);
+      const max = Number(limit) > 0 ? Number(limit) : 20;
+      const out = [];
+      if (!grammar) return out;
+      const lists = grammar.lists || grammar;
+      const keys = ["keyword", "judge", "predicate", "function", "unit", "element", "modifier", "degree", "axis"];
+      for (let i = 0; i < keys.length; i++) {
+        const list = lists[keys[i]] || [];
+        for (let j = 0; j < list.length; j++) {
+          const w = String(list[j] || "");
+          if (!w) continue;
+          if (p && w.toLowerCase().indexOf(p) !== 0) continue;
+          out.push({ kind: "grammar", word: w, pos: keys[i], meaning: "", abbr: "" });
+        }
+      }
+      return out.slice(0, max);
+    }
+    function wordAt(text, cursorColumn) {
+      const line = String(text || "");
+      const col = Math.max(0, Math.min(Number(cursorColumn) || 0, line.length));
+      let start = col;
+      while (start > 0 && /[A-Za-z0-9_-]/.test(line.charAt(start - 1))) start -= 1;
+      let end = col;
+      while (end < line.length && /[A-Za-z0-9_-]/.test(line.charAt(end))) end += 1;
+      return { start, end, prefix: line.slice(start, col) };
+    }
+    module2.exports = { wordCandidates, grammarCandidates, wordAt };
+  }
+});
+
+// src/ui/completion-modal.js
+var require_completion_modal = __commonJS({
+  "src/ui/completion-modal.js"(exports2, module2) {
+    "use strict";
+    var { SuggestModal } = require("obsidian");
+    var { wordCandidates, grammarCandidates, wordAt } = require_completion();
+    var CompletionModal = class extends SuggestModal {
+      constructor(app, plugin, editor) {
+        super(app);
+        this.plugin = plugin;
+        this.editor = editor;
+        const cursor = editor.getCursor();
+        this.line = editor.getLine(cursor.line) || "";
+        this.cursor = { line: cursor.line, ch: cursor.ch };
+        this.span = wordAt(this.line, cursor.ch);
+        this.prefix = this.span.prefix || "";
+      }
+      getSuggestions(query) {
+        const q = String(query || "").trim();
+        const prefix = q || this.prefix;
+        const words = wordCandidates(this.plugin.info, prefix, 40);
+        const grammar = grammarCandidates(this.plugin.grammar, prefix, 20);
+        const seen = /* @__PURE__ */ new Set();
+        const out = [];
+        const all = words.concat(grammar);
+        for (let i = 0; i < all.length; i++) {
+          const key = all[i].kind + ":" + all[i].word;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(all[i]);
+        }
+        return out;
+      }
+      renderSuggestion(item, el) {
+        const row = el.createDiv({ cls: "epx-completion-row" });
+        row.createSpan({ cls: "epx-completion-word", text: item.word });
+        if (item.pos) row.createSpan({ cls: "epx-completion-pos", text: item.pos });
+        if (item.meaning) row.createSpan({ cls: "epx-completion-meaning", text: item.meaning });
+        if (item.kind === "grammar") row.createSpan({ cls: "epx-completion-kind", text: "\u8BED\u6CD5" });
+      }
+      onChooseSuggestion(item) {
+        if (!item || !item.word) return;
+        const from = { line: this.cursor.line, ch: this.span.start };
+        const to = { line: this.cursor.line, ch: this.span.end };
+        this.editor.replaceRange(item.word, from, to);
+        this.editor.setCursor({ line: this.cursor.line, ch: this.span.start + item.word.length });
+        this.close();
+      }
+    };
+    module2.exports = { CompletionModal };
   }
 });
 
@@ -3344,6 +3466,7 @@ var require_plugin = __commonJS({
     var { createTranslationService } = require_translation_service();
     var { createReferenceService } = require_reference_service();
     var { ReferenceModal } = require_reference_modal();
+    var { CompletionModal } = require_completion_modal();
     var { normalizeProviderConfig, validateProviderConfig } = require_request();
     var { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext } = require_grammar();
     var { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require_markup();
@@ -3633,6 +3756,13 @@ var require_plugin = __commonJS({
           name: "\u4ECE\u4E2D\u6587\u751F\u6210 EpXs \u53C2\u8003",
           callback: function() {
             new ReferenceModal(self.app, self).open();
+          }
+        });
+        this.addCommand({
+          id: "complete-word",
+          name: "EpXsC \u8BCD\u6761\u8865\u5168",
+          callback: function() {
+            self.openCompletion();
           }
         });
         this.loadData().then(function(data) {

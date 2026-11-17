@@ -92,6 +92,16 @@ class EpXsSettingsTab extends PluginSettingTab {
         await this.persist();
       }));
 
+    containerEl.createEl('h3', { text: '辅助' });
+    const asst = this.plugin.settings.assistance;
+    new Setting(containerEl)
+      .setName('启用离线词典补全')
+      .setDesc('默认关闭。启用后可用命令“EpXsC 词条补全”从词典/语法中选择并插入；不联网、不自动改写。')
+      .addToggle((toggle) => toggle.setValue(!!asst.enabled).onChange(async (value) => {
+        asst.enabled = !!value;
+        await this.persist();
+      }));
+
     containerEl.createEl('h3', { text: '诊断' });
     const dg = this.plugin.settings.diagnostics;
     new Setting(containerEl)

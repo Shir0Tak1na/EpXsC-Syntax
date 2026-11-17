@@ -336,3 +336,9 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
 .epx-oline.epx-lint-warn{border-bottom:1px wavy var(--color-orange)}
 
 .epx-tip-section + .epx-tip-section{margin-top:8px;padding-top:8px;border-top:1px solid var(--background-modifier-border)}
+
+/* D4.1 offline completion */
+.epx-completion-row{display:flex;gap:.6em;align-items:baseline}
+.epx-completion-word{font-family:var(--font-monospace);font-weight:600}
+.epx-completion-pos,.epx-completion-kind{color:var(--text-muted);font-size:var(--font-ui-smaller)}
+.epx-completion-meaning{color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

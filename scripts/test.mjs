@@ -28,6 +28,7 @@ const { createOpenAICompatibleProvider } = nodeRequire('../src/providers/openai-
 const { createTranslationService } = nodeRequire('../src/services/translation-service.js');
 const referenceCore = nodeRequire('../src/core/translation/reference.js');
 const redactCore = nodeRequire('../src/core/translation/redact.js');
+const completionCore = nodeRequire('../src/core/completion.js');
 const { createReferenceService } = nodeRequire('../src/services/reference-service.js');
 const ordParse = nodeRequire('../src/core/ord/parse.js');
 
@@ -265,6 +266,7 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   assert.equal(defaults.display.language, 'auto');
   assert.equal(defaults.diagnostics.enabled, true);
   assert.equal(defaults.diagnostics.editorDecorations, false);
+  assert.equal(defaults.assistance.enabled, false);
   const diagOff = settingsCore.normalizeSettings({ diagnostics: { enabled: false, editorDecorations: true } });
   assert.equal(diagOff.diagnostics.enabled, false);
   assert.equal(diagOff.diagnostics.editorDecorations, true);
@@ -398,6 +400,23 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   const stopped = await pending;
   assert.equal(stopped.ok, false);
   assert.equal(stopped.error.code, 'CANCELLED');
+}
+
+// 13f) D4.1 offline completion
+{
+  const span = completionCore.wordAt('Foo Aqua', 6);
+  assert.equal(span.prefix, 'Aq');
+  assert.equal(span.start, 4);
+  const info = new Map([
+    ['aqua', { pos: '名词', meaning: '水元素', abbr: 'Aqu' }],
+    ['avis', { pos: '名词', meaning: '鸟', abbr: '' }]
+  ]);
+  const words = completionCore.wordCandidates(info, 'aq', 10);
+  assert.ok(words.some((x) => x.word === 'aqua'));
+  assert.ok(!words.some((x) => x.word === 'avis'), 'prefix must be honored');
+  const grammar = { lists: { keyword: ['de'], predicate: ['plur'], unit: ['MU'] } };
+  const gr = completionCore.grammarCandidates(grammar, 'p', 10);
+  assert.ok(gr.some((x) => x.word === 'plur'));
 }
 
 // 14) SpellRegistry / LintService 薄服务

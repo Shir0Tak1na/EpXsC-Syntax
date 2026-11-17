@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS = {
   lexicon: { customPaths: [] },
   display: { language: 'auto', fallbackLanguage: '' },
   diagnostics: { enabled: true, editorDecorations: false },
+  assistance: { enabled: false },
   translation: {
     enabled: false,
     grammarPath: '',
@@ -35,6 +36,7 @@ function normalizeSettings(data) {
   const display = d.display && typeof d.display === 'object' ? d.display : {};
   const translation = d.translation && typeof d.translation === 'object' ? d.translation : {};
   const diagnostics = d.diagnostics && typeof d.diagnostics === 'object' ? d.diagnostics : {};
+  const assistance = d.assistance && typeof d.assistance === 'object' ? d.assistance : {};
   const language = String(display.language || 'auto').trim() || 'auto';
   const fallback = String(display.fallbackLanguage || '').trim();
   return {
@@ -48,6 +50,7 @@ function normalizeSettings(data) {
       enabled: diagnostics.enabled !== false,
       editorDecorations: diagnostics.editorDecorations === true
     },
+    assistance: { enabled: assistance.enabled === true },
     translation: {
       enabled: translation.enabled === true,
       grammarPath: String(translation.grammarPath || '').trim(),

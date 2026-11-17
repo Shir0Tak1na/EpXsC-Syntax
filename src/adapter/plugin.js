@@ -21,6 +21,7 @@ const { createOpenAICompatibleProvider } = require('../providers/openai-compatib
 const { createTranslationService } = require('../services/translation-service.js');
 const { createReferenceService } = require('../services/reference-service.js');
 const { ReferenceModal } = require('../ui/reference-modal.js');
+const { CompletionModal } = require('../ui/completion-modal.js');
 const { normalizeProviderConfig, validateProviderConfig } = require('../core/translation/request.js');
 const { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext } = require('../core/translation/grammar.js');
 const { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require('../core/markup.js');
@@ -327,6 +328,11 @@ class EpXsCSyntaxPlugin extends Plugin {
       id: 'reference-from-chinese',
       name: '从中文生成 EpXs 参考',
       callback: function () { new ReferenceModal(self.app, self).open(); }
+    });
+    this.addCommand({
+      id: 'complete-word',
+      name: 'EpXsC 词条补全',
+      callback: function () { self.openCompletion(); }
     });
     this.loadData().then(function (data) {
       self.settings = normalizeSettings(data);
