@@ -334,3 +334,8 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
 
 .epx-oline.epx-lint-error,.epx-oline.epx-lint-warn{border-bottom:1px dashed var(--color-red)}
 .epx-oline.epx-lint-warn{border-bottom-color:var(--color-orange)}
+
+/* 2.3.0 D3: source-editor line lint decoration */
+.cm-line.epx-cm-lint-error,.cm-line.epx-cm-lint-warn{text-decoration-line:underline;text-decoration-style:dashed;text-underline-offset:.18em;text-decoration-thickness:1px}
+.cm-line.epx-cm-lint-error{text-decoration-color:var(--color-red)}
+.cm-line.epx-cm-lint-warn{text-decoration-color:var(--color-orange)}
