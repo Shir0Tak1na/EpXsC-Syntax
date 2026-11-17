@@ -28,7 +28,7 @@ Incident `package.json` devDependencies included:
 
 ## R0 — crash reproduction
 
-Status: **pending** (requires isolated Obsidian vault).
+Status: **observed, console evidence incomplete**. Obsidian 1.15.1; main vault; popup only showed “打开失败”; all notes were inaccessible. The DevTools console was not captured at the time.
 
 Protocol:
 
@@ -38,7 +38,9 @@ Protocol:
 4. If it cannot be reproduced, record that honestly; do not mark the hypothesis confirmed.
 
 ```text
-(console text)
+Observed: “打开失败” modal; no console text captured.
+Obsidian: 1.15.1 (current installed build).
+Vault: main vault (not isolated during the incident).
 ```
 
 ## R2 — error signature
