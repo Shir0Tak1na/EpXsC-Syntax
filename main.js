@@ -1465,6 +1465,104 @@ var require_reference_service = __commonJS({
   }
 });
 
+// src/core/assistance/explain.js
+var require_explain = __commonJS({
+  "src/core/assistance/explain.js"(exports2, module2) {
+    "use strict";
+    var EXPLAIN_PROMPT_VERSION = "epxsc-explain-v1";
+    function buildExplainMessages(input) {
+      const o = input || {};
+      const source = String(o.text || "").trim();
+      const dictionary = String(o.dictionaryContext || "").trim();
+      const grammar = String(o.grammarContext || "").trim();
+      const system = [
+        "You are a read-only EpXsC (Expaulxsirian Construct) explanation assistant for the author.",
+        "Explain the supplied EpXsC block in Simplified Chinese.",
+        "Do not rewrite the block, do not propose an edited version, and do not claim authority.",
+        "Describe word meanings, clause order, modifiers, and any visible ambiguity.",
+        "If the source is invalid, say what is unclear instead of inventing grammar.",
+        "Return plain prose only; no Markdown fences, JSON, or code blocks."
+      ].join(" ");
+      let user = "EpXsC block:\n" + source;
+      if (dictionary) user += "\nDictionary context:\n" + dictionary;
+      if (grammar) user += "\nGrammar context:\n" + grammar;
+      return [
+        { role: "system", content: system },
+        { role: "user", content: user }
+      ];
+    }
+    module2.exports = { EXPLAIN_PROMPT_VERSION, buildExplainMessages };
+  }
+});
+
+// src/services/assistance-service.js
+var require_assistance_service = __commonJS({
+  "src/services/assistance-service.js"(exports2, module2) {
+    "use strict";
+    var { buildExplainMessages } = require_explain();
+    function createAssistanceService(options) {
+      const opts = options || {};
+      const provider = opts.provider || null;
+      async function explain(input) {
+        const o = input || {};
+        const text = String(o.text || "").trim();
+        if (!text) return { ok: false, error: { code: "EMPTY_BLOCK", message: "\u5F53\u524D\u5757\u4E3A\u7A7A" } };
+        if (!provider || typeof provider.chat !== "function") {
+          return { ok: false, error: { code: "NO_PROVIDER", message: "\u672A\u914D\u7F6E\u8F85\u52A9\u6A21\u578B" } };
+        }
+        const messages = buildExplainMessages({
+          text,
+          dictionaryContext: o.dictionaryContext || "",
+          grammarContext: o.grammarContext || ""
+        });
+        const result = await provider.chat(messages, { signal: o.signal });
+        if (!result || !result.ok) return { ok: false, error: result && result.error || { code: "PROVIDER_ERROR", message: "\u6A21\u578B\u8BF7\u6C42\u5931\u8D25" } };
+        return { ok: true, text: result.text };
+      }
+      return { explain };
+    }
+    module2.exports = { createAssistanceService };
+  }
+});
+
+// src/ui/explain-modal.js
+var require_explain_modal = __commonJS({
+  "src/ui/explain-modal.js"(exports2, module2) {
+    "use strict";
+    var { Modal, Notice } = require("obsidian");
+    var ExplainModal = class extends Modal {
+      constructor(app, source, explanation) {
+        super(app);
+        this.source = String(source || "");
+        this.explanation = String(explanation || "");
+      }
+      onOpen() {
+        const el = this.contentEl;
+        el.empty();
+        el.createEl("h2", { text: "EpXsC \u89E3\u91CA\uFF08\u53EA\u8BFB\uFF09" });
+        el.createEl("p", { text: "\u8FD9\u53EA\u662F\u6A21\u578B\u89E3\u91CA\uFF0C\u4E0D\u662F\u8BED\u6CD5\u5224\u5B9A\uFF1B\u4E0D\u4F1A\u4FEE\u6539\u6B63\u6587\u3002" });
+        el.createEl("h3", { text: "\u6E90\u5757" });
+        const pre = el.createEl("pre");
+        pre.textContent = this.source;
+        pre.style.color = "var(--text-normal)";
+        pre.style.background = "var(--background-secondary)";
+        pre.style.padding = "0.7em 0.9em";
+        pre.style.borderRadius = "var(--radius-s)";
+        pre.style.whiteSpace = "pre-wrap";
+        el.createEl("h3", { text: "\u89E3\u91CA" });
+        const out = el.createEl("div");
+        out.style.whiteSpace = "pre-wrap";
+        out.style.lineHeight = "1.6";
+        out.textContent = this.explanation;
+      }
+      onClose() {
+        this.contentEl.empty();
+      }
+    };
+    module2.exports = { ExplainModal };
+  }
+});
+
 // src/ui/reference-modal.js
 var require_reference_modal = __commonJS({
   "src/ui/reference-modal.js"(exports2, module2) {
@@ -3465,6 +3563,8 @@ var require_plugin = __commonJS({
     var { createOpenAICompatibleProvider } = require_openai_compatible();
     var { createTranslationService } = require_translation_service();
     var { createReferenceService } = require_reference_service();
+    var { createAssistanceService } = require_assistance_service();
+    var { ExplainModal } = require_explain_modal();
     var { ReferenceModal } = require_reference_modal();
     var { CompletionModal } = require_completion_modal();
     var { normalizeProviderConfig, validateProviderConfig } = require_request();
@@ -3763,6 +3863,13 @@ var require_plugin = __commonJS({
           name: "EpXsC \u8BCD\u6761\u8865\u5168",
           callback: function() {
             self.openCompletion();
+          }
+        });
+        this.addCommand({
+          id: "explain-epxsc-block",
+          name: "\u89E3\u91CA\u5F53\u524D EpXsC \u5757\uFF08\u53EA\u8BFB\uFF09",
+          callback: function() {
+            self.explainActiveBlock();
           }
         });
         this.loadData().then(function(data) {

@@ -28,6 +28,8 @@ const { createOpenAICompatibleProvider } = nodeRequire('../src/providers/openai-
 const { createTranslationService } = nodeRequire('../src/services/translation-service.js');
 const referenceCore = nodeRequire('../src/core/translation/reference.js');
 const redactCore = nodeRequire('../src/core/translation/redact.js');
+const explainCore = nodeRequire('../src/core/assistance/explain.js');
+const { createAssistanceService } = nodeRequire('../src/services/assistance-service.js');
 const completionCore = nodeRequire('../src/core/completion.js');
 const { createReferenceService } = nodeRequire('../src/services/reference-service.js');
 const ordParse = nodeRequire('../src/core/ord/parse.js');
@@ -417,6 +419,17 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   const grammar = { lists: { keyword: ['de'], predicate: ['plur'], unit: ['MU'] } };
   const gr = completionCore.grammarCandidates(grammar, 'p', 10);
   assert.ok(gr.some((x) => x.word === 'plur'));
+}
+
+// 13h) D4.2 read-only explanation
+{
+  const messages = explainCore.buildExplainMessages({ text: 'Plur Aqua', dictionaryContext: 'plur = 净化', grammarContext: 'VSO' });
+  assert.equal(messages.length, 2);
+  assert.ok(messages[1].content.indexOf('Plur Aqua') >= 0);
+  const svc = createAssistanceService({ provider: { chat: async () => ({ ok: true, text: '解释文本' }) } });
+  const out = await svc.explain({ text: 'Plur Aqua' });
+  assert.equal(out.ok, true);
+  assert.equal(out.text, '解释文本');
 }
 
 // 14) SpellRegistry / LintService 薄服务

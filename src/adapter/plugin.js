@@ -20,6 +20,8 @@ const { EpXsSettingsTab } = require('../ui/settings-tab.js');
 const { createOpenAICompatibleProvider } = require('../providers/openai-compatible.js');
 const { createTranslationService } = require('../services/translation-service.js');
 const { createReferenceService } = require('../services/reference-service.js');
+const { createAssistanceService } = require('../services/assistance-service.js');
+const { ExplainModal } = require('../ui/explain-modal.js');
 const { ReferenceModal } = require('../ui/reference-modal.js');
 const { CompletionModal } = require('../ui/completion-modal.js');
 const { normalizeProviderConfig, validateProviderConfig } = require('../core/translation/request.js');
@@ -333,6 +335,11 @@ class EpXsCSyntaxPlugin extends Plugin {
       id: 'complete-word',
       name: 'EpXsC 词条补全',
       callback: function () { self.openCompletion(); }
+    });
+    this.addCommand({
+      id: 'explain-epxsc-block',
+      name: '解释当前 EpXsC 块（只读）',
+      callback: function () { self.explainActiveBlock(); }
     });
     this.loadData().then(function (data) {
       self.settings = normalizeSettings(data);
