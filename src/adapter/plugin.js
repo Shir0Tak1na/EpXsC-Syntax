@@ -21,6 +21,7 @@ const { createOpenAICompatibleProvider } = require('../providers/openai-compatib
 const { createTranslationService } = require('../services/translation-service.js');
 const { createReferenceService } = require('../services/reference-service.js');
 const { ReferenceModal } = require('../ui/reference-modal.js');
+const { D3Controller } = require('../editor/d3-controller.js');
 const { normalizeProviderConfig, validateProviderConfig } = require('../core/translation/request.js');
 const { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext } = require('../core/translation/grammar.js');
 const { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require('../core/markup.js');

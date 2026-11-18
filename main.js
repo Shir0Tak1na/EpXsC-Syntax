@@ -1580,6 +1580,52 @@ var require_reference_modal = __commonJS({
   }
 });
 
+// src/editor/d3-controller.js
+var require_d3_controller = __commonJS({
+  "src/editor/d3-controller.js"(exports2, module2) {
+    "use strict";
+    var D3Controller = class {
+      constructor(options) {
+        const o = options || {};
+        this.maxErrors = Number(o.maxErrors) > 0 ? Number(o.maxErrors) : 3;
+        this.state = "disabled";
+        this.signatures = /* @__PURE__ */ new Set();
+        this.lastError = null;
+      }
+      enable() {
+        if (this.state === "active") return this.state;
+        this.state = "enabling";
+        return this.state;
+      }
+      activate() {
+        if (this.state === "enabling" || this.state === "active") this.state = "active";
+        return this.state;
+      }
+      disable() {
+        this.state = "disabled";
+        return this.state;
+      }
+      fail(stage, err) {
+        const sig = String(stage || "unknown") + ":" + String(err && err.message || err || "");
+        this.lastError = { stage, signature: sig };
+        if (this.state === "disabled") return this.state;
+        this.signatures.add(sig);
+        if (this.signatures.size >= this.maxErrors) {
+          this.state = "disabled-on-crash";
+        }
+        return this.state;
+      }
+      isEnabled() {
+        return this.state === "enabling" || this.state === "active";
+      }
+      canRender() {
+        return this.state === "active";
+      }
+    };
+    module2.exports = { D3Controller };
+  }
+});
+
 // src/core/translation/grammar.js
 var require_grammar = __commonJS({
   "src/core/translation/grammar.js"(exports2, module2) {
@@ -3444,6 +3490,7 @@ var require_plugin = __commonJS({
     var { createTranslationService } = require_translation_service();
     var { createReferenceService } = require_reference_service();
     var { ReferenceModal } = require_reference_modal();
+    var { D3Controller } = require_d3_controller();
     var { normalizeProviderConfig, validateProviderConfig } = require_request();
     var { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext } = require_grammar();
     var { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require_markup();
