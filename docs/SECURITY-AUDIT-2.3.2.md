@@ -49,6 +49,8 @@
 
 ## 3. Checks run
 
+- D4.2 real local model request: **passed** with `deepseek-r1:7b` on `http://127.0.0.1:11434/v1`; the model answered in English despite a Chinese instruction, so this is an output-quality limitation, not a transport failure.
+
 - `npm run build`
 - `npm test` (including 8 lint fixtures, completion, explanation, D3 controller, jsdom editor smoke)
 - `npm run check` (includes metafile no-CM check)
