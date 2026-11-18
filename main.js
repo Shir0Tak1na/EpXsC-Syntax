@@ -4703,7 +4703,7 @@ var require_plugin = __commonJS({
         const hit = words[0] || grammar[0];
         if (!hit || hit.word.length <= prefix.length) return null;
         if (hit.word.toLowerCase().indexOf(prefix.toLowerCase()) !== 0) return null;
-        return { text: hit.word, full: hit.word, from: lineStart + m.index, to: pos };
+        return { text: hit.word.slice(prefix.length), full: hit.word, from: pos, to: pos };
       }
       configureGhost() {
         if (!this.settings || !this.settings.assistance || this.settings.assistance.enabled !== true || this.settings.assistance.inlineGhost !== true) return;
