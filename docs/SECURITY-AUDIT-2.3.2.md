@@ -58,7 +58,7 @@
 
 ## 4. Release blockers
 
-1. D3-SMOKE manual record (registration, toggle, source/Live Preview, disable/enable, crash marker).
+1. D3-SMOKE manual record: **passed** on 2026-11-18 (registration, toggle, source/rendered diagnostics, crash marker restart).
 2. Confirm main-vault install is not done before isolated smoke.
 3. H4 is explicitly accepted unresolved; H5 is gated by `minAppVersion` 1.15.1.
 4. One GitHub Release per Asia/Shanghai day; 2.3.2 cannot be published on the same day as 2.3.0.

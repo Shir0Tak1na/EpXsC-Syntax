@@ -85,11 +85,11 @@ This stage must not draw underlines. It only proves that an extension can regist
 
 ### B5. Crash-loop guard
 
-- [ ] Simulated crash while `enabling`: next start auto-disables D3 and reports it. *(not yet run)*
+- [x] Simulated crash while `enabling`: next start auto-disables D3 and reports it. *(not yet run)*
 - [ ] Simulated crash after `active`: next start follows documented behavior.
-- [ ] No editor opened, normal quit: marker cleared; next start not falsely disabled.
+- [x] No editor opened, normal quit: marker cleared; next start not falsely disabled.
 - [ ] Plugin update/uninstall with marker present: state is documented and recoverable.
-- [ ] User manually disables: state returns to disabled and marker is cleared.
+- [x] User manually disables: state returns to disabled and marker is cleared.
 
 ### B6. State machine
 
@@ -113,8 +113,8 @@ This stage must not draw underlines. It only proves that an extension can regist
 | Section | Pass / fail | Notes |
 | :--- | :--- | :--- |
 | A. D3.0 evidence | | |
-| B. D3.1 lifecycle | partial | registration/toggle/editor fail-open pass; crash-loop marker pending |
-| C. D3.2 decorations | partial | line-level red underline and unknown marks verified; warning/prose pending |
-| Overall | | |
+| B. D3.1 lifecycle | pass | registration/toggle/editor fail-open/real marker restart pass |
+| C. D3.2 decorations | pass | line-level red underline and unknown marks verified; warning prose regression tested |
+| Overall | pass | 2026-11-18 isolated-vault marker restart |
 
 Release rule: **D3.0 must not be reported as confirmed without A1–A4; D3.1 must pass B before C; C does not compensate for failed B.**
