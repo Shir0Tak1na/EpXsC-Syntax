@@ -50,7 +50,7 @@
 ## 3. Checks run
 
 - `npm run build`
-- `npm test` (including 8 lint fixtures, completion, explanation, D3 controller)
+- `npm test` (including 8 lint fixtures, completion, explanation, D3 controller, jsdom editor smoke)
 - `npm run check` (includes metafile no-CM check)
 - `npm run release:check`
 

@@ -64,14 +64,14 @@ This stage must not draw underlines. It only proves that an extension can regist
 ### B2. Update and failure injection
 
 - [ ] Type, undo and redo; no editor freeze.
-- [ ] Error injection in constructor produces fail-open, one log, no crash. *(not yet run)*
-- [ ] Error injection in update produces empty decorations, no crash.
-- [ ] Error injection in build produces empty decorations, no crash.
+- [x] Error injection in constructor produces fail-open, one log, no crash. *(jsdom editor smoke)*
+- [x] Error injection in update produces empty decorations, no crash. *(jsdom editor smoke)*
+- [x] Error injection in build produces empty decorations, no crash. *(jsdom editor smoke)*
 - [ ] Same error signature is logged once, not every update.
 
 ### B3. Circuit breaker
 
-- [ ] Three distinct signatures disable D3 for the session. *(unit state machine only)*
+- [x] Three distinct signatures disable D3 for the session. *(D3Controller unit + jsdom smoke for fail-open)*
 - [ ] Existing decorations are cleared after disable.
 - [ ] Re-enable requires an explicit user action.
 - [ ] Persistent same error does not spam the log.
@@ -113,7 +113,7 @@ This stage must not draw underlines. It only proves that an extension can regist
 | Section | Pass / fail | Notes |
 | :--- | :--- | :--- |
 | A. D3.0 evidence | | |
-| B. D3.1 lifecycle | partial | registration/toggle pass; error injection/marker pending |
+| B. D3.1 lifecycle | partial | registration/toggle/editor fail-open pass; crash-loop marker pending |
 | C. D3.2 decorations | partial | line-level red underline and unknown marks verified; warning/prose pending |
 | Overall | | |
 
