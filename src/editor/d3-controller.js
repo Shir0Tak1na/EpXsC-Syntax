@@ -41,4 +41,8 @@ class D3Controller {
     return this.state === 'active';
   }
 }
-module.exports = { D3Controller };
+function shouldDisableOnStartup(marker) {
+  return marker === 'enabling' || marker === 'disabled-on-crash';
+}
+
+module.exports = { D3Controller, shouldDisableOnStartup };

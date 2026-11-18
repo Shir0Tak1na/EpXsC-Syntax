@@ -1888,7 +1888,10 @@ var require_d3_controller = __commonJS({
         return this.state === "active";
       }
     };
-    module2.exports = { D3Controller };
+    function shouldDisableOnStartup(marker) {
+      return marker === "enabling" || marker === "disabled-on-crash";
+    }
+    module2.exports = { D3Controller, shouldDisableOnStartup };
   }
 });
 
@@ -3884,7 +3887,7 @@ var require_plugin = __commonJS({
     var { ExplainModal, ExplainConfirmModal } = require_explain_modal();
     var { ReferenceModal } = require_reference_modal();
     var { CompletionModal } = require_completion_modal();
-    var { D3Controller } = require_d3_controller();
+    var { D3Controller, shouldDisableOnStartup } = require_d3_controller();
     var completionCore = require_completion();
     var { normalizeProviderConfig, validateProviderConfig } = require_request();
     var { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext } = require_grammar();

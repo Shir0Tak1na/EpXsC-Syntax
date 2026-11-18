@@ -31,7 +31,7 @@ const redactCore = nodeRequire('../src/core/translation/redact.js');
 const explainCore = nodeRequire('../src/core/assistance/explain.js');
 const { createAssistanceService } = nodeRequire('../src/services/assistance-service.js');
 const completionCore = nodeRequire('../src/core/completion.js');
-const { D3Controller } = nodeRequire('../src/editor/d3-controller.js');
+const { D3Controller, shouldDisableOnStartup } = nodeRequire('../src/editor/d3-controller.js');
 const { createReferenceService } = nodeRequire('../src/services/reference-service.js');
 const ordParse = nodeRequire('../src/core/ord/parse.js');
 
@@ -449,6 +449,9 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   assert.equal(d3.isEnabled(), false);
   d3.disable();
   assert.equal(d3.state, 'disabled');
+  assert.equal(shouldDisableOnStartup('enabling'), true);
+  assert.equal(shouldDisableOnStartup('disabled-on-crash'), true);
+  assert.equal(shouldDisableOnStartup(''), false);
 }
 
 // 14) SpellRegistry / LintService 薄服务
