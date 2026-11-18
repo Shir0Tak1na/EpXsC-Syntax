@@ -2,7 +2,7 @@ name: Validate plugin
 
 on:
   push:
-    branches: [main, "2.3.0-dev", "2.3.x-d4"]
+    branches: [main, "2.3.0-dev", "2.3.x-d4", "2.3.x-d42"]
   pull_request:
 
 permissions:
