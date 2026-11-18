@@ -9,7 +9,7 @@ const DEFAULT_SETTINGS = {
   lexicon: { customPaths: [] },
   display: { language: 'auto', fallbackLanguage: '' },
   diagnostics: { enabled: true, editorDecorations: false, d3Marker: '' },
-  assistance: { enabled: false },
+  assistance: { enabled: false, inlineGhost: false },
   translation: {
     enabled: false,
     grammarPath: '',
@@ -51,7 +51,10 @@ function normalizeSettings(data) {
       editorDecorations: diagnostics.editorDecorations === true,
       d3Marker: String(diagnostics.d3Marker || '').trim()
     },
-    assistance: { enabled: assistance.enabled === true },
+    assistance: {
+      enabled: assistance.enabled === true,
+      inlineGhost: assistance.inlineGhost === true
+    },
     translation: {
       enabled: translation.enabled === true,
       grammarPath: String(translation.grammarPath || '').trim(),

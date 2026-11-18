@@ -25,6 +25,7 @@ const { ExplainModal, ExplainConfirmModal } = require('../ui/explain-modal.js');
 const { ReferenceModal } = require('../ui/reference-modal.js');
 const { CompletionModal } = require('../ui/completion-modal.js');
 const { D3Controller } = require('../editor/d3-controller.js');
+const completionCore = require('../core/completion.js');
 const { normalizeProviderConfig, validateProviderConfig } = require('../core/translation/request.js');
 const { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext } = require('../core/translation/grammar.js');
 const { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require('../core/markup.js');
@@ -347,6 +348,7 @@ class EpXsCSyntaxPlugin extends Plugin {
       self.translationLanguage = (self.settings.display.language !== 'auto') ? self.settings.display.language : detectLanguage(self.app);
       self.configureTranslation();
       self.configureD3();
+      self.configureGhost();
       self.getGrammarContext().then(function (g) { self.translationGrammarContext = g; });
       self.refresh();
     }).catch(function (err) { console.warn('[EpXsC Syntax] 设置读取失败，使用默认值：', err); });
@@ -517,6 +519,7 @@ class EpXsCSyntaxPlugin extends Plugin {
     await this.saveData(this.settings);
     this.configureTranslation();
     this.configureD3();
+    this.configureGhost();
     await this.refresh();
   }
 
@@ -803,6 +806,54 @@ class EpXsCSyntaxPlugin extends Plugin {
     if (this.settings && this.settings.diagnostics && this.settings.diagnostics.d3Marker === 'enabling') {
       this.settings.diagnostics.d3Marker = '';
       this.saveData(this.settings);
+    }
+  }
+
+  getInlineSuggestion(text, pos) {
+    if (!this.settings || !this.settings.assistance || this.settings.assistance.enabled !== true || this.settings.assistance.inlineGhost !== true) return null;
+    const src = String(text || '');
+    const lineStart = src.lastIndexOf('\n', Math.max(0, pos - 1)) + 1;
+    let lineEnd = src.indexOf('\n', pos);
+    if (lineEnd < 0) lineEnd = src.length;
+    const line = src.slice(lineStart, lineEnd);
+    const col = pos - lineStart;
+    if (/^\s*>/.test(line)) return null;
+    if (col > 0 && /[A-Za-z0-9_-]/.test(line.charAt(col))) return null;
+    const m = /([A-Za-z][A-Za-z0-9_-]*)$/.exec(line.slice(0, col));
+    if (!m || m[1].length < 1) return null;
+    const prefix = m[1];
+    const before = src.slice(0, lineStart).split('\n');
+    const fence = String.fromCharCode(96).repeat(3);
+    let start = -1;
+    for (let i = before.length - 1; i >= 0; i--) {
+      const t = before[i].trim().toLowerCase();
+      if (t === (fence + 'epxst')) { start = i; break; }
+      if (t.indexOf(fence) === 0) break;
+    }
+    if (start < 0) return null;
+    const words = completionCore.wordCandidates(this.info, prefix, 1);
+    const grammar = completionCore.grammarCandidates(this.grammar, prefix, 1);
+    const hit = words[0] || grammar[0];
+    if (!hit || hit.word.length <= prefix.length) return null;
+    if (hit.word.toLowerCase().indexOf(prefix.toLowerCase()) !== 0) return null;
+    return { text: hit.word.slice(prefix.length), full: hit.word };
+  }
+
+  configureGhost() {
+    if (!this.settings || !this.settings.assistance || this.settings.assistance.enabled !== true || this.settings.assistance.inlineGhost !== true) return;
+    if (this._ghostRegistered) return;
+    try {
+      const { createGhostExtension } = require('../editor/ghost-extension.js');
+      const self = this;
+      const ext = createGhostExtension({
+        getSuggestion: function (text, pos) { return self.getInlineSuggestion(text, pos); },
+        isEnabled: function () { return !!(self.settings && self.settings.assistance && self.settings.assistance.enabled && self.settings.assistance.inlineGhost); }
+      });
+      if (!ext) { console.warn('[EpXsC Ghost] host CM6 unavailable'); return; }
+      this.registerEditorExtension(ext);
+      this._ghostRegistered = true;
+    } catch (e) {
+      console.warn('[EpXsC Ghost] registration failed:', e && e.message ? e.message : e);
     }
   }
 

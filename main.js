@@ -834,7 +834,7 @@ var require_settings = __commonJS({
       lexicon: { customPaths: [] },
       display: { language: "auto", fallbackLanguage: "" },
       diagnostics: { enabled: true, editorDecorations: false, d3Marker: "" },
-      assistance: { enabled: false },
+      assistance: { enabled: false, inlineGhost: false },
       translation: {
         enabled: false,
         grammarPath: "",
@@ -874,7 +874,10 @@ var require_settings = __commonJS({
           editorDecorations: diagnostics.editorDecorations === true,
           d3Marker: String(diagnostics.d3Marker || "").trim()
         },
-        assistance: { enabled: assistance.enabled === true },
+        assistance: {
+          enabled: assistance.enabled === true,
+          inlineGhost: assistance.inlineGhost === true
+        },
         translation: {
           enabled: translation.enabled === true,
           grammarPath: String(translation.grammarPath || "").trim(),
@@ -963,6 +966,10 @@ var require_settings_tab = __commonJS({
         }));
         containerEl.createEl("h3", { text: "\u8F85\u52A9" });
         const asst = this.plugin.settings.assistance;
+        new Setting(containerEl).setName("EpXsT \u5185\u8054\u9884\u6D4B\uFF08\u5B9E\u9A8C\uFF09").setDesc("\u5728 EpXsT \u6E90\u53E5\u884C\u5185\u663E\u793A\u8BCD\u5178\u8865\u5168\u7684\u7070\u8272\u5F71\u5B50\uFF1BTab \u63A5\u53D7\uFF0C\u9ED8\u8BA4\u5173\u95ED\u3002").addToggle((toggle) => toggle.setValue(!!asst.inlineGhost).onChange(async (value) => {
+          asst.inlineGhost = !!value;
+          await this.persist();
+        }));
         new Setting(containerEl).setName("\u542F\u7528\u79BB\u7EBF\u8BCD\u5178\u8865\u5168").setDesc("\u9ED8\u8BA4\u5173\u95ED\u3002\u542F\u7528\u540E\u53EF\u7528\u547D\u4EE4\u201CEpXsC \u8BCD\u6761\u8865\u5168\u201D\u4ECE\u8BCD\u5178/\u8BED\u6CD5\u4E2D\u9009\u62E9\u5E76\u63D2\u5165\uFF1B\u4E0D\u8054\u7F51\u3001\u4E0D\u81EA\u52A8\u6539\u5199\u3002").addToggle((toggle) => toggle.setValue(!!asst.enabled).onChange(async (value) => {
           asst.enabled = !!value;
           await this.persist();
@@ -3725,6 +3732,99 @@ var require_d3_extension = __commonJS({
   }
 });
 
+// src/editor/ghost-extension.js
+var require_ghost_extension = __commonJS({
+  "src/editor/ghost-extension.js"(exports2, module2) {
+    "use strict";
+    var ViewPlugin;
+    var Decoration;
+    var WidgetType;
+    var EditorView;
+    try {
+      const view = require("@codemirror/view");
+      ViewPlugin = view.ViewPlugin;
+      Decoration = view.Decoration;
+      WidgetType = view.WidgetType;
+      EditorView = view.EditorView;
+    } catch (e) {
+      console.warn("[EpXsC Ghost] host CM6 unavailable:", e && e.message ? e.message : e);
+    }
+    var GhostWidget = class extends WidgetType {
+      constructor(text) {
+        super();
+        this.text = text;
+      }
+      eq(other) {
+        return other && other.text === this.text;
+      }
+      toDOM() {
+        const span = document.createElement("span");
+        span.className = "epx-ghost";
+        span.textContent = this.text;
+        span.setAttribute("aria-hidden", "true");
+        return span;
+      }
+      ignoreEvent() {
+        return true;
+      }
+    };
+    function createGhostExtension(options) {
+      const o = options || {};
+      if (!ViewPlugin || !Decoration || !WidgetType || !EditorView) return null;
+      const getSuggestion = typeof o.getSuggestion === "function" ? o.getSuggestion : function() {
+        return null;
+      };
+      const isEnabled = typeof o.isEnabled === "function" ? o.isEnabled : function() {
+        return true;
+      };
+      const plugin = ViewPlugin.fromClass(class {
+        constructor(view) {
+          this.decorations = this.build(view);
+        }
+        update(update) {
+          if (update.docChanged || update.selectionSet) this.decorations = this.build(update.view);
+        }
+        build(view) {
+          try {
+            if (!isEnabled()) return Decoration.none;
+            const sel = view.state.selection.main;
+            if (!sel.empty) return Decoration.none;
+            const pos = sel.head;
+            const s = getSuggestion(view.state.doc.toString(), pos);
+            if (!s || !s.text) return Decoration.none;
+            return Decoration.set([Decoration.widget({ widget: new GhostWidget(s.text), side: 1 }).range(pos)]);
+          } catch (e) {
+            return Decoration.none;
+          }
+        }
+      }, { decorations: function(v) {
+        return v.decorations;
+      } });
+      const keys = EditorView.domEventHandlers({
+        keydown: function(event, view) {
+          if (event.key !== "Tab") return false;
+          try {
+            const pos = view.state.selection.main.head;
+            if (!view.state.selection.main.empty) return false;
+            const s = getSuggestion(view.state.doc.toString(), pos);
+            if (!s || !s.text) return false;
+            view.dispatch({
+              changes: { from: pos, to: pos, insert: s.text },
+              selection: { anchor: pos + s.text.length }
+            });
+            event.preventDefault();
+            return true;
+          } catch (e) {
+            return false;
+          }
+        }
+      });
+      return [plugin, keys];
+    }
+    module2.exports = { createGhostExtension };
+  }
+});
+
 // data/builtin-lexicon.json
 var require_builtin_lexicon = __commonJS({
   "data/builtin-lexicon.json"(exports2, module2) {
@@ -3751,6 +3851,7 @@ var require_plugin = __commonJS({
     var { ReferenceModal } = require_reference_modal();
     var { CompletionModal } = require_completion_modal();
     var { D3Controller } = require_d3_controller();
+    var completionCore = require_completion();
     var { normalizeProviderConfig, validateProviderConfig } = require_request();
     var { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext } = require_grammar();
     var { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require_markup();
@@ -4061,6 +4162,7 @@ var require_plugin = __commonJS({
           self.translationLanguage = self.settings.display.language !== "auto" ? self.settings.display.language : detectLanguage(self.app);
           self.configureTranslation();
           self.configureD3();
+          self.configureGhost();
           self.getGrammarContext().then(function(g) {
             self.translationGrammarContext = g;
           });
@@ -4262,6 +4364,7 @@ var require_plugin = __commonJS({
         await this.saveData(this.settings);
         this.configureTranslation();
         this.configureD3();
+        this.configureGhost();
         await this.refresh();
       }
       configureTranslation() {
@@ -4563,6 +4666,62 @@ var require_plugin = __commonJS({
         if (this.settings && this.settings.diagnostics && this.settings.diagnostics.d3Marker === "enabling") {
           this.settings.diagnostics.d3Marker = "";
           this.saveData(this.settings);
+        }
+      }
+      getInlineSuggestion(text, pos) {
+        if (!this.settings || !this.settings.assistance || this.settings.assistance.enabled !== true || this.settings.assistance.inlineGhost !== true) return null;
+        const src = String(text || "");
+        const lineStart = src.lastIndexOf("\n", Math.max(0, pos - 1)) + 1;
+        let lineEnd = src.indexOf("\n", pos);
+        if (lineEnd < 0) lineEnd = src.length;
+        const line = src.slice(lineStart, lineEnd);
+        const col = pos - lineStart;
+        if (/^\s*>/.test(line)) return null;
+        if (col > 0 && /[A-Za-z0-9_-]/.test(line.charAt(col))) return null;
+        const m = /([A-Za-z][A-Za-z0-9_-]*)$/.exec(line.slice(0, col));
+        if (!m || m[1].length < 1) return null;
+        const prefix = m[1];
+        const before = src.slice(0, lineStart).split("\n");
+        const fence = String.fromCharCode(96).repeat(3);
+        let start = -1;
+        for (let i = before.length - 1; i >= 0; i--) {
+          const t = before[i].trim().toLowerCase();
+          if (t === fence + "epxst") {
+            start = i;
+            break;
+          }
+          if (t.indexOf(fence) === 0) break;
+        }
+        if (start < 0) return null;
+        const words = completionCore.wordCandidates(this.info, prefix, 1);
+        const grammar = completionCore.grammarCandidates(this.grammar, prefix, 1);
+        const hit = words[0] || grammar[0];
+        if (!hit || hit.word.length <= prefix.length) return null;
+        if (hit.word.toLowerCase().indexOf(prefix.toLowerCase()) !== 0) return null;
+        return { text: hit.word.slice(prefix.length), full: hit.word };
+      }
+      configureGhost() {
+        if (!this.settings || !this.settings.assistance || this.settings.assistance.enabled !== true || this.settings.assistance.inlineGhost !== true) return;
+        if (this._ghostRegistered) return;
+        try {
+          const { createGhostExtension } = require_ghost_extension();
+          const self = this;
+          const ext = createGhostExtension({
+            getSuggestion: function(text, pos) {
+              return self.getInlineSuggestion(text, pos);
+            },
+            isEnabled: function() {
+              return !!(self.settings && self.settings.assistance && self.settings.assistance.enabled && self.settings.assistance.inlineGhost);
+            }
+          });
+          if (!ext) {
+            console.warn("[EpXsC Ghost] host CM6 unavailable");
+            return;
+          }
+          this.registerEditorExtension(ext);
+          this._ghostRegistered = true;
+        } catch (e) {
+          console.warn("[EpXsC Ghost] registration failed:", e && e.message ? e.message : e);
         }
       }
       getTranslationRenderOptions() {
