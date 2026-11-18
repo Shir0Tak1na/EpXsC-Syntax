@@ -25,14 +25,14 @@
 | H1 | Prior D3 bundled a second CM6 runtime and blocked all notes. Root cause confirmed by isolated-vault console error. | Fixed: external CM6; no CM6 inputs in metafile; external host registration passed. |
 | H2 | D3 enabling marker could be cleared after a circuit-breaker failure; a later settings save could re-enable decoration work. | Fixed: only explicit disable/re-enable path clears/re-arms; `disabled-on-crash` is honored at startup. |
 | H3 | Whole-word ghost used a replace decoration and hid typed input. | Fixed: suffix widget; typed prefix remains visible; Tab appends. |
-| H4 | API key is still stored in plaintext in `data.json`. | Open: documented; no secret storage. Use a low-privilege key. |
-| H5 | External CM6 requires a host-provided module; tested on Obsidian 1.15.1. | Open/gated: `minAppVersion` 1.15.1; D3 defaults off; no runtime guarantee for older hosts. |
+| H4 | API key is still stored in plaintext in `data.json`. | **Accepted unresolved by owner on 2026-11-18**; Secret Storage is not available in the current target. Use a low-privilege key. |
+| H5 | External CM6 requires a host-provided module; tested on Obsidian 1.15.1. | Accepted/gated: `minAppVersion` 1.15.1; D3 defaults off; no runtime guarantee for older hosts. |
 
 ### Medium
 
 | ID | Finding | Status |
 | :--- | :--- | :--- |
-| M1 | D3 circuit breaker counts unique signatures; a persistent identical error does not trip the threshold. | Accepted: fail-open returns empty decorations; logging is deduped. Revisit threshold. |
+| M1 | D3 circuit breaker counts unique signatures; a persistent identical error does not trip the threshold. | **Fixed:** counts occurrences; signatures still dedupe logging. |
 | M2 | D3 marker save is asynchronous and can be lost on a hard crash. | Accepted: startup detects `enabling`; normal unload clears. |
 | M3 | `lintText` treats a block containing a period as prose and returns before unit/keyword warnings. | Not a security issue; explains missing warning. Natural-sentence lint is future work. |
 | M4 | Source unknown-word marks use a length >= 4 heuristic and skip `>` lines. | Accepted; mirrors renderer. |
@@ -58,7 +58,7 @@
 
 1. D3-SMOKE manual record (registration, toggle, source/Live Preview, disable/enable, crash marker).
 2. Confirm main-vault install is not done before isolated smoke.
-3. Resolve or explicitly accept H4 (plaintext API key) and H5 (host version).
+3. H4 is explicitly accepted unresolved; H5 is gated by `minAppVersion` 1.15.1.
 4. One GitHub Release per Asia/Shanghai day; 2.3.2 cannot be published on the same day as 2.3.0.
 
 ## 5. Verdict

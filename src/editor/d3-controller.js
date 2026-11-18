@@ -7,6 +7,7 @@ class D3Controller {
     this.maxErrors = Number(o.maxErrors) > 0 ? Number(o.maxErrors) : 3;
     this.state = 'disabled';
     this.signatures = new Set();
+    this.errorCount = 0;
     this.lastError = null;
   }
   enable() {
@@ -27,7 +28,8 @@ class D3Controller {
     this.lastError = { stage: stage, signature: sig };
     if (this.state === 'disabled') return this.state;
     this.signatures.add(sig);
-    if (this.signatures.size >= this.maxErrors) {
+    this.errorCount += 1;
+    if (this.errorCount >= this.maxErrors) {
       this.state = 'disabled-on-crash';
     }
     return this.state;

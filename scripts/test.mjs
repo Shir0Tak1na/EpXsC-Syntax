@@ -441,8 +441,8 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   assert.equal(d3.activate(), 'active');
   d3.fail('build', new Error('one'));
   assert.equal(d3.state, 'active');
-  d3.fail('build', new Error('two'));
-  d3.fail('build', new Error('three'));
+  d3.fail('build', new Error('one'));
+  d3.fail('build', new Error('one'));
   assert.equal(d3.state, 'disabled-on-crash');
   assert.equal(d3.isEnabled(), false);
   d3.disable();

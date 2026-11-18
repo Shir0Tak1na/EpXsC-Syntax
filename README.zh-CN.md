@@ -78,7 +78,7 @@ Tallse aris agrus nec manis humal.
 
 显示语言、备用语言与自定义词库在 **设置 → EpXsC Syntax** 中配置。
 
-翻译是可选功能，默认关闭。开启后，T 块的源句会发送到配置的 OpenAI-compatible endpoint；不会发送其他库内容。API Key 保存在插件设置文件中，请勿使用高权限长期令牌。
+翻译是可选功能，默认关闭。开启后，T 块的源句会发送到配置的 OpenAI-compatible endpoint；不会发送其他库内容。API Key 保存在插件设置文件中，Secret Storage 尚未实现；请勿使用高权限长期令牌。
 
 ### 可选：本地模型翻译
 

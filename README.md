@@ -76,7 +76,7 @@ Tallse aris agrus nec manis humal.
 
 Language, fallback language, and custom lexicons are configured in **Settings → EpXsC Syntax**.
 
-Translation is opt-in and off by default. When enabled, T-block source sentences are sent to the configured OpenAI-compatible endpoint; no other vault content is sent. API keys are stored in the plugin settings file, so do not use a high-privilege long-lived token.
+Translation is opt-in and off by default. When enabled, T-block source sentences are sent to the configured OpenAI-compatible endpoint; no other vault content is sent. API keys are stored in the plugin settings file, so do not use a high-privilege long-lived token. Secret Storage is not implemented in this version; this is a known limitation.
 
 ### Optional local-model translation
 
