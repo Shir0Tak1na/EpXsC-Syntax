@@ -9,13 +9,13 @@
 | Field | Value |
 | :--- | :--- |
 | Date | 2026-11-17 |
-| Build / commit | incident b89caed |
+| Build / commit | 2.3.2 candidate / 7aeaef9 |
 | Version under test | |
 | Obsidian version | 1.15.1 |
 | CM6 source (host/external) | |
 | Platform | Windows / macOS / Linux / iOS / Android |
-| Vault | isolated / main |
-| Feature flags | D3 off / D3 on, no decorations / D3 on with decorations |
+| Vault | isolated (`test-vault-d3-incident`) |
+| Feature flags | D3 on with line decorations; ghost completion on |
 | Tester | |
 
 ## A. D3.0 — root cause evidence
@@ -56,36 +56,36 @@ This stage must not draw underlines. It only proves that an extension can regist
 
 ### B1. Registration and first editor
 
-- [ ] Plugin loads with D3 enabled.
-- [ ] Open a note: editor is usable; no exception in console.
-- [ ] Open a second note; no duplicate registration.
-- [ ] Open a note with no EpXsC block; no error.
+- [x] Plugin loads with D3 enabled.
+- [x] Open a note: editor is usable; no exception in console.
+- [x] Open a second note; no duplicate registration.
+- [x] Open a note with no EpXsC block; no error.
 
 ### B2. Update and failure injection
 
 - [ ] Type, undo and redo; no editor freeze.
-- [ ] Error injection in constructor produces fail-open, one log, no crash.
+- [ ] Error injection in constructor produces fail-open, one log, no crash. *(not yet run)*
 - [ ] Error injection in update produces empty decorations, no crash.
 - [ ] Error injection in build produces empty decorations, no crash.
 - [ ] Same error signature is logged once, not every update.
 
 ### B3. Circuit breaker
 
-- [ ] Three distinct signatures disable D3 for the session.
+- [ ] Three distinct signatures disable D3 for the session. *(unit state machine only)*
 - [ ] Existing decorations are cleared after disable.
 - [ ] Re-enable requires an explicit user action.
 - [ ] Persistent same error does not spam the log.
 
 ### B4. Disable / unload
 
-- [ ] Turn D3 off in settings: no build/update calls afterward.
+- [x] Turn D3 off in settings: decorations disappear without restart.
 - [ ] No decoration, timer or marker remains after off.
-- [ ] Disable/re-enable plugin; editor remains usable.
+- [x] Disable/re-enable plugin; editor remains usable.
 - [ ] Normal Obsidian quit clears the enabling marker.
 
 ### B5. Crash-loop guard
 
-- [ ] Simulated crash while `enabling`: next start auto-disables D3 and reports it.
+- [ ] Simulated crash while `enabling`: next start auto-disables D3 and reports it. *(not yet run)*
 - [ ] Simulated crash after `active`: next start follows documented behavior.
 - [ ] No editor opened, normal quit: marker cleared; next start not falsely disabled.
 - [ ] Plugin update/uninstall with marker present: state is documented and recoverable.
@@ -113,8 +113,8 @@ This stage must not draw underlines. It only proves that an extension can regist
 | Section | Pass / fail | Notes |
 | :--- | :--- | :--- |
 | A. D3.0 evidence | | |
-| B. D3.1 lifecycle | | |
-| C. D3.2 decorations | | |
+| B. D3.1 lifecycle | partial | registration/toggle pass; error injection/marker pending |
+| C. D3.2 decorations | partial | line-level red underline and unknown marks verified; warning/prose pending |
 | Overall | | |
 
 Release rule: **D3.0 must not be reported as confirmed without A1–A4; D3.1 must pass B before C; C does not compensate for failed B.**
