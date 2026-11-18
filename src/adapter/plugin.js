@@ -346,6 +346,13 @@ class EpXsCSyntaxPlugin extends Plugin {
     this.loadData().then(function (data) {
       self.settings = normalizeSettings(data);
       self.translationLanguage = (self.settings.display.language !== 'auto') ? self.settings.display.language : detectLanguage(self.app);
+      if (shouldDisableOnStartup(self.settings.diagnostics.d3Marker)) {
+        const wasCrash = self.settings.diagnostics.d3Marker === 'disabled-on-crash';
+        self.settings.diagnostics.editorDecorations = false;
+        self.settings.diagnostics.d3Marker = '';
+        self.saveData(self.settings);
+        new Notice(wasCrash ? 'D3 上次因连续错误停用，已保持关闭。' : 'D3 上次启动未完成，已自动关闭编辑器诊断。');
+      }
       self.configureTranslation();
       self.configureD3();
       self.configureGhost();

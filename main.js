@@ -4197,6 +4197,13 @@ var require_plugin = __commonJS({
         this.loadData().then(function(data) {
           self.settings = normalizeSettings(data);
           self.translationLanguage = self.settings.display.language !== "auto" ? self.settings.display.language : detectLanguage(self.app);
+          if (shouldDisableOnStartup(self.settings.diagnostics.d3Marker)) {
+            const wasCrash = self.settings.diagnostics.d3Marker === "disabled-on-crash";
+            self.settings.diagnostics.editorDecorations = false;
+            self.settings.diagnostics.d3Marker = "";
+            self.saveData(self.settings);
+            new Notice(wasCrash ? "D3 \u4E0A\u6B21\u56E0\u8FDE\u7EED\u9519\u8BEF\u505C\u7528\uFF0C\u5DF2\u4FDD\u6301\u5173\u95ED\u3002" : "D3 \u4E0A\u6B21\u542F\u52A8\u672A\u5B8C\u6210\uFF0C\u5DF2\u81EA\u52A8\u5173\u95ED\u7F16\u8F91\u5668\u8BCA\u65AD\u3002");
+          }
           self.configureTranslation();
           self.configureD3();
           self.configureGhost();
