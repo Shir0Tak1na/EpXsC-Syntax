@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url);
 const dom = new JSDOM('<!doctype html><html><body></body></html>');
 global.window = dom.window;
 global.document = dom.window.document;
+dom.window.__epxscD3Enabled = true;
 global.MutationObserver = dom.window.MutationObserver;
 global.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
 dom.window.requestAnimationFrame = (fn) => setTimeout(fn, 0);

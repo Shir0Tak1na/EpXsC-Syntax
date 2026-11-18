@@ -348,13 +348,16 @@ class EpXsCSyntaxPlugin extends Plugin {
       self.translationLanguage = (self.settings.display.language !== 'auto') ? self.settings.display.language : detectLanguage(self.app);
       if (shouldDisableOnStartup(self.settings.diagnostics.d3Marker)) {
         const wasCrash = self.settings.diagnostics.d3Marker === 'disabled-on-crash';
+        self.settings.diagnostics.enabled = false;
         self.settings.diagnostics.editorDecorations = false;
         self.settings.diagnostics.d3Marker = '';
         self.saveData(self.settings);
-        const msg = wasCrash ? 'D3 上次因连续错误停用，已保持关闭。' : 'D3 上次启动未完成，已自动关闭编辑器诊断。';
+        window.__epxscD3Enabled = false;
+        try { self.app.workspace.updateOptions(); } catch (e) { /* best effort */ }
+        const msg = wasCrash ? 'D3 上次因连续错误停用，诊断已暂停。' : 'D3 上次启动未完成，诊断已暂停（含阅读视图下划线）。';
         console.warn('[EpXsC D3] ' + msg);
-        if (self.app.workspace.onLayoutReady) self.app.workspace.onLayoutReady(function () { new Notice(msg); });
-        else new Notice(msg);
+        if (self.app.workspace.onLayoutReady) self.app.workspace.onLayoutReady(function () { new Notice(msg, 10000); });
+        else new Notice(msg, 10000);
       }
       self.configureTranslation();
       self.configureD3();
@@ -781,6 +784,7 @@ class EpXsCSyntaxPlugin extends Plugin {
   configureD3() {
     if (!this._d3) this._d3 = new D3Controller({ maxErrors: 3 });
     const enabled = !!(this.settings && this.settings.diagnostics && this.settings.diagnostics.editorDecorations);
+    window.__epxscD3Enabled = enabled;
     if (!enabled) {
       this._d3.disable();
       try { this.app.workspace.updateOptions(); } catch (e) { /* best effort */ }
@@ -794,7 +798,7 @@ class EpXsCSyntaxPlugin extends Plugin {
           getIssues: function (text) { return self.lintDocument(text); },
           getUnknowns: function (text) { return self.getSourceUnknownRanges(text); },
           isEnabled: function () {
-            return !!(self.settings && self.settings.diagnostics && self.settings.diagnostics.enabled && self.settings.diagnostics.editorDecorations && self._d3 && self._d3.isEnabled());
+            return !!(window.__epxscD3Enabled === true && self.settings && self.settings.diagnostics && self.settings.diagnostics.enabled && self.settings.diagnostics.editorDecorations && self._d3 && self._d3.isEnabled());
           },
           onFirstUpdate: function () { self.onD3FirstUpdate(); },
           onError: function (stage, err) { self.onD3Error(stage, err); }

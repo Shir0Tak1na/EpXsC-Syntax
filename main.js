@@ -4199,15 +4199,21 @@ var require_plugin = __commonJS({
           self.translationLanguage = self.settings.display.language !== "auto" ? self.settings.display.language : detectLanguage(self.app);
           if (shouldDisableOnStartup(self.settings.diagnostics.d3Marker)) {
             const wasCrash = self.settings.diagnostics.d3Marker === "disabled-on-crash";
+            self.settings.diagnostics.enabled = false;
             self.settings.diagnostics.editorDecorations = false;
             self.settings.diagnostics.d3Marker = "";
             self.saveData(self.settings);
-            const msg = wasCrash ? "D3 \u4E0A\u6B21\u56E0\u8FDE\u7EED\u9519\u8BEF\u505C\u7528\uFF0C\u5DF2\u4FDD\u6301\u5173\u95ED\u3002" : "D3 \u4E0A\u6B21\u542F\u52A8\u672A\u5B8C\u6210\uFF0C\u5DF2\u81EA\u52A8\u5173\u95ED\u7F16\u8F91\u5668\u8BCA\u65AD\u3002";
+            window.__epxscD3Enabled = false;
+            try {
+              self.app.workspace.updateOptions();
+            } catch (e) {
+            }
+            const msg = wasCrash ? "D3 \u4E0A\u6B21\u56E0\u8FDE\u7EED\u9519\u8BEF\u505C\u7528\uFF0C\u8BCA\u65AD\u5DF2\u6682\u505C\u3002" : "D3 \u4E0A\u6B21\u542F\u52A8\u672A\u5B8C\u6210\uFF0C\u8BCA\u65AD\u5DF2\u6682\u505C\uFF08\u542B\u9605\u8BFB\u89C6\u56FE\u4E0B\u5212\u7EBF\uFF09\u3002";
             console.warn("[EpXsC D3] " + msg);
             if (self.app.workspace.onLayoutReady) self.app.workspace.onLayoutReady(function() {
-              new Notice(msg);
+              new Notice(msg, 1e4);
             });
-            else new Notice(msg);
+            else new Notice(msg, 1e4);
           }
           self.configureTranslation();
           self.configureD3();
@@ -4671,6 +4677,7 @@ var require_plugin = __commonJS({
       configureD3() {
         if (!this._d3) this._d3 = new D3Controller({ maxErrors: 3 });
         const enabled = !!(this.settings && this.settings.diagnostics && this.settings.diagnostics.editorDecorations);
+        window.__epxscD3Enabled = enabled;
         if (!enabled) {
           this._d3.disable();
           try {
@@ -4691,7 +4698,7 @@ var require_plugin = __commonJS({
                 return self.getSourceUnknownRanges(text);
               },
               isEnabled: function() {
-                return !!(self.settings && self.settings.diagnostics && self.settings.diagnostics.enabled && self.settings.diagnostics.editorDecorations && self._d3 && self._d3.isEnabled());
+                return !!(window.__epxscD3Enabled === true && self.settings && self.settings.diagnostics && self.settings.diagnostics.enabled && self.settings.diagnostics.editorDecorations && self._d3 && self._d3.isEnabled());
               },
               onFirstUpdate: function() {
                 self.onD3FirstUpdate();
