@@ -3662,10 +3662,13 @@ var require_d3_extension = __commonJS({
       };
       const onFirstUpdate = typeof opts.onFirstUpdate === "function" ? opts.onFirstUpdate : function() {
       };
+      const getUnknowns = typeof opts.getUnknowns === "function" ? opts.getUnknowns : function() {
+        return [];
+      };
       let firstUpdateDone = false;
       function build(view) {
-        const builder = new RangeSetBuilder();
-        if (!isEnabled()) return builder.finish();
+        const ranges = [];
+        if (!isEnabled()) return Decoration.none;
         let issues;
         try {
           issues = getIssues(view.state.doc.toString());
@@ -3693,12 +3696,24 @@ var require_d3_extension = __commonJS({
           const title = list.map(function(x) {
             return x.message + (x.approximate ? "\uFF08\u6B64\u884C\u9644\u8FD1\uFF09" : "");
           }).join("\n");
-          builder.add(line.from, line.from, Decoration.line({
+          ranges.push(Decoration.line({
             class: "epx-cm-lint-" + (error ? "error" : "warn"),
             attributes: { "data-epx-lint": title, title }
-          }));
+          }).range(line.from));
         }
-        return builder.finish();
+        try {
+          const unknowns = getUnknowns(view.state.doc.toString()) || [];
+          for (let u = 0; u < unknowns.length; u++) {
+            const r = unknowns[u];
+            if (r.from >= 0 && r.to > r.from && r.to <= view.state.doc.length) {
+              ranges.push(Decoration.mark({ class: "epx-cm-unknown", attributes: { title: "\u672A\u5165\u5178\uFF1A" + (r.text || "") } }).range(r.from, r.to));
+            }
+          }
+        } catch (e) {
+          onError("unknowns", e);
+        }
+        if (!ranges.length) return Decoration.none;
+        return Decoration.set(ranges, true);
       }
       return ViewPlugin.fromClass(class {
         constructor(view) {
@@ -3719,7 +3734,7 @@ var require_d3_extension = __commonJS({
             return build(view);
           } catch (e) {
             onError("build", e);
-            return new RangeSetBuilder().finish();
+            return Decoration.none;
           }
         }
       }, {
@@ -4499,6 +4514,36 @@ var require_plugin = __commonJS({
         }
         return parts.join("; ");
       }
+      getSourceUnknownRanges(text) {
+        const src = String(text || "");
+        const lines = src.split("\n");
+        const out = [];
+        const fence = String.fromCharCode(96).repeat(3);
+        let inBlock = false;
+        let offset = 0;
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          const trimmed = line.trim().toLowerCase();
+          if (trimmed.indexOf(fence) === 0) {
+            const lang = trimmed.slice(fence.length).trim();
+            if (!inBlock && /^(epxsc|epxst|epxsg)$/.test(lang)) inBlock = true;
+            else if (inBlock) inBlock = false;
+            offset += line.length + 1;
+            continue;
+          }
+          if (inBlock && !/^\s*>/.test(line)) {
+            const re = /[A-Za-z][A-Za-z0-9_-]*/g;
+            let m;
+            while (m = re.exec(line)) {
+              if (m[0].length < 4) continue;
+              if (this.info.has(m[0].toLowerCase())) continue;
+              out.push({ from: offset + m.index, to: offset + m.index + m[0].length, text: m[0] });
+            }
+          }
+          offset += line.length + 1;
+        }
+        return out;
+      }
       lintDocument(text) {
         const blocks = extractEpXsCBlocks(String(text || ""));
         const issues = [];
@@ -4612,6 +4657,9 @@ var require_plugin = __commonJS({
             const ext = createD3Extension({
               getIssues: function(text) {
                 return self.lintDocument(text);
+              },
+              getUnknowns: function(text) {
+                return self.getSourceUnknownRanges(text);
               },
               isEnabled: function() {
                 return !!(self.settings && self.settings.diagnostics && self.settings.diagnostics.enabled && self.settings.diagnostics.editorDecorations && self._d3 && self._d3.isEnabled());

@@ -654,6 +654,37 @@ class EpXsCSyntaxPlugin extends Plugin {
     return parts.join('; ');
   }
 
+  getSourceUnknownRanges(text) {
+    const src = String(text || '');
+    const lines = src.split('\n');
+    const out = [];
+    const fence = String.fromCharCode(96).repeat(3);
+    let inBlock = false;
+    let offset = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim().toLowerCase();
+      if (trimmed.indexOf(fence) === 0) {
+        const lang = trimmed.slice(fence.length).trim();
+        if (!inBlock && /^(epxsc|epxst|epxsg)$/.test(lang)) inBlock = true;
+        else if (inBlock) inBlock = false;
+        offset += line.length + 1;
+        continue;
+      }
+      if (inBlock && !/^\s*>/.test(line)) {
+        const re = /[A-Za-z][A-Za-z0-9_-]*/g;
+        let m;
+        while ((m = re.exec(line))) {
+          if (m[0].length < 4) continue;
+          if (this.info.has(m[0].toLowerCase())) continue;
+          out.push({ from: offset + m.index, to: offset + m.index + m[0].length, text: m[0] });
+        }
+      }
+      offset += line.length + 1;
+    }
+    return out;
+  }
+
   lintDocument(text) {
     const blocks = extractEpXsCBlocks(String(text || ''));
     const issues = [];
@@ -751,6 +782,7 @@ class EpXsCSyntaxPlugin extends Plugin {
         const self = this;
         const ext = createD3Extension({
           getIssues: function (text) { return self.lintDocument(text); },
+          getUnknowns: function (text) { return self.getSourceUnknownRanges(text); },
           isEnabled: function () {
             return !!(self.settings && self.settings.diagnostics && self.settings.diagnostics.enabled && self.settings.diagnostics.editorDecorations && self._d3 && self._d3.isEnabled());
           },

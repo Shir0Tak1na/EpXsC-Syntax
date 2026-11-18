@@ -348,3 +348,5 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
 
 /* D4.1 inline ghost */
 .epx-ghost{color:var(--text-muted);opacity:.55;font-style:italic;pointer-events:none;white-space:pre}
+
+.cm-unknown{text-decoration-line:underline;text-decoration-style:dotted;text-decoration-color:var(--color-orange);text-underline-offset:.18em}
