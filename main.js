@@ -4687,7 +4687,7 @@ var require_plugin = __commonJS({
             console.warn("[EpXsC D3] extension registration failed:", e && e.message ? e.message : e);
             new Notice("D3\uFF1A\u6269\u5C55\u6CE8\u518C\u5931\u8D25\uFF1A" + (e && e.message ? e.message : e));
           }
-        } else if (this._d3.state === "disabled" || this._d3.state === "disabled-on-crash") {
+        } else if (this._d3.state === "disabled") {
           this._d3.enable();
           try {
             this.app.workspace.updateOptions();
@@ -4698,7 +4698,7 @@ var require_plugin = __commonJS({
       onD3FirstUpdate() {
         if (!this._d3) return;
         this._d3.activate();
-        if (this.settings && this.settings.diagnostics && this.settings.diagnostics.d3Marker) {
+        if (this._d3.state === "active" && this.settings && this.settings.diagnostics && this.settings.diagnostics.d3Marker) {
           this.settings.diagnostics.d3Marker = "";
           this.saveData(this.settings);
         }

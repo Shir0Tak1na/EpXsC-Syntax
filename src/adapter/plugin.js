@@ -805,7 +805,7 @@ class EpXsCSyntaxPlugin extends Plugin {
         console.warn('[EpXsC D3] extension registration failed:', e && e.message ? e.message : e);
         new Notice('D3：扩展注册失败：' + (e && e.message ? e.message : e));
       }
-    } else if (this._d3.state === 'disabled' || this._d3.state === 'disabled-on-crash') {
+    } else if (this._d3.state === 'disabled') {
       this._d3.enable();
       try { this.app.workspace.updateOptions(); } catch (e) { /* best effort */ }
     }
@@ -814,7 +814,7 @@ class EpXsCSyntaxPlugin extends Plugin {
   onD3FirstUpdate() {
     if (!this._d3) return;
     this._d3.activate();
-    if (this.settings && this.settings.diagnostics && this.settings.diagnostics.d3Marker) {
+    if (this._d3.state === 'active' && this.settings && this.settings.diagnostics && this.settings.diagnostics.d3Marker) {
       this.settings.diagnostics.d3Marker = '';
       this.saveData(this.settings);
     }
