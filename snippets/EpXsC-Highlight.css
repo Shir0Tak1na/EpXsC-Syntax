@@ -336,3 +336,8 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
 .epx-oline.epx-lint-warn{border-bottom:1px wavy var(--color-orange)}
 
 .epx-tip-section + .epx-tip-section{margin-top:8px;padding-top:8px;border-top:1px solid var(--background-modifier-border)}
+
+/* D3.2 source-editor lint decoration */
+.cm-line.epx-cm-lint-error,.cm-line.epx-cm-lint-warn{text-decoration-line:underline;text-underline-offset:.18em;text-decoration-thickness:1px}
+.cm-line.epx-cm-lint-error{text-decoration-style:dashed;text-decoration-color:var(--color-red)}
+.cm-line.epx-cm-lint-warn{text-decoration-style:wavy;text-decoration-color:var(--color-orange)}

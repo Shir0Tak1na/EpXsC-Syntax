@@ -3322,28 +3322,92 @@ var require_ord_dom = __commonJS({
   }
 });
 
-// src/editor/noop-extension.js
-var require_noop_extension = __commonJS({
-  "src/editor/noop-extension.js"(exports2, module2) {
+// src/editor/d3-extension.js
+var require_d3_extension = __commonJS({
+  "src/editor/d3-extension.js"(exports2, module2) {
     "use strict";
     var ViewPlugin;
+    var Decoration;
+    var RangeSetBuilder;
     try {
-      const cmView = require("@codemirror/view");
-      ViewPlugin = cmView.ViewPlugin;
+      const view = require("@codemirror/view");
+      const state = require("@codemirror/state");
+      ViewPlugin = view.ViewPlugin;
+      Decoration = view.Decoration;
+      RangeSetBuilder = state.RangeSetBuilder;
     } catch (e) {
-      console.warn("[EpXsC D3 spike] host CM6 module is unavailable:", e && e.message ? e.message : e);
+      console.warn("[EpXsC D3] host CM6 unavailable:", e && e.message ? e.message : e);
     }
-    function createNoopExtension() {
-      if (!ViewPlugin || typeof ViewPlugin.fromClass !== "function") return null;
-      return ViewPlugin.fromClass(class {
-        constructor() {
-          this.enabled = true;
+    function createD3Extension(options) {
+      const opts = options || {};
+      if (!ViewPlugin || !Decoration || !RangeSetBuilder) return null;
+      const getIssues = typeof opts.getIssues === "function" ? opts.getIssues : function() {
+        return [];
+      };
+      const isEnabled = typeof opts.isEnabled === "function" ? opts.isEnabled : function() {
+        return true;
+      };
+      const onError = typeof opts.onError === "function" ? opts.onError : function() {
+      };
+      function build(view) {
+        const builder = new RangeSetBuilder();
+        if (!isEnabled()) return builder.finish();
+        let issues;
+        try {
+          issues = getIssues(view.state.doc.toString());
+        } catch (e) {
+          onError("issue", e);
+          return builder.finish();
         }
-        update() {
+        const byLine = /* @__PURE__ */ new Map();
+        for (let i = 0; i < issues.length; i++) {
+          const n = Number(issues[i].line);
+          if (!n || n < 1 || n > view.state.doc.lines) continue;
+          if (!byLine.has(n)) byLine.set(n, []);
+          byLine.get(n).push(issues[i]);
+        }
+        const nums = Array.from(byLine.keys()).sort(function(a, b) {
+          return a - b;
+        });
+        for (let k = 0; k < nums.length; k++) {
+          const n = nums[k];
+          const line = view.state.doc.line(n);
+          const list = byLine.get(n);
+          const error = list.some(function(x) {
+            return x.level === "error";
+          });
+          const title = list.map(function(x) {
+            return x.message + (x.approximate ? "\uFF08\u6B64\u884C\u9644\u8FD1\uFF09" : "");
+          }).join("\n");
+          builder.add(line.from, line.from, Decoration.line({
+            class: "epx-cm-lint-" + (error ? "error" : "warn"),
+            attributes: { "data-epx-lint": title, title }
+          }));
+        }
+        return builder.finish();
+      }
+      return ViewPlugin.fromClass(class {
+        constructor(view) {
+          this.decorations = this.safeBuild(view);
+        }
+        update(update) {
+          if (update.docChanged || update.viewportChanged) this.decorations = this.safeBuild(update.view);
+        }
+        safeBuild(view) {
+          try {
+            return build(view);
+          } catch (e) {
+            onError("build", e);
+            return new RangeSetBuilder().finish();
+          }
+        }
+      }, {
+        decorations: function(value) {
+          return value.decorations;
         }
       });
     }
-    module2.exports = { createNoopExtension };
+    module2.exports = { createD3Extension };
   }
 });
 
@@ -3665,7 +3729,7 @@ var require_plugin = __commonJS({
           self.settings = normalizeSettings(data);
           self.translationLanguage = self.settings.display.language !== "auto" ? self.settings.display.language : detectLanguage(self.app);
           self.configureTranslation();
-          self.installD3Spike();
+          self.configureD3();
           self.getGrammarContext().then(function(g) {
             self.translationGrammarContext = g;
           });
@@ -3866,6 +3930,7 @@ var require_plugin = __commonJS({
       async saveSettings() {
         await this.saveData(this.settings);
         this.configureTranslation();
+        this.configureD3();
         await this.refresh();
       }
       configureTranslation() {
@@ -3995,25 +4060,62 @@ var require_plugin = __commonJS({
         }
         return parts.join("; ");
       }
-      installD3Spike() {
-        if (!this.settings || !this.settings.diagnostics || !this.settings.diagnostics.editorDecorations) {
-          console.log("[EpXsC D3 spike] editorDecorations is off");
+      lintDocument(text) {
+        const blocks = extractEpXsCBlocks(String(text || ""));
+        const issues = [];
+        for (let b = 0; b < blocks.length; b++) {
+          const found = this.lintForSource(blocks[b].source, "");
+          for (let i = 0; i < found.length; i++) {
+            issues.push({ level: found[i].level, line: blocks[b].line + found[i].line, message: found[i].message, approximate: found[i].approximate });
+          }
+        }
+        return issues;
+      }
+      configureD3() {
+        const enabled = !!(this.settings && this.settings.diagnostics && this.settings.diagnostics.editorDecorations);
+        if (!enabled) {
+          this._d3Disabled = false;
           return;
         }
+        if (this._d3Registered) return;
         try {
-          const { createNoopExtension } = require_noop_extension();
-          const ext = createNoopExtension();
+          const { createD3Extension } = require_d3_extension();
+          const self = this;
+          const ext = createD3Extension({
+            getIssues: function(text) {
+              return self.lintDocument(text);
+            },
+            isEnabled: function() {
+              return !!(self.settings && self.settings.diagnostics && self.settings.diagnostics.enabled && self.settings.diagnostics.editorDecorations && !self._d3Disabled);
+            },
+            onError: function(stage, err) {
+              self.onD3Error(stage, err);
+            }
+          });
           if (ext) {
             this.registerEditorExtension(ext);
-            console.log("[EpXsC D3 spike] host CM6 extension registered");
-            new Notice("D3 spike\uFF1A\u5BBF\u4E3B CM6 \u6269\u5C55\u6CE8\u518C\u6210\u529F");
+            this._d3Registered = true;
+            this._d3State = "active";
+            console.log("[EpXsC D3] host CM6 extension registered");
+            new Notice("D3\uFF1A\u7F16\u8F91\u5668\u8BCA\u65AD\u5DF2\u542F\u7528");
           } else {
-            console.warn("[EpXsC D3 spike] host CM6 module unavailable; extension not registered");
-            new Notice("D3 spike\uFF1A\u5BBF\u4E3B CM6 \u4E0D\u53EF\u7528\uFF0C\u6269\u5C55\u672A\u6CE8\u518C");
+            console.warn("[EpXsC D3] host CM6 module unavailable; extension not registered");
+            new Notice("D3\uFF1A\u5BBF\u4E3B CM6 \u4E0D\u53EF\u7528\uFF0C\u6269\u5C55\u672A\u6CE8\u518C");
           }
         } catch (e) {
-          console.warn("[EpXsC D3 spike] extension registration failed:", e && e.message ? e.message : e);
-          new Notice("D3 spike\uFF1A\u6269\u5C55\u6CE8\u518C\u5931\u8D25\uFF1A" + (e && e.message ? e.message : e));
+          console.warn("[EpXsC D3] extension registration failed:", e && e.message ? e.message : e);
+          new Notice("D3\uFF1A\u6269\u5C55\u6CE8\u518C\u5931\u8D25\uFF1A" + (e && e.message ? e.message : e));
+        }
+      }
+      onD3Error(stage, err) {
+        if (!this._d3ErrorSignatures) this._d3ErrorSignatures = /* @__PURE__ */ new Set();
+        const sig = String(stage) + ":" + String(err && err.message || err);
+        if (!this._d3ErrorSignatures.has(sig)) this._d3ErrorSignatures.add(sig);
+        if (this._d3ErrorSignatures.size >= 3) {
+          this._d3Disabled = true;
+          this._d3State = "disabled-on-crash";
+          console.warn("[EpXsC D3] circuit breaker opened:", sig);
+          new Notice("D3 \u8BCA\u65AD\u5DF2\u81EA\u52A8\u505C\u7528\uFF08\u8FDE\u7EED\u9519\u8BEF\uFF09\u3002");
         }
       }
       getTranslationRenderOptions() {

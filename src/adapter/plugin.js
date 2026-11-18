@@ -333,7 +333,7 @@ class EpXsCSyntaxPlugin extends Plugin {
       self.settings = normalizeSettings(data);
       self.translationLanguage = (self.settings.display.language !== 'auto') ? self.settings.display.language : detectLanguage(self.app);
       self.configureTranslation();
-      self.installD3Spike();
+      self.configureD3();
       self.getGrammarContext().then(function (g) { self.translationGrammarContext = g; });
       self.refresh();
     }).catch(function (err) { console.warn('[EpXsC Syntax] 设置读取失败，使用默认值：', err); });
@@ -503,6 +503,7 @@ class EpXsCSyntaxPlugin extends Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
     this.configureTranslation();
+    this.configureD3();
     await this.refresh();
   }
 
@@ -637,27 +638,63 @@ class EpXsCSyntaxPlugin extends Plugin {
     return parts.join('; ');
   }
 
-  installD3Spike() {
-    if (!this.settings || !this.settings.diagnostics || !this.settings.diagnostics.editorDecorations) {
-      console.log('[EpXsC D3 spike] editorDecorations is off');
+  lintDocument(text) {
+    const blocks = extractEpXsCBlocks(String(text || ''));
+    const issues = [];
+    for (let b = 0; b < blocks.length; b++) {
+      const found = this.lintForSource(blocks[b].source, '');
+      for (let i = 0; i < found.length; i++) {
+        issues.push({ level: found[i].level, line: blocks[b].line + found[i].line, message: found[i].message, approximate: found[i].approximate });
+      }
+    }
+    return issues;
+  }
+
+  configureD3() {
+    const enabled = !!(this.settings && this.settings.diagnostics && this.settings.diagnostics.editorDecorations);
+    if (!enabled) {
+      this._d3Disabled = false;
       return;
     }
+    if (this._d3Registered) return;
     try {
-      const { createNoopExtension } = require('../editor/noop-extension.js');
-      const ext = createNoopExtension();
+      const { createD3Extension } = require('../editor/d3-extension.js');
+      const self = this;
+      const ext = createD3Extension({
+        getIssues: function (text) { return self.lintDocument(text); },
+        isEnabled: function () {
+          return !!(self.settings && self.settings.diagnostics && self.settings.diagnostics.enabled && self.settings.diagnostics.editorDecorations && !self._d3Disabled);
+        },
+        onError: function (stage, err) { self.onD3Error(stage, err); }
+      });
       if (ext) {
         this.registerEditorExtension(ext);
-        console.log('[EpXsC D3 spike] host CM6 extension registered');
-        new Notice('D3 spike：宿主 CM6 扩展注册成功');
+        this._d3Registered = true;
+        this._d3State = 'active';
+        console.log('[EpXsC D3] host CM6 extension registered');
+        new Notice('D3：编辑器诊断已启用');
       } else {
-        console.warn('[EpXsC D3 spike] host CM6 module unavailable; extension not registered');
-        new Notice('D3 spike：宿主 CM6 不可用，扩展未注册');
+        console.warn('[EpXsC D3] host CM6 module unavailable; extension not registered');
+        new Notice('D3：宿主 CM6 不可用，扩展未注册');
       }
     } catch (e) {
-      console.warn('[EpXsC D3 spike] extension registration failed:', e && e.message ? e.message : e);
-      new Notice('D3 spike：扩展注册失败：' + (e && e.message ? e.message : e));
+      console.warn('[EpXsC D3] extension registration failed:', e && e.message ? e.message : e);
+      new Notice('D3：扩展注册失败：' + (e && e.message ? e.message : e));
     }
   }
+
+  onD3Error(stage, err) {
+    if (!this._d3ErrorSignatures) this._d3ErrorSignatures = new Set();
+    const sig = String(stage) + ':' + String(err && err.message || err);
+    if (!this._d3ErrorSignatures.has(sig)) this._d3ErrorSignatures.add(sig);
+    if (this._d3ErrorSignatures.size >= 3) {
+      this._d3Disabled = true;
+      this._d3State = 'disabled-on-crash';
+      console.warn('[EpXsC D3] circuit breaker opened:', sig);
+      new Notice('D3 诊断已自动停用（连续错误）。');
+    }
+  }
+
 
   getTranslationRenderOptions() {
     return {
