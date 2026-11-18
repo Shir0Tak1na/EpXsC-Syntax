@@ -34,7 +34,7 @@
 | :--- | :--- | :--- |
 | M1 | D3 circuit breaker counts unique signatures; a persistent identical error does not trip the threshold. | **Fixed:** counts occurrences; signatures still dedupe logging. |
 | M2 | D3 marker save is asynchronous and can be lost on a hard crash. | Accepted: startup detects `enabling`; normal unload clears. |
-| M3 | `lintText` treats a block containing a period as prose and returns before unit/keyword warnings. | Not a security issue; explains missing warning. Natural-sentence lint is future work. |
+| M3 | `lintText` treats a block containing a period as prose and returns before unit/keyword warnings. | **Fixed for code-like lines:** semicolon/brace/spell-keyword lines still warn on unknown units. Natural-sentence lint remains future work. |
 | M4 | Source unknown-word marks use a length >= 4 heuristic and skip `>` lines. | Accepted; mirrors renderer. |
 | M5 | D4.2 confirmation shows source/dictionary/endpoint, but not a full raw JSON payload or adjacent-sentence switch. | Partial; current scope is current block + dictionary only. |
 | M6 | D3 line decorations use native `title` in source editor, while rendered view uses custom tooltip. | Cosmetic inconsistency; no data exposure. |

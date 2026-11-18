@@ -120,6 +120,8 @@ assert.ok(bracketIssues.some(x => x.level === 'error'), 'unclosed brace must be 
 const rangeIssue = bracketIssues.find(x => x.message.includes('没有闭合'));
 assert.ok(rangeIssue && rangeIssue.start === 6 && rangeIssue.end === 7, 'unclosed brace range must point at {');
 const extraBracket = lintText(')', { info: new Map(), units: new Set(), keys: new Set(), spells: new Map() });
+const proseUnit = lintText('Foo() {\n\tluss 1 XU.\n}', { info: new Map(), units: new Set(['mu']), keys: new Set(), spells: new Map() });
+assert.ok(proseUnit.some(x => x.level === 'warn' && x.message.includes('XU')), 'code-like prose should still warn on unknown unit');
 assert.ok(extraBracket.length >= 1 && extraBracket[0].start === 0 && extraBracket[0].end === 1, 'extra bracket range must point at )');
 
 // 7) 数据 parser 冒烟

@@ -2358,7 +2358,19 @@ var require_lint = __commonJS({
         }
       }
       for (let i = 0; i < stack.length; i++) push("error", stack[i].line, "\u300C" + stack[i].ch + "\u300D\u6CA1\u6709\u95ED\u5408", stack[i].column, stack[i].column + 1);
-      if (prose) return issues;
+      if (prose) {
+        for (let i = 0; i < lines.length; i++) {
+          if (!/[;{}]|\b(luss|limit|pretium|keal|keol|solum|hauri)\b/i.test(lines[i])) continue;
+          const re = /(\d)[ \t]*([A-Za-z_][A-Za-z0-9_]*)/g;
+          let m;
+          while (m = re.exec(lines[i])) {
+            if (units.has(m[2].toLowerCase())) continue;
+            const unitStart = m.index + m[0].length - m[2].length;
+            push("warn", i + 1, "\u300C" + m[1] + " " + m[2] + "\u300D\u2014\u2014" + m[2] + " \u4E0D\u662F\u767B\u8BB0\u8FC7\u7684\u5355\u4F4D", unitStart, unitStart + m[2].length);
+          }
+        }
+        return issues;
+      }
       const lead = function(s) {
         return (s.match(/^[ \t]*/) || [""])[0].length;
       };
