@@ -4,3 +4,4 @@ data.json
 Thumbs.db
 desktop.ini
 node_modules/
+build-meta.json

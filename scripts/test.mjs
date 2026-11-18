@@ -31,6 +31,7 @@ const redactCore = nodeRequire('../src/core/translation/redact.js');
 const explainCore = nodeRequire('../src/core/assistance/explain.js');
 const { createAssistanceService } = nodeRequire('../src/services/assistance-service.js');
 const completionCore = nodeRequire('../src/core/completion.js');
+const { D3Controller } = nodeRequire('../src/editor/d3-controller.js');
 const { createReferenceService } = nodeRequire('../src/services/reference-service.js');
 const ordParse = nodeRequire('../src/core/ord/parse.js');
 
@@ -430,6 +431,22 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   const out = await svc.explain({ text: 'Plur Aqua' });
   assert.equal(out.ok, true);
   assert.equal(out.text, '解释文本');
+}
+
+// 13g) D3 lifecycle controller
+{
+  const d3 = new D3Controller({ maxErrors: 3 });
+  assert.equal(d3.state, 'disabled');
+  assert.equal(d3.enable(), 'enabling');
+  assert.equal(d3.activate(), 'active');
+  d3.fail('build', new Error('one'));
+  assert.equal(d3.state, 'active');
+  d3.fail('build', new Error('two'));
+  d3.fail('build', new Error('three'));
+  assert.equal(d3.state, 'disabled-on-crash');
+  assert.equal(d3.isEnabled(), false);
+  d3.disable();
+  assert.equal(d3.state, 'disabled');
 }
 
 // 14) SpellRegistry / LintService 薄服务

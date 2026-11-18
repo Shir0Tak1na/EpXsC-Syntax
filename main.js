@@ -833,7 +833,7 @@ var require_settings = __commonJS({
       schemaVersion: 1,
       lexicon: { customPaths: [] },
       display: { language: "auto", fallbackLanguage: "" },
-      diagnostics: { enabled: true, editorDecorations: false },
+      diagnostics: { enabled: true, editorDecorations: false, d3Marker: "" },
       assistance: { enabled: false },
       translation: {
         enabled: false,
@@ -871,7 +871,8 @@ var require_settings = __commonJS({
         },
         diagnostics: {
           enabled: diagnostics.enabled !== false,
-          editorDecorations: diagnostics.editorDecorations === true
+          editorDecorations: diagnostics.editorDecorations === true,
+          d3Marker: String(diagnostics.d3Marker || "").trim()
         },
         assistance: { enabled: assistance.enabled === true },
         translation: {
@@ -1559,7 +1560,44 @@ var require_explain_modal = __commonJS({
         this.contentEl.empty();
       }
     };
-    module2.exports = { ExplainModal };
+    var ExplainConfirmModal = class extends Modal {
+      constructor(app, endpoint, source, dictionary, onConfirm) {
+        super(app);
+        this.endpoint = String(endpoint || "");
+        this.source = String(source || "");
+        this.dictionary = String(dictionary || "");
+        this.onConfirm = onConfirm;
+      }
+      onOpen() {
+        const el = this.contentEl;
+        el.empty();
+        el.createEl("h2", { text: "\u53D1\u9001\u524D\u786E\u8BA4" });
+        el.createEl("p", { text: "\u53EA\u53D1\u9001\u5F53\u524D EpXsC \u5757\u548C\u76F8\u5173\u8BCD\u5178\u91CA\u4E49\u5230\u4EE5\u4E0B endpoint\u3002" });
+        el.createEl("p", { text: "endpoint: " + this.endpoint });
+        el.createEl("h3", { text: "\u5C06\u53D1\u9001\u7684\u5757" });
+        const pre = el.createEl("pre");
+        pre.textContent = this.source;
+        pre.style.whiteSpace = "pre-wrap";
+        if (this.dictionary) {
+          el.createEl("h3", { text: "\u8BCD\u5178\u4E0A\u4E0B\u6587" });
+          const d = el.createEl("pre");
+          d.textContent = this.dictionary;
+          d.style.whiteSpace = "pre-wrap";
+        }
+        const row = el.createDiv();
+        const cancel = row.createEl("button", { text: "\u53D6\u6D88" });
+        cancel.addEventListener("click", () => this.close());
+        const ok = row.createEl("button", { text: "\u53D1\u9001\u5E76\u89E3\u91CA", cls: "mod-cta" });
+        ok.addEventListener("click", () => {
+          this.close();
+          this.onConfirm();
+        });
+      }
+      onClose() {
+        this.contentEl.empty();
+      }
+    };
+    module2.exports = { ExplainModal, ExplainConfirmModal };
   }
 });
 
@@ -1796,6 +1834,52 @@ var require_completion_modal = __commonJS({
       }
     };
     module2.exports = { CompletionModal };
+  }
+});
+
+// src/editor/d3-controller.js
+var require_d3_controller = __commonJS({
+  "src/editor/d3-controller.js"(exports2, module2) {
+    "use strict";
+    var D3Controller = class {
+      constructor(options) {
+        const o = options || {};
+        this.maxErrors = Number(o.maxErrors) > 0 ? Number(o.maxErrors) : 3;
+        this.state = "disabled";
+        this.signatures = /* @__PURE__ */ new Set();
+        this.lastError = null;
+      }
+      enable() {
+        if (this.state === "active") return this.state;
+        this.state = "enabling";
+        return this.state;
+      }
+      activate() {
+        if (this.state === "enabling" || this.state === "active") this.state = "active";
+        return this.state;
+      }
+      disable() {
+        this.state = "disabled";
+        return this.state;
+      }
+      fail(stage, err) {
+        const sig = String(stage || "unknown") + ":" + String(err && err.message || err || "");
+        this.lastError = { stage, signature: sig };
+        if (this.state === "disabled") return this.state;
+        this.signatures.add(sig);
+        if (this.signatures.size >= this.maxErrors) {
+          this.state = "disabled-on-crash";
+        }
+        return this.state;
+      }
+      isEnabled() {
+        return this.state === "enabling" || this.state === "active";
+      }
+      canRender() {
+        return this.state === "active";
+      }
+    };
+    module2.exports = { D3Controller };
   }
 });
 
@@ -3542,6 +3626,105 @@ var require_ord_dom = __commonJS({
   }
 });
 
+// src/editor/d3-extension.js
+var require_d3_extension = __commonJS({
+  "src/editor/d3-extension.js"(exports2, module2) {
+    "use strict";
+    var ViewPlugin;
+    var Decoration;
+    var RangeSetBuilder;
+    try {
+      const view = require("@codemirror/view");
+      const state = require("@codemirror/state");
+      ViewPlugin = view.ViewPlugin;
+      Decoration = view.Decoration;
+      RangeSetBuilder = state.RangeSetBuilder;
+    } catch (e) {
+      console.warn("[EpXsC D3] host CM6 unavailable:", e && e.message ? e.message : e);
+    }
+    function createD3Extension(options) {
+      const opts = options || {};
+      if (!ViewPlugin || !Decoration || !RangeSetBuilder) return null;
+      const getIssues = typeof opts.getIssues === "function" ? opts.getIssues : function() {
+        return [];
+      };
+      const isEnabled = typeof opts.isEnabled === "function" ? opts.isEnabled : function() {
+        return true;
+      };
+      const onError = typeof opts.onError === "function" ? opts.onError : function() {
+      };
+      const onFirstUpdate = typeof opts.onFirstUpdate === "function" ? opts.onFirstUpdate : function() {
+      };
+      let firstUpdateDone = false;
+      function build(view) {
+        const builder = new RangeSetBuilder();
+        if (!isEnabled()) return builder.finish();
+        let issues;
+        try {
+          issues = getIssues(view.state.doc.toString());
+        } catch (e) {
+          onError("issue", e);
+          return builder.finish();
+        }
+        const byLine = /* @__PURE__ */ new Map();
+        for (let i = 0; i < issues.length; i++) {
+          const n = Number(issues[i].line);
+          if (!n || n < 1 || n > view.state.doc.lines) continue;
+          if (!byLine.has(n)) byLine.set(n, []);
+          byLine.get(n).push(issues[i]);
+        }
+        const nums = Array.from(byLine.keys()).sort(function(a, b) {
+          return a - b;
+        });
+        for (let k = 0; k < nums.length; k++) {
+          const n = nums[k];
+          const line = view.state.doc.line(n);
+          const list = byLine.get(n);
+          const error = list.some(function(x) {
+            return x.level === "error";
+          });
+          const title = list.map(function(x) {
+            return x.message + (x.approximate ? "\uFF08\u6B64\u884C\u9644\u8FD1\uFF09" : "");
+          }).join("\n");
+          builder.add(line.from, line.from, Decoration.line({
+            class: "epx-cm-lint-" + (error ? "error" : "warn"),
+            attributes: { "data-epx-lint": title, title }
+          }));
+        }
+        return builder.finish();
+      }
+      return ViewPlugin.fromClass(class {
+        constructor(view) {
+          this.decorations = this.safeBuild(view);
+        }
+        update(update) {
+          if (update.docChanged || update.viewportChanged) this.decorations = this.safeBuild(update.view);
+          if (!firstUpdateDone) {
+            firstUpdateDone = true;
+            try {
+              onFirstUpdate();
+            } catch (e) {
+            }
+          }
+        }
+        safeBuild(view) {
+          try {
+            return build(view);
+          } catch (e) {
+            onError("build", e);
+            return new RangeSetBuilder().finish();
+          }
+        }
+      }, {
+        decorations: function(value) {
+          return value.decorations;
+        }
+      });
+    }
+    module2.exports = { createD3Extension };
+  }
+});
+
 // data/builtin-lexicon.json
 var require_builtin_lexicon = __commonJS({
   "data/builtin-lexicon.json"(exports2, module2) {
@@ -3564,9 +3747,10 @@ var require_plugin = __commonJS({
     var { createTranslationService } = require_translation_service();
     var { createReferenceService } = require_reference_service();
     var { createAssistanceService } = require_assistance_service();
-    var { ExplainModal } = require_explain_modal();
+    var { ExplainModal, ExplainConfirmModal } = require_explain_modal();
     var { ReferenceModal } = require_reference_modal();
     var { CompletionModal } = require_completion_modal();
+    var { D3Controller } = require_d3_controller();
     var { normalizeProviderConfig, validateProviderConfig } = require_request();
     var { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext } = require_grammar();
     var { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require_markup();
@@ -3582,7 +3766,7 @@ var require_plugin = __commonJS({
     var LANG_KEYS = ["EpXsC", "epxsc", "EPXSC"];
     var CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
     var { DICT_PATH, RANK_PATH, SYNTAX_PATH, GRAMMAR_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES } = require_config();
-    var BUILD = "2.3.0";
+    var BUILD = "2.3.2";
     var { SECTION_POS, EXTRA_WORDS, SYMBOL_INFO, pickClass, bracketTip, variableTip, negScopeText, coordTip, rankDef, rankSpan, buildTip } = require_tooltip();
     var FALLBACK_CSS = '/* EpXsC Syntax \u5185\u7F6E\u515C\u5E95\u6837\u5F0F\uFF08\u4E0E styles.css \u7B2C 1\uFF0F2\uFF0F3\uFF0F5\uFF0F6 \u8282\u4E00\u81F4\uFF09 */\nbody{--epx-comment:var(--text-faint);--epx-pretium:var(--color-red);--epx-keyword:var(--color-purple);--epx-judge:var(--color-purple);--epx-clause:var(--color-red);--epx-verb:var(--color-blue);--epx-decl:var(--color-yellow);--epx-element:var(--color-cyan);--epx-type:var(--color-cyan);--epx-unit:var(--color-orange);--epx-number:var(--color-orange);--epx-degree:var(--color-pink);--epx-axis:var(--color-green);--epx-pointer:var(--text-accent);--epx-operator:var(--text-muted);--epx-punct:var(--text-muted);--epx-paren:var(--text-muted);--epx-bracket:var(--text-muted);--epx-brace:var(--text-muted);--epx-rank:var(--color-orange);--epx-b2:var(--text-muted);--epx-b3:var(--text-muted);--epx-variable:var(--color-pink);--epx-modifier:var(--color-red)}\npre.epx-pre{position:relative;padding:1.1em 1.15em 1.15em;background:var(--code-background);border:1px solid var(--background-modifier-border);border-left:3px solid var(--text-accent);border-radius:var(--radius-m)}\npre.epx-pre::before{content:"EpXsC";position:absolute;inset:0 0 auto auto;padding:0 .7em;font-family:var(--font-interface);font-size:.62em;font-weight:600;letter-spacing:.09em;line-height:1.8;color:var(--text-on-accent);background:var(--text-accent);border-radius:0 var(--radius-m) 0 var(--radius-s);opacity:.85;pointer-events:none;user-select:none}\n:is(code[class*="language-EpXsC" i], .epx-ord){font-family:var(--font-monospace);font-size:.9em;line-height:1.65;tab-size:4;color:var(--code-normal,var(--text-normal));background:none;padding:0;text-shadow:none}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.comment{color:var(--epx-comment);font-style:italic}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.pretium{color:var(--epx-pretium);font-weight:700}:is(code[class*="language-EpXsC" i], .epx-ord) .token.clause{color:var(--epx-clause);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.keyword{color:var(--epx-keyword);font-weight:600}:is(code[class*="language-EpXsC" i], .epx-ord) .token.judge{color:var(--epx-judge);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.negPrefix{color:var(--epx-keyword);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.function{color:var(--epx-verb)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.spellRef{color:var(--epx-verb);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.predicate{color:var(--epx-verb)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.declaration{color:var(--epx-decl);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.element{color:var(--epx-element);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.type{color:var(--epx-type)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.variable{color:var(--epx-variable);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.unit{color:var(--epx-unit);font-style:italic}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.number{color:var(--epx-number)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.rankRange{color:var(--epx-rank);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.degree{color:var(--epx-degree);font-style:italic}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.axis{color:var(--epx-axis)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.pointer{color:var(--epx-pointer);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.coordRun{color:var(--text-muted);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier{color:var(--epx-modifier);font-style:italic;font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.declTarget{color:var(--epx-variable);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.varUse{color:var(--epx-variable)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.operator{color:var(--epx-operator)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.bracket{color:var(--epx-bracket);color:color-mix(in srgb,var(--color-cyan) 40%,var(--text-muted));font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.paren{color:var(--epx-paren)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.brace{color:var(--epx-brace)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.punctuation{color:var(--epx-punct)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-d2{color:var(--epx-b2);color:color-mix(in srgb,var(--color-pink) 35%,var(--text-muted))}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-d3{color:var(--epx-b3);color:color-mix(in srgb,var(--color-green) 35%,var(--text-muted))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.declaration{color:#7e691f;color:color-mix(in srgb,var(--color-yellow) 45%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.element,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.type{color:#17797a;color:color-mix(in srgb,var(--color-cyan) 50%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.unit,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.number,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.rankRange{color:#a05b16;color:color-mix(in srgb,var(--color-orange) 60%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.axis{color:#197d44;color:color-mix(in srgb,var(--color-green) 55%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.degree,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.variable,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.declTarget,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.varUse{color:#c4387c;color:color-mix(in srgb,var(--color-pink) 90%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.pretium,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.clause,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier{color:#cd3145;color:color-mix(in srgb,var(--color-red) 85%,var(--text-normal))}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-unknown{text-decoration:underline dotted var(--color-orange);text-underline-offset:.2em}\n.epx-tip{position:fixed;z-index:9999;max-width:340px;padding:7px 11px;border:1px solid var(--background-modifier-border);border-radius:var(--radius-s);background:var(--background-secondary);color:var(--text-normal);font-family:var(--font-interface);font-size:12px;line-height:1.5;box-shadow:var(--shadow-s);pointer-events:none;opacity:0}\n.epx-tip.is-visible{opacity:1}\n.epx-tip .epx-tip-head{font-weight:600;color:var(--text-accent)}\n.epx-tip .epx-tip-body{color:var(--text-muted)}\n/* \u666E\u901A\u53E5\u5757\uFF1A\u5916\u6846 + \u53F3\u4E0A\u89D2\u8BED\u8A00\u7B7E\uFF0C\u8DDF\u672F\u5F0F\u5757\u540C\u5F62\uFF0C\u53EA\u6309\u6A21\u5F0F\u6362\u8272\uFF08G \u9752 \xB7 T \u6A59\uFF09\n   \u5916\u5C42\u662F code.language-EpXsC\uFF1Atoken \u914D\u8272\u4E0E\u60AC\u505C\u6CBF\u7528\u672F\u5F0F\u90A3\u5957\u9009\u62E9\u5668\uFF0C\u8FD9\u91CC\u53EA\u7BA1\u7248\u9762\u3002 */\n.epx-ord {\n  --epx-ord-tint: var(--color-cyan);\n  display: block;\n  position: relative;\n  line-height: 1.9;\n  padding: 1.1em 1.15em 1.15em;\n  background: var(--code-background);\n  border: 1px solid var(--background-modifier-border);\n  border-left: 3px solid var(--epx-ord-tint);\n  border-radius: var(--radius-m);\n  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);\n}\n.epx-ord-T { --epx-ord-tint: var(--color-orange); }\n.epx-ord::before {\n  content: "EpXsG";\n  position: absolute;\n  inset: 0 0 auto auto;\n  padding: 0 0.7em;\n  font-family: var(--font-interface);\n  font-size: 0.62em;\n  font-weight: 600;\n  letter-spacing: 0.09em;\n  line-height: 1.8;\n  color: var(--epx-ord-tint);\n  background: var(--background-secondary);\n  background: color-mix(in srgb, var(--epx-ord-tint) 22%, var(--background-primary));\n  border-radius: 0 var(--radius-m) 0 var(--radius-s);\n  opacity: 0.95;\n  pointer-events: none;\n  user-select: none;\n}\n.epx-ord-T::before { content: "EpXsT"; }\n/* \u8BCD\u4E0E\u8BCD\u6CE8\u90FD\u662F inline-block\uFF1A\u5FC5\u987B top \u5BF9\u9F50\uFF0C\u5426\u5219\u6709\u8BCD\u6CE8\u7684\u8BCD\u88AB\u9876\u9AD8\u3001\u6574\u884C\u5B57\u4E0A\u4E0B\u8DF3\u3002 */\n.epx-oline { display: block; margin: .18em 0; }\n.epx-gs { display: block; }\n.epx-gw { display: inline-block; text-align: center; margin: 0 .16em; vertical-align: top; }\n.epx-gsrc { display: block; line-height: 1.3; }\n.epx-ggl { display: block; font-size: .74em; line-height: 1.2; opacity: .7; font-family: var(--font-text); }\n.epx-tsrc { display: block; }\n.epx-tzh { display: block; font-family: var(--font-text); opacity: .78; font-size: .92em; }\n.epx-gap { display: block; height: .45em; }\n.epx-ord-wrap { display: block; }\n/* \u6709\u4E9B\u4E3B\u9898\u4F1A\u7ED9\u5757\u7EA7\u5143\u7D20\u7EE7\u627F\u9996\u884C\u7F29\u8FDB\uFF1BT/G \u662F\u4EE3\u7801\u5757\uFF0C\u9996\u884C\u5FC5\u987B\u8D34\u5DE6 */\n.epx-ord, .epx-ord .epx-oline, .epx-ord .epx-tsrc, .epx-ord .epx-tzh { text-indent: 0; }\n.epx-ord { padding: 1.1em 1.15em 1.15em !important; }\n@media (max-width: 640px) { .epx-ord { padding: 0 0.9em 0.9em !important; } }\n.epx-ord > .epx-oline:first-child { margin-top: 0; }\n.epx-ord { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }\n@media (max-width:640px){.epx-ord,pre.epx-pre{white-space:pre-wrap;overflow-wrap:break-word;padding:0 .9em .9em}.epx-ord{line-height:1.8}.epx-ord::before,pre.epx-pre::before{position:static;display:block;margin:0 -.9em .75em;padding:.22em .9em;text-align:right;line-height:1.7;border-radius:var(--radius-m) var(--radius-m) 0 0;opacity:1}.epx-ggl{line-height:1.25}.epx-tzh{margin-top:.15em}}';
     var varTypesOf = /* @__PURE__ */ new WeakMap();
@@ -3876,6 +4060,7 @@ var require_plugin = __commonJS({
           self.settings = normalizeSettings(data);
           self.translationLanguage = self.settings.display.language !== "auto" ? self.settings.display.language : detectLanguage(self.app);
           self.configureTranslation();
+          self.configureD3();
           self.getGrammarContext().then(function(g) {
             self.translationGrammarContext = g;
           });
@@ -4076,6 +4261,7 @@ var require_plugin = __commonJS({
       async saveSettings() {
         await this.saveData(this.settings);
         this.configureTranslation();
+        this.configureD3();
         await this.refresh();
       }
       configureTranslation() {
@@ -4204,6 +4390,180 @@ var require_plugin = __commonJS({
           if (e) parts.push(words[i] + " = " + (e.meaning || e.pos || ""));
         }
         return parts.join("; ");
+      }
+      lintDocument(text) {
+        const blocks = extractEpXsCBlocks(String(text || ""));
+        const issues = [];
+        for (let b = 0; b < blocks.length; b++) {
+          const found = this.lintForSource(blocks[b].source, "");
+          for (let i = 0; i < found.length; i++) {
+            issues.push({ level: found[i].level, line: blocks[b].line + found[i].line, message: found[i].message, approximate: found[i].approximate });
+          }
+        }
+        return issues;
+      }
+      openCompletion() {
+        if (!this.settings || !this.settings.assistance || this.settings.assistance.enabled !== true) {
+          new Notice("\u8BCD\u5178\u8865\u5168\u672A\u542F\u7528\uFF1A\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u5F00\u542F\u201C\u8F85\u52A9\u201D\u3002");
+          return;
+        }
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view || !view.editor) {
+          new Notice("\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A Markdown \u7B14\u8BB0");
+          return;
+        }
+        new CompletionModal(this.app, this, view.editor).open();
+      }
+      getActiveEpXsCBlock() {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view || !view.editor) return null;
+        const text = view.editor.getValue();
+        const lines = text.split("\n");
+        const cursorLine = view.editor.getCursor().line;
+        let start = -1;
+        for (let i = cursorLine; i >= 0; i--) {
+          if (/^\s*```\s*EpXsC\s*$/i.test(lines[i])) {
+            start = i;
+            break;
+          }
+          if (/^\s*```/.test(lines[i])) break;
+        }
+        if (start < 0) return null;
+        let end = -1;
+        for (let i = start + 1; i < lines.length; i++) {
+          if (/^\s*```\s*$/.test(lines[i])) {
+            end = i;
+            break;
+          }
+        }
+        if (end < 0) return null;
+        return { source: lines.slice(start + 1, end).join("\n"), startLine: start + 1 };
+      }
+      getAssistanceProvider() {
+        if (this.translationProvider) return this.translationProvider;
+        const tr = this.settings && this.settings.translation;
+        if (!tr) return null;
+        const cfg = normalizeProviderConfig(tr.provider);
+        const check = validateProviderConfig(cfg);
+        if (!check.ok) return null;
+        return createOpenAICompatibleProvider({
+          config: cfg,
+          request: async function(opts) {
+            return await requestUrl(opts);
+          }
+        });
+      }
+      async explainActiveBlock() {
+        if (!this.settings || !this.settings.assistance || this.settings.assistance.enabled !== true) {
+          new Notice("\u89E3\u91CA\u529F\u80FD\u672A\u542F\u7528\uFF1A\u8BF7\u5148\u5728\u8BBE\u7F6E\u4E2D\u5F00\u542F\u201C\u8F85\u52A9\u201D\u3002");
+          return;
+        }
+        const block = this.getActiveEpXsCBlock();
+        if (!block) {
+          new Notice("\u5149\u6807\u4E0D\u5728 EpXsC \u4EE3\u7801\u5757\u5185\u3002");
+          return;
+        }
+        const provider = this.getAssistanceProvider();
+        if (!provider) {
+          new Notice("\u8BF7\u5148\u914D\u7F6E\u8F85\u52A9\u6A21\u578B\uFF08Base URL / Model\uFF09\u3002");
+          return;
+        }
+        const dictionary = this.getTranslationContext(block.source);
+        const endpoint = provider.config && provider.config.baseUrl || "(\u672A\u914D\u7F6E)";
+        const self = this;
+        new ExplainConfirmModal(this.app, endpoint, block.source, dictionary, async function() {
+          new Notice("\u6B63\u5728\u751F\u6210\u89E3\u91CA\u2026");
+          const service = createAssistanceService({ provider });
+          const result = await service.explain({
+            text: block.source,
+            dictionaryContext: dictionary,
+            grammarContext: self.translationGrammarContext || DEFAULT_GRAMMAR_CONTEXT
+          });
+          if (!result || !result.ok) {
+            new Notice("\u89E3\u91CA\u5931\u8D25\uFF1A" + (result && result.error ? result.error.message : "\u672A\u77E5\u9519\u8BEF"));
+            return;
+          }
+          new ExplainModal(self.app, block.source, result.text).open();
+        }).open();
+      }
+      configureD3() {
+        if (!this._d3) this._d3 = new D3Controller({ maxErrors: 3 });
+        const enabled = !!(this.settings && this.settings.diagnostics && this.settings.diagnostics.editorDecorations);
+        if (!enabled) {
+          this._d3.disable();
+          try {
+            this.app.workspace.updateOptions();
+          } catch (e) {
+          }
+          return;
+        }
+        if (!this._d3Registered) {
+          try {
+            const { createD3Extension } = require_d3_extension();
+            const self = this;
+            const ext = createD3Extension({
+              getIssues: function(text) {
+                return self.lintDocument(text);
+              },
+              isEnabled: function() {
+                return !!(self.settings && self.settings.diagnostics && self.settings.diagnostics.enabled && self.settings.diagnostics.editorDecorations && self._d3 && self._d3.isEnabled());
+              },
+              onFirstUpdate: function() {
+                self.onD3FirstUpdate();
+              },
+              onError: function(stage, err) {
+                self.onD3Error(stage, err);
+              }
+            });
+            if (!ext) {
+              console.warn("[EpXsC D3] host CM6 module unavailable; extension not registered");
+              new Notice("D3\uFF1A\u5BBF\u4E3B CM6 \u4E0D\u53EF\u7528\uFF0C\u6269\u5C55\u672A\u6CE8\u518C");
+              return;
+            }
+            this._d3.enable();
+            this.settings.diagnostics.d3Marker = "enabling";
+            this.saveData(this.settings);
+            this.registerEditorExtension(ext);
+            this._d3Registered = true;
+            console.log("[EpXsC D3] host CM6 extension registered");
+          } catch (e) {
+            this._d3.fail("register", e);
+            console.warn("[EpXsC D3] extension registration failed:", e && e.message ? e.message : e);
+            new Notice("D3\uFF1A\u6269\u5C55\u6CE8\u518C\u5931\u8D25\uFF1A" + (e && e.message ? e.message : e));
+          }
+        } else if (this._d3.state === "disabled" || this._d3.state === "disabled-on-crash") {
+          this._d3.enable();
+          try {
+            this.app.workspace.updateOptions();
+          } catch (e) {
+          }
+        }
+      }
+      onD3FirstUpdate() {
+        if (!this._d3) return;
+        this._d3.activate();
+        if (this.settings && this.settings.diagnostics && this.settings.diagnostics.d3Marker) {
+          this.settings.diagnostics.d3Marker = "";
+          this.saveData(this.settings);
+        }
+      }
+      onD3Error(stage, err) {
+        if (!this._d3) return;
+        const state = this._d3.fail(stage, err);
+        if (state === "disabled-on-crash") {
+          if (this.settings && this.settings.diagnostics) {
+            this.settings.diagnostics.d3Marker = "disabled-on-crash";
+            this.saveData(this.settings);
+          }
+          console.warn("[EpXsC D3] circuit breaker opened:", this._d3.lastError);
+          new Notice("D3 \u8BCA\u65AD\u5DF2\u81EA\u52A8\u505C\u7528\uFF08\u8FDE\u7EED\u9519\u8BEF\uFF09\u3002");
+        }
+      }
+      onunload() {
+        if (this.settings && this.settings.diagnostics && this.settings.diagnostics.d3Marker === "enabling") {
+          this.settings.diagnostics.d3Marker = "";
+          this.saveData(this.settings);
+        }
       }
       getTranslationRenderOptions() {
         return {

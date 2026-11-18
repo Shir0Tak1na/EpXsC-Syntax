@@ -8,7 +8,7 @@ const DEFAULT_SETTINGS = {
   schemaVersion: 1,
   lexicon: { customPaths: [] },
   display: { language: 'auto', fallbackLanguage: '' },
-  diagnostics: { enabled: true, editorDecorations: false },
+  diagnostics: { enabled: true, editorDecorations: false, d3Marker: '' },
   assistance: { enabled: false },
   translation: {
     enabled: false,
@@ -48,7 +48,8 @@ function normalizeSettings(data) {
     },
     diagnostics: {
       enabled: diagnostics.enabled !== false,
-      editorDecorations: diagnostics.editorDecorations === true
+      editorDecorations: diagnostics.editorDecorations === true,
+      d3Marker: String(diagnostics.d3Marker || '').trim()
     },
     assistance: { enabled: assistance.enabled === true },
     translation: {

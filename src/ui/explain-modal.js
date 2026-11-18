@@ -29,4 +29,37 @@ class ExplainModal extends Modal {
   }
   onClose() { this.contentEl.empty(); }
 }
-module.exports = { ExplainModal };
+class ExplainConfirmModal extends Modal {
+  constructor(app, endpoint, source, dictionary, onConfirm) {
+    super(app);
+    this.endpoint = String(endpoint || '');
+    this.source = String(source || '');
+    this.dictionary = String(dictionary || '');
+    this.onConfirm = onConfirm;
+  }
+  onOpen() {
+    const el = this.contentEl;
+    el.empty();
+    el.createEl('h2', { text: '发送前确认' });
+    el.createEl('p', { text: '只发送当前 EpXsC 块和相关词典释义到以下 endpoint。' });
+    el.createEl('p', { text: 'endpoint: ' + this.endpoint });
+    el.createEl('h3', { text: '将发送的块' });
+    const pre = el.createEl('pre');
+    pre.textContent = this.source;
+    pre.style.whiteSpace = 'pre-wrap';
+    if (this.dictionary) {
+      el.createEl('h3', { text: '词典上下文' });
+      const d = el.createEl('pre');
+      d.textContent = this.dictionary;
+      d.style.whiteSpace = 'pre-wrap';
+    }
+    const row = el.createDiv();
+    const cancel = row.createEl('button', { text: '取消' });
+    cancel.addEventListener('click', () => this.close());
+    const ok = row.createEl('button', { text: '发送并解释', cls: 'mod-cta' });
+    ok.addEventListener('click', () => { this.close(); this.onConfirm(); });
+  }
+  onClose() { this.contentEl.empty(); }
+}
+
+module.exports = { ExplainModal, ExplainConfirmModal };

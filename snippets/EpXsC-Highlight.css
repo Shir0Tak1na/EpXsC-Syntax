@@ -1,5 +1,4 @@
-/* ==========================================================================
-   EpXsC-Highlight.css —— 述无空语构造记号（EpXsC）语法高亮 · 配色层
+/* ===================================================================   EpXsC-Highlight.css —— 述无空语构造记号（EpXsC）语法高亮 · 配色层
    --------------------------------------------------------------------------
    配套插件：EpXsC Syntax（.obsidian/plugins/epxsc-syntax）
    插件负责把代码切成 token，本文件只负责上色与外框。
@@ -342,3 +341,7 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
 .epx-completion-word{font-family:var(--font-monospace);font-weight:600}
 .epx-completion-pos,.epx-completion-kind{color:var(--text-muted);font-size:var(--font-ui-smaller)}
 .epx-completion-meaning{color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* D3.2 source-editor lint decoration */
+.cm-line.epx-cm-lint-error,.cm-line.epx-cm-lint-warn{text-decoration-line:underline;text-underline-offset:.18em;text-decoration-thickness:1px}
+.cm-line.epx-cm-lint-error{text-decoration-style:dashed;text-decoration-color:var(--color-red)}
+.cm-line.epx-cm-lint-warn{text-decoration-style:wavy;text-decoration-color:var(--color-orange)}
