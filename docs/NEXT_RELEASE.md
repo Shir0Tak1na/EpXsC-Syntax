@@ -1,13 +1,13 @@
 # Next release checklist
 
-> Current release: **2.1.0**（2026-11-17，无网络阅读层）.
-> Next planned: **2.3.0**（语法诊断层；并入未单独发布的 2.2.0）. Planned 2026-11-18. At most one public GitHub Release per Asia/Shanghai calendar day.
+> Current release: **2.3.0**（2026-11-18，语法诊断层）.
+> Next planned: **2.3.1**（D3.0 evidence + D3.1 safe lifecycle, no decorations）. At most one public GitHub Release per Asia/Shanghai calendar day. At most one public GitHub Release per Asia/Shanghai calendar day.
 
 ## Candidate
 
-- Next version: **2.3.0**（D1/D2 + 2.2 翻译层；D3 推迟到 2.3.x）.
-- Status: release gates pass; runtime smoke pending in SMOKE.md.
-- Base: current `main` after 2.1.0.
+- Next version: **2.3.1**（D3.0 evidence + D3.1 safe lifecycle, no decorations）.
+- Status: external-CM6 no-op spike passed in isolated vault; lifecycle/error injection pending.
+- Base: current `main` at 2.3.0.
 
 ## Steps
 

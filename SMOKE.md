@@ -6,7 +6,7 @@
 ## Build under test
 
 - Version: 2.3.0
-- Build hash / commit: 1cecc1b
+- Build hash / commit: 2.3.0 release (tag 2.3.0)
 - Obsidian version: current installed build (user smoke, 2026-11-17)
 - Platform: Windows
 - Vault: main (user-confirmed)
