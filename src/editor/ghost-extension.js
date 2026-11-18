@@ -44,6 +44,9 @@ function createGhostExtension(options) {
         const pos = sel.head;
         const s = getSuggestion(view.state.doc.toString(), pos);
         if (!s || !s.text) return Decoration.none;
+        if (typeof s.from === 'number' && s.from < s.to) {
+          return Decoration.set([Decoration.replace({ widget: new GhostWidget(s.text) }).range(s.from, s.to)]);
+        }
         return Decoration.set([Decoration.widget({ widget: new GhostWidget(s.text), side: 1 }).range(pos)]);
       } catch (e) {
         return Decoration.none;
@@ -59,9 +62,11 @@ function createGhostExtension(options) {
         if (!view.state.selection.main.empty) return false;
         const s = getSuggestion(view.state.doc.toString(), pos);
         if (!s || !s.text) return false;
+        const from = typeof s.from === 'number' ? s.from : pos;
+        const to = typeof s.to === 'number' ? s.to : pos;
         view.dispatch({
-          changes: { from: pos, to: pos, insert: s.text },
-          selection: { anchor: pos + s.text.length }
+          changes: { from: from, to: to, insert: s.text },
+          selection: { anchor: from + s.text.length }
         });
         event.preventDefault();
         return true;

@@ -3792,6 +3792,9 @@ var require_ghost_extension = __commonJS({
             const pos = sel.head;
             const s = getSuggestion(view.state.doc.toString(), pos);
             if (!s || !s.text) return Decoration.none;
+            if (typeof s.from === "number" && s.from < s.to) {
+              return Decoration.set([Decoration.replace({ widget: new GhostWidget(s.text) }).range(s.from, s.to)]);
+            }
             return Decoration.set([Decoration.widget({ widget: new GhostWidget(s.text), side: 1 }).range(pos)]);
           } catch (e) {
             return Decoration.none;
@@ -3808,9 +3811,11 @@ var require_ghost_extension = __commonJS({
             if (!view.state.selection.main.empty) return false;
             const s = getSuggestion(view.state.doc.toString(), pos);
             if (!s || !s.text) return false;
+            const from = typeof s.from === "number" ? s.from : pos;
+            const to = typeof s.to === "number" ? s.to : pos;
             view.dispatch({
-              changes: { from: pos, to: pos, insert: s.text },
-              selection: { anchor: pos + s.text.length }
+              changes: { from, to, insert: s.text },
+              selection: { anchor: from + s.text.length }
             });
             event.preventDefault();
             return true;
@@ -4698,7 +4703,7 @@ var require_plugin = __commonJS({
         const hit = words[0] || grammar[0];
         if (!hit || hit.word.length <= prefix.length) return null;
         if (hit.word.toLowerCase().indexOf(prefix.toLowerCase()) !== 0) return null;
-        return { text: hit.word.slice(prefix.length), full: hit.word };
+        return { text: hit.word, full: hit.word, from: lineStart + m.index, to: pos };
       }
       configureGhost() {
         if (!this.settings || !this.settings.assistance || this.settings.assistance.enabled !== true || this.settings.assistance.inlineGhost !== true) return;
