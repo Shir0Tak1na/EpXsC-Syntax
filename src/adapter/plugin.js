@@ -351,7 +351,10 @@ class EpXsCSyntaxPlugin extends Plugin {
         self.settings.diagnostics.editorDecorations = false;
         self.settings.diagnostics.d3Marker = '';
         self.saveData(self.settings);
-        new Notice(wasCrash ? 'D3 上次因连续错误停用，已保持关闭。' : 'D3 上次启动未完成，已自动关闭编辑器诊断。');
+        const msg = wasCrash ? 'D3 上次因连续错误停用，已保持关闭。' : 'D3 上次启动未完成，已自动关闭编辑器诊断。';
+        console.warn('[EpXsC D3] ' + msg);
+        if (self.app.workspace.onLayoutReady) self.app.workspace.onLayoutReady(function () { new Notice(msg); });
+        else new Notice(msg);
       }
       self.configureTranslation();
       self.configureD3();

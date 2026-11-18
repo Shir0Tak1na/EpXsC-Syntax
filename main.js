@@ -4202,7 +4202,12 @@ var require_plugin = __commonJS({
             self.settings.diagnostics.editorDecorations = false;
             self.settings.diagnostics.d3Marker = "";
             self.saveData(self.settings);
-            new Notice(wasCrash ? "D3 \u4E0A\u6B21\u56E0\u8FDE\u7EED\u9519\u8BEF\u505C\u7528\uFF0C\u5DF2\u4FDD\u6301\u5173\u95ED\u3002" : "D3 \u4E0A\u6B21\u542F\u52A8\u672A\u5B8C\u6210\uFF0C\u5DF2\u81EA\u52A8\u5173\u95ED\u7F16\u8F91\u5668\u8BCA\u65AD\u3002");
+            const msg = wasCrash ? "D3 \u4E0A\u6B21\u56E0\u8FDE\u7EED\u9519\u8BEF\u505C\u7528\uFF0C\u5DF2\u4FDD\u6301\u5173\u95ED\u3002" : "D3 \u4E0A\u6B21\u542F\u52A8\u672A\u5B8C\u6210\uFF0C\u5DF2\u81EA\u52A8\u5173\u95ED\u7F16\u8F91\u5668\u8BCA\u65AD\u3002";
+            console.warn("[EpXsC D3] " + msg);
+            if (self.app.workspace.onLayoutReady) self.app.workspace.onLayoutReady(function() {
+              new Notice(msg);
+            });
+            else new Notice(msg);
           }
           self.configureTranslation();
           self.configureD3();
