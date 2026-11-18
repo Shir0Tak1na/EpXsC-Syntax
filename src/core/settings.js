@@ -8,7 +8,8 @@ const DEFAULT_SETTINGS = {
   schemaVersion: 1,
   lexicon: { customPaths: [] },
   display: { language: 'auto', fallbackLanguage: '' },
-  diagnostics: { enabled: true, editorDecorations: false },
+  diagnostics: { enabled: true, editorDecorations: false, d3Marker: '' },
+  assistance: { enabled: false, inlineGhost: false },
   translation: {
     enabled: false,
     grammarPath: '',
@@ -35,6 +36,7 @@ function normalizeSettings(data) {
   const display = d.display && typeof d.display === 'object' ? d.display : {};
   const translation = d.translation && typeof d.translation === 'object' ? d.translation : {};
   const diagnostics = d.diagnostics && typeof d.diagnostics === 'object' ? d.diagnostics : {};
+  const assistance = d.assistance && typeof d.assistance === 'object' ? d.assistance : {};
   const language = String(display.language || 'auto').trim() || 'auto';
   const fallback = String(display.fallbackLanguage || '').trim();
   return {
@@ -46,7 +48,12 @@ function normalizeSettings(data) {
     },
     diagnostics: {
       enabled: diagnostics.enabled !== false,
-      editorDecorations: diagnostics.editorDecorations === true
+      editorDecorations: diagnostics.editorDecorations === true,
+      d3Marker: String(diagnostics.d3Marker || '').trim()
+    },
+    assistance: {
+      enabled: assistance.enabled === true,
+      inlineGhost: assistance.inlineGhost === true
     },
     translation: {
       enabled: translation.enabled === true,

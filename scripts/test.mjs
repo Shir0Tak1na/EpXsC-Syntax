@@ -28,6 +28,10 @@ const { createOpenAICompatibleProvider } = nodeRequire('../src/providers/openai-
 const { createTranslationService } = nodeRequire('../src/services/translation-service.js');
 const referenceCore = nodeRequire('../src/core/translation/reference.js');
 const redactCore = nodeRequire('../src/core/translation/redact.js');
+const explainCore = nodeRequire('../src/core/assistance/explain.js');
+const { createAssistanceService } = nodeRequire('../src/services/assistance-service.js');
+const completionCore = nodeRequire('../src/core/completion.js');
+const { D3Controller, shouldDisableOnStartup } = nodeRequire('../src/editor/d3-controller.js');
 const { createReferenceService } = nodeRequire('../src/services/reference-service.js');
 const ordParse = nodeRequire('../src/core/ord/parse.js');
 
@@ -116,6 +120,8 @@ assert.ok(bracketIssues.some(x => x.level === 'error'), 'unclosed brace must be 
 const rangeIssue = bracketIssues.find(x => x.message.includes('没有闭合'));
 assert.ok(rangeIssue && rangeIssue.start === 6 && rangeIssue.end === 7, 'unclosed brace range must point at {');
 const extraBracket = lintText(')', { info: new Map(), units: new Set(), keys: new Set(), spells: new Map() });
+const proseUnit = lintText('Foo() {\n\tluss 1 XU.\n}', { info: new Map(), units: new Set(['mu']), keys: new Set(), spells: new Map() });
+assert.ok(proseUnit.some(x => x.level === 'warn' && x.message.includes('XU')), 'code-like prose should still warn on unknown unit');
 assert.ok(extraBracket.length >= 1 && extraBracket[0].start === 0 && extraBracket[0].end === 1, 'extra bracket range must point at )');
 
 // 7) 数据 parser 冒烟
@@ -265,6 +271,7 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   assert.equal(defaults.display.language, 'auto');
   assert.equal(defaults.diagnostics.enabled, true);
   assert.equal(defaults.diagnostics.editorDecorations, false);
+  assert.equal(defaults.assistance.enabled, false);
   const diagOff = settingsCore.normalizeSettings({ diagnostics: { enabled: false, editorDecorations: true } });
   assert.equal(diagOff.diagnostics.enabled, false);
   assert.equal(diagOff.diagnostics.editorDecorations, true);
@@ -398,6 +405,53 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   const stopped = await pending;
   assert.equal(stopped.ok, false);
   assert.equal(stopped.error.code, 'CANCELLED');
+}
+
+// 13f) D4.1 offline completion
+{
+  const span = completionCore.wordAt('Foo Aqua', 6);
+  assert.equal(span.prefix, 'Aq');
+  assert.equal(span.start, 4);
+  const info = new Map([
+    ['aqua', { pos: '名词', meaning: '水元素', abbr: 'Aqu' }],
+    ['avis', { pos: '名词', meaning: '鸟', abbr: '' }]
+  ]);
+  const words = completionCore.wordCandidates(info, 'aq', 10);
+  assert.ok(words.some((x) => x.word === 'aqua'));
+  assert.ok(!words.some((x) => x.word === 'avis'), 'prefix must be honored');
+  const grammar = { lists: { keyword: ['de'], predicate: ['plur'], unit: ['MU'] } };
+  const gr = completionCore.grammarCandidates(grammar, 'p', 10);
+  assert.ok(gr.some((x) => x.word === 'plur'));
+}
+
+// 13h) D4.2 read-only explanation
+{
+  const messages = explainCore.buildExplainMessages({ text: 'Plur Aqua', dictionaryContext: 'plur = 净化', grammarContext: 'VSO' });
+  assert.equal(messages.length, 2);
+  assert.ok(messages[1].content.indexOf('Plur Aqua') >= 0);
+  const svc = createAssistanceService({ provider: { chat: async () => ({ ok: true, text: '解释文本' }) } });
+  const out = await svc.explain({ text: 'Plur Aqua' });
+  assert.equal(out.ok, true);
+  assert.equal(out.text, '解释文本');
+}
+
+// 13g) D3 lifecycle controller
+{
+  const d3 = new D3Controller({ maxErrors: 3 });
+  assert.equal(d3.state, 'disabled');
+  assert.equal(d3.enable(), 'enabling');
+  assert.equal(d3.activate(), 'active');
+  d3.fail('build', new Error('one'));
+  assert.equal(d3.state, 'active');
+  d3.fail('build', new Error('one'));
+  d3.fail('build', new Error('one'));
+  assert.equal(d3.state, 'disabled-on-crash');
+  assert.equal(d3.isEnabled(), false);
+  d3.disable();
+  assert.equal(d3.state, 'disabled');
+  assert.equal(shouldDisableOnStartup('enabling'), true);
+  assert.equal(shouldDisableOnStartup('disabled-on-crash'), true);
+  assert.equal(shouldDisableOnStartup(''), false);
 }
 
 // 14) SpellRegistry / LintService 薄服务

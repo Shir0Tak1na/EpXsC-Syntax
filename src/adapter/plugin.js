@@ -20,7 +20,12 @@ const { EpXsSettingsTab } = require('../ui/settings-tab.js');
 const { createOpenAICompatibleProvider } = require('../providers/openai-compatible.js');
 const { createTranslationService } = require('../services/translation-service.js');
 const { createReferenceService } = require('../services/reference-service.js');
+const { createAssistanceService } = require('../services/assistance-service.js');
+const { ExplainModal, ExplainConfirmModal } = require('../ui/explain-modal.js');
 const { ReferenceModal } = require('../ui/reference-modal.js');
+const { CompletionModal } = require('../ui/completion-modal.js');
+const { D3Controller, shouldDisableOnStartup } = require('../editor/d3-controller.js');
+const completionCore = require('../core/completion.js');
 const { normalizeProviderConfig, validateProviderConfig } = require('../core/translation/request.js');
 const { DEFAULT_GRAMMAR_CONTEXT, extractGrammarContext } = require('../core/translation/grammar.js');
 const { markSpellRefs, markVarUse, bracketKinds, parseVarTypes, markDictKeys, markBracketDepth } = require('../core/markup.js');
@@ -38,7 +43,7 @@ const LANG_KEYS = ['EpXsC', 'epxsc', 'EPXSC'];
 const CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
 const { DICT_PATH, RANK_PATH, SYNTAX_PATH, GRAMMAR_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES } = require('./config.js');
 
-const BUILD = '2.3.0';
+const BUILD = '2.3.2';
 
 /* 一个 token 可能带多个类（如 typeParam + type），按语义优先级取第一个 */
 const { SECTION_POS, EXTRA_WORDS, SYMBOL_INFO, pickClass, bracketTip, variableTip, negScopeText, coordTip, rankDef, rankSpan, buildTip } = require('../ui/tooltip.js');
@@ -328,10 +333,35 @@ class EpXsCSyntaxPlugin extends Plugin {
       name: '从中文生成 EpXs 参考',
       callback: function () { new ReferenceModal(self.app, self).open(); }
     });
+    this.addCommand({
+      id: 'complete-word',
+      name: 'EpXsC 词条补全',
+      callback: function () { self.openCompletion(); }
+    });
+    this.addCommand({
+      id: 'explain-epxsc-block',
+      name: '解释当前 EpXsC 块（只读）',
+      callback: function () { self.explainActiveBlock(); }
+    });
     this.loadData().then(function (data) {
       self.settings = normalizeSettings(data);
       self.translationLanguage = (self.settings.display.language !== 'auto') ? self.settings.display.language : detectLanguage(self.app);
+      if (shouldDisableOnStartup(self.settings.diagnostics.d3Marker)) {
+        const wasCrash = self.settings.diagnostics.d3Marker === 'disabled-on-crash';
+        self.settings.diagnostics.enabled = false;
+        self.settings.diagnostics.editorDecorations = false;
+        self.settings.diagnostics.d3Marker = '';
+        self.saveData(self.settings);
+        window.__epxscD3Enabled = false;
+        try { self.app.workspace.updateOptions(); } catch (e) { /* best effort */ }
+        const msg = wasCrash ? 'D3 上次因连续错误停用，诊断已暂停。' : 'D3 上次启动未完成，诊断已暂停（含阅读视图下划线）。';
+        console.warn('[EpXsC D3] ' + msg);
+        if (self.app.workspace.onLayoutReady) self.app.workspace.onLayoutReady(function () { new Notice(msg, 10000); });
+        else new Notice(msg, 10000);
+      }
       self.configureTranslation();
+      self.configureD3();
+      self.configureGhost();
       self.getGrammarContext().then(function (g) { self.translationGrammarContext = g; });
       self.refresh();
     }).catch(function (err) { console.warn('[EpXsC Syntax] 设置读取失败，使用默认值：', err); });
@@ -501,6 +531,8 @@ class EpXsCSyntaxPlugin extends Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
     this.configureTranslation();
+    this.configureD3();
+    this.configureGhost();
     await this.refresh();
   }
 
@@ -633,6 +665,246 @@ class EpXsCSyntaxPlugin extends Plugin {
       if (e) parts.push(words[i] + ' = ' + (e.meaning || e.pos || ''));
     }
     return parts.join('; ');
+  }
+
+  getSourceUnknownRanges(text) {
+    const src = String(text || '');
+    const lines = src.split('\n');
+    const out = [];
+    const fence = String.fromCharCode(96).repeat(3);
+    let inBlock = false;
+    let offset = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim().toLowerCase();
+      if (trimmed.indexOf(fence) === 0) {
+        const lang = trimmed.slice(fence.length).trim();
+        if (!inBlock && /^(epxsc|epxst|epxsg)$/.test(lang)) inBlock = true;
+        else if (inBlock) inBlock = false;
+        offset += line.length + 1;
+        continue;
+      }
+      if (inBlock && !/^\s*>/.test(line)) {
+        const re = /[A-Za-z][A-Za-z0-9_-]*/g;
+        let m;
+        while ((m = re.exec(line))) {
+          if (m[0].length < 4) continue;
+          if (this.info.has(m[0].toLowerCase())) continue;
+          out.push({ from: offset + m.index, to: offset + m.index + m[0].length, text: m[0] });
+        }
+      }
+      offset += line.length + 1;
+    }
+    return out;
+  }
+
+  lintDocument(text) {
+    const blocks = extractEpXsCBlocks(String(text || ''));
+    const issues = [];
+    for (let b = 0; b < blocks.length; b++) {
+      const found = this.lintForSource(blocks[b].source, '');
+      for (let i = 0; i < found.length; i++) {
+        issues.push({ level: found[i].level, line: blocks[b].line + found[i].line, message: found[i].message, approximate: found[i].approximate });
+      }
+    }
+    return issues;
+  }
+
+  openCompletion() {
+    if (!this.settings || !this.settings.assistance || this.settings.assistance.enabled !== true) {
+      new Notice('词典补全未启用：请先在设置中开启“辅助”。');
+      return;
+    }
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view || !view.editor) { new Notice('请先打开一个 Markdown 笔记'); return; }
+    new CompletionModal(this.app, this, view.editor).open();
+  }
+
+  getActiveEpXsCBlock() {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view || !view.editor) return null;
+    const text = view.editor.getValue();
+    const lines = text.split('\n');
+    const cursorLine = view.editor.getCursor().line;
+    let start = -1;
+    for (let i = cursorLine; i >= 0; i--) {
+      if (/^\s*```\s*EpXsC\s*$/i.test(lines[i])) { start = i; break; }
+      if (/^\s*```/.test(lines[i])) break;
+    }
+    if (start < 0) return null;
+    let end = -1;
+    for (let i = start + 1; i < lines.length; i++) {
+      if (/^\s*```\s*$/.test(lines[i])) { end = i; break; }
+    }
+    if (end < 0) return null;
+    return { source: lines.slice(start + 1, end).join('\n'), startLine: start + 1 };
+  }
+
+  getAssistanceProvider() {
+    if (this.translationProvider) return this.translationProvider;
+    const tr = this.settings && this.settings.translation;
+    if (!tr) return null;
+    const cfg = normalizeProviderConfig(tr.provider);
+    const check = validateProviderConfig(cfg);
+    if (!check.ok) return null;
+    return createOpenAICompatibleProvider({
+      config: cfg,
+      request: async function (opts) { return await requestUrl(opts); }
+    });
+  }
+
+  async explainActiveBlock() {
+    if (!this.settings || !this.settings.assistance || this.settings.assistance.enabled !== true) {
+      new Notice('解释功能未启用：请先在设置中开启“辅助”。');
+      return;
+    }
+    const block = this.getActiveEpXsCBlock();
+    if (!block) { new Notice('光标不在 EpXsC 代码块内。'); return; }
+    const provider = this.getAssistanceProvider();
+    if (!provider) { new Notice('请先配置辅助模型（Base URL / Model）。'); return; }
+    const dictionary = this.getTranslationContext(block.source);
+    const endpoint = provider.config && provider.config.baseUrl || '(未配置)';
+    const self = this;
+    new ExplainConfirmModal(this.app, endpoint, block.source, dictionary, async function () {
+      new Notice('正在生成解释…');
+      const service = createAssistanceService({ provider: provider });
+      const result = await service.explain({
+        text: block.source,
+        dictionaryContext: dictionary,
+        grammarContext: self.translationGrammarContext || DEFAULT_GRAMMAR_CONTEXT
+      });
+      if (!result || !result.ok) {
+        new Notice('解释失败：' + (result && result.error ? result.error.message : '未知错误'));
+        return;
+      }
+      new ExplainModal(self.app, block.source, result.text).open();
+    }).open();
+  }
+
+  configureD3() {
+    if (!this._d3) this._d3 = new D3Controller({ maxErrors: 3 });
+    const enabled = !!(this.settings && this.settings.diagnostics && this.settings.diagnostics.editorDecorations);
+    window.__epxscD3Enabled = enabled;
+    if (!enabled) {
+      this._d3.disable();
+      try { this.app.workspace.updateOptions(); } catch (e) { /* best effort */ }
+      return;
+    }
+    if (!this._d3Registered) {
+      try {
+        const { createD3Extension } = require('../editor/d3-extension.js');
+        const self = this;
+        const ext = createD3Extension({
+          getIssues: function (text) { return self.lintDocument(text); },
+          getUnknowns: function (text) { return self.getSourceUnknownRanges(text); },
+          isEnabled: function () {
+            return !!(window.__epxscD3Enabled === true && self.settings && self.settings.diagnostics && self.settings.diagnostics.enabled && self.settings.diagnostics.editorDecorations && self._d3 && self._d3.isEnabled());
+          },
+          onFirstUpdate: function () { self.onD3FirstUpdate(); },
+          onError: function (stage, err) { self.onD3Error(stage, err); }
+        });
+        if (!ext) {
+          console.warn('[EpXsC D3] host CM6 module unavailable; extension not registered');
+          new Notice('D3：宿主 CM6 不可用，扩展未注册');
+          return;
+        }
+        this._d3.enable();
+        this.settings.diagnostics.d3Marker = 'enabling';
+        this.saveData(this.settings);
+        this.registerEditorExtension(ext);
+        this._d3Registered = true;
+        console.log('[EpXsC D3] host CM6 extension registered');
+      } catch (e) {
+        this._d3.fail('register', e);
+        console.warn('[EpXsC D3] extension registration failed:', e && e.message ? e.message : e);
+        new Notice('D3：扩展注册失败：' + (e && e.message ? e.message : e));
+      }
+    } else if (this._d3.state === 'disabled') {
+      this._d3.enable();
+      try { this.app.workspace.updateOptions(); } catch (e) { /* best effort */ }
+    }
+  }
+
+  onD3FirstUpdate() {
+    if (!this._d3) return;
+    this._d3.activate();
+    if (this._d3.state === 'active' && this.settings && this.settings.diagnostics && this.settings.diagnostics.d3Marker) {
+      this.settings.diagnostics.d3Marker = '';
+      this.saveData(this.settings);
+    }
+  }
+
+  onD3Error(stage, err) {
+    if (!this._d3) return;
+    const state = this._d3.fail(stage, err);
+    if (state === 'disabled-on-crash') {
+      if (this.settings && this.settings.diagnostics) {
+        this.settings.diagnostics.d3Marker = 'disabled-on-crash';
+        this.saveData(this.settings);
+      }
+      console.warn('[EpXsC D3] circuit breaker opened:', this._d3.lastError);
+      new Notice('D3 诊断已自动停用（连续错误）。');
+    }
+  }
+
+
+  onunload() {
+    if (this.settings && this.settings.diagnostics && this.settings.diagnostics.d3Marker === 'enabling') {
+      this.settings.diagnostics.d3Marker = '';
+      this.saveData(this.settings);
+    }
+  }
+
+  getInlineSuggestion(text, pos) {
+    if (!this.settings || !this.settings.assistance || this.settings.assistance.enabled !== true || this.settings.assistance.inlineGhost !== true) return null;
+    const src = String(text || '');
+    const lineStart = src.lastIndexOf('\n', Math.max(0, pos - 1)) + 1;
+    let lineEnd = src.indexOf('\n', pos);
+    if (lineEnd < 0) lineEnd = src.length;
+    const line = src.slice(lineStart, lineEnd);
+    const col = pos - lineStart;
+    if (/^\s*>/.test(line)) return null;
+    if (col > 0 && /[A-Za-z0-9_-]/.test(line.charAt(col))) return null;
+    const m = /([A-Za-z][A-Za-z0-9_-]*)$/.exec(line.slice(0, col));
+    if (!m || m[1].length < 1) return null;
+    const prefix = m[1];
+    const before = src.slice(0, lineStart).split('\n');
+    const fence = String.fromCharCode(96).repeat(3);
+    let start = -1;
+    const ghostLangs = ['epxsc', 'epxst', 'epxsg'];
+    for (let i = before.length - 1; i >= 0; i--) {
+      const t = before[i].trim().toLowerCase();
+      if (t.indexOf(fence) === 0) {
+        const lang = t.slice(fence.length).trim();
+        if (ghostLangs.indexOf(lang) >= 0) start = i;
+        break;
+      }
+    }
+    if (start < 0) return null;
+    const words = completionCore.wordCandidates(this.info, prefix, 1);
+    const grammar = completionCore.grammarCandidates(this.grammar, prefix, 1);
+    const hit = words[0] || grammar[0];
+    if (!hit || hit.word.length <= prefix.length) return null;
+    if (hit.word.toLowerCase().indexOf(prefix.toLowerCase()) !== 0) return null;
+    return { text: hit.word.slice(prefix.length), full: hit.word, from: pos, to: pos };
+  }
+
+  configureGhost() {
+    if (!this.settings || !this.settings.assistance || this.settings.assistance.enabled !== true || this.settings.assistance.inlineGhost !== true) return;
+    if (this._ghostRegistered) return;
+    try {
+      const { createGhostExtension } = require('../editor/ghost-extension.js');
+      const self = this;
+      const ext = createGhostExtension({
+        getSuggestion: function (text, pos) { return self.getInlineSuggestion(text, pos); },
+        isEnabled: function () { return !!(self.settings && self.settings.assistance && self.settings.assistance.enabled && self.settings.assistance.inlineGhost); }
+      });
+      if (!ext) { console.warn('[EpXsC Ghost] host CM6 unavailable'); return; }
+      this.registerEditorExtension(ext);
+      this._ghostRegistered = true;
+    } catch (e) {
+      console.warn('[EpXsC Ghost] registration failed:', e && e.message ? e.message : e);
+    }
   }
 
   getTranslationRenderOptions() {

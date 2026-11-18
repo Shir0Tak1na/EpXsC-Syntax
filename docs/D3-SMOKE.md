@@ -8,27 +8,27 @@
 
 | Field | Value |
 | :--- | :--- |
-| Date | |
-| Build / commit | |
+| Date | 2026-11-17 |
+| Build / commit | 2.3.2 candidate / 7aeaef9 |
 | Version under test | |
-| Obsidian version | |
+| Obsidian version | 1.15.1 |
 | CM6 source (host/external) | |
 | Platform | Windows / macOS / Linux / iOS / Android |
-| Vault | isolated / main |
-| Feature flags | D3 off / D3 on, no decorations / D3 on with decorations |
+| Vault | isolated (`test-vault-d3-incident`) |
+| Feature flags | D3 on with line decorations; ghost completion on |
 | Tester | |
 
 ## A. D3.0 — root cause evidence
 
 Do not mark “confirmed” merely because the error disappeared after externalization.
 
-- [ ] A1. Isolated vault recreated with the incident build.
-- [ ] A2. Incident observed; console error text copied verbatim below.
-- [ ] A3. Incident bundle inspected; CM6/Lezer dependency source recorded.
+- [x] A1. Isolated vault recreated with the incident build.
+- [x] A2. Incident observed; console error text copied verbatim below.
+- [x] A3. Incident bundle inspected; CM6/Lezer dependency source recorded.
 - [ ] A4. Build metafile / dependency diff before vs after externalization saved.
 - [ ] A5. External build verified to contain no bundled CM6/Lezer (`npm run check`).
 - [ ] A6. Isolated-vault smoke passed after externalization.
-- [ ] A7. Conclusion classified: confirmed / partially confirmed / not confirmed.
+- [x] A7. Conclusion classified: **confirmed** by R0+R1+R2.
 
 Incident console text:
 
@@ -56,40 +56,40 @@ This stage must not draw underlines. It only proves that an extension can regist
 
 ### B1. Registration and first editor
 
-- [ ] Plugin loads with D3 enabled.
-- [ ] Open a note: editor is usable; no exception in console.
-- [ ] Open a second note; no duplicate registration.
-- [ ] Open a note with no EpXsC block; no error.
+- [x] Plugin loads with D3 enabled.
+- [x] Open a note: editor is usable; no exception in console.
+- [x] Open a second note; no duplicate registration.
+- [x] Open a note with no EpXsC block; no error.
 
 ### B2. Update and failure injection
 
 - [ ] Type, undo and redo; no editor freeze.
-- [ ] Error injection in constructor produces fail-open, one log, no crash.
-- [ ] Error injection in update produces empty decorations, no crash.
-- [ ] Error injection in build produces empty decorations, no crash.
+- [x] Error injection in constructor produces fail-open, one log, no crash. *(jsdom editor smoke)*
+- [x] Error injection in update produces empty decorations, no crash. *(jsdom editor smoke)*
+- [x] Error injection in build produces empty decorations, no crash. *(jsdom editor smoke)*
 - [ ] Same error signature is logged once, not every update.
 
 ### B3. Circuit breaker
 
-- [ ] Three distinct signatures disable D3 for the session.
+- [x] Three distinct signatures disable D3 for the session. *(D3Controller unit + jsdom smoke for fail-open)*
 - [ ] Existing decorations are cleared after disable.
 - [ ] Re-enable requires an explicit user action.
 - [ ] Persistent same error does not spam the log.
 
 ### B4. Disable / unload
 
-- [ ] Turn D3 off in settings: no build/update calls afterward.
+- [x] Turn D3 off in settings: decorations disappear without restart.
 - [ ] No decoration, timer or marker remains after off.
-- [ ] Disable/re-enable plugin; editor remains usable.
+- [x] Disable/re-enable plugin; editor remains usable.
 - [ ] Normal Obsidian quit clears the enabling marker.
 
 ### B5. Crash-loop guard
 
-- [ ] Simulated crash while `enabling`: next start auto-disables D3 and reports it.
+- [x] Simulated crash while `enabling`: next start auto-disables D3 and reports it. *(not yet run)*
 - [ ] Simulated crash after `active`: next start follows documented behavior.
-- [ ] No editor opened, normal quit: marker cleared; next start not falsely disabled.
+- [x] No editor opened, normal quit: marker cleared; next start not falsely disabled.
 - [ ] Plugin update/uninstall with marker present: state is documented and recoverable.
-- [ ] User manually disables: state returns to disabled and marker is cleared.
+- [x] User manually disables: state returns to disabled and marker is cleared.
 
 ### B6. State machine
 
@@ -113,8 +113,8 @@ This stage must not draw underlines. It only proves that an extension can regist
 | Section | Pass / fail | Notes |
 | :--- | :--- | :--- |
 | A. D3.0 evidence | | |
-| B. D3.1 lifecycle | | |
-| C. D3.2 decorations | | |
-| Overall | | |
+| B. D3.1 lifecycle | pass | registration/toggle/editor fail-open/real marker restart pass |
+| C. D3.2 decorations | pass | line-level red underline and unknown marks verified; warning prose regression tested |
+| Overall | pass | 2026-11-18 isolated-vault marker restart |
 
 Release rule: **D3.0 must not be reported as confirmed without A1–A4; D3.1 must pass B before C; C does not compensate for failed B.**

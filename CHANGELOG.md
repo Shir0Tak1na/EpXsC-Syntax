@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.3.2
+
+发布日期：2026-11-19
+
+**2.3.2 是受控的编辑器诊断与离线/只读辅助层。默认关闭实验性编辑器装饰。**
+
+### D3 编辑器诊断
+
+- external CM6：不打包第二份 CodeMirror；隔离库验证宿主扩展注册成功。
+- 源码/Live Preview 行级诊断：错误红色虚线，警告橙色波浪线。
+- D3 state machine：`disabled → enabling → active → disabled-on-crash`。
+- 首次 update 清除 enabling marker；启动残留 marker 自动关闭。
+- 3 个不同错误签名触发熔断；关闭后不重建装饰。
+- `diagnostics.editorDecorations` 默认关闭；切换后调用 `app.workspace.updateOptions()`。
+
+### D4 辅助
+
+- D4.1 离线词条补全：词典/语法候选，用户选择后插入，不联网。
+- D4.2 只读 EpXsC 解释：显式命令、发送前确认、当前块 + 相关释义，不自动写 Markdown。
+- `assistance.enabled` 默认关闭。
+
+### 安全
+
+- `main.js` 不包含 CM6/Lezer 实现；CI 用 esbuild metafile 检查。
+- 实验编辑器扩展只在隔离库验证；主库安装需要 D3-SMOKE。
+
 ## 2.3.0
 
 发布日期：2026-11-18

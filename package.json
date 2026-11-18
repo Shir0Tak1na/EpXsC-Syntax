@@ -1,18 +1,21 @@
 {
   "name": "epxsc-syntax",
-  "version": "2.3.0",
+  "version": "2.3.2",
   "private": true,
   "description": "Obsidian plugin: EpXsC syntax highlighting, hover dictionary, and linting",
   "scripts": {
     "build": "node scripts/build.mjs",
     "check": "node scripts/validate.mjs && node scripts/check-no-codemirror.mjs && node scripts/generate-lexicon.mjs --check",
-    "test": "node scripts/test.mjs && node scripts/fixture-runner.mjs && node scripts/cli-test.mjs",
+    "test": "node scripts/test.mjs && node scripts/fixture-runner.mjs && node scripts/cli-test.mjs && node scripts/test-editor.mjs",
     "bench": "node scripts/bench.mjs",
     "release:check": "node scripts/check-release-assets.mjs"
   },
   "license": "Apache-2.0",
   "devDependencies": {
-    "esbuild": "^0.25.0"
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "esbuild": "^0.25.0",
+    "jsdom": "^24.1.3"
   },
   "bin": {
     "epxsc": "bin/epxsc.mjs"

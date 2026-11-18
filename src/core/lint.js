@@ -66,7 +66,21 @@ function lintText(text, ctx) {
     }
   }
   for (let i = 0; i < stack.length; i++) push('error', stack[i].line, '「' + stack[i].ch + '」没有闭合', stack[i].column, stack[i].column + 1);
-  if (prose) return issues;
+  if (prose) {
+    /* Prose blocks intentionally skip spell-syntax rules, but a code-like line
+       (semicolon/brace or a known spell keyword) should still surface an unknown unit. */
+    for (let i = 0; i < lines.length; i++) {
+      if (!/[;{}]|\b(luss|limit|pretium|keal|keol|solum|hauri)\b/i.test(lines[i])) continue;
+      const re = /(\d)[ \t]*([A-Za-z_][A-Za-z0-9_]*)/g;
+      let m;
+      while ((m = re.exec(lines[i]))) {
+        if (units.has(m[2].toLowerCase())) continue;
+        const unitStart = m.index + m[0].length - m[2].length;
+        push('warn', i + 1, '「' + m[1] + ' ' + m[2] + '」——' + m[2] + ' 不是登记过的单位', unitStart, unitStart + m[2].length);
+      }
+    }
+    return issues;
+  }
 
   /* 条款次序：载体制 → 对象 → 限制 → 代价 → 触发 → 效果 → 能量 */
   const lead = function (s) { return (s.match(/^[ \t]*/) || [''])[0].length; };
