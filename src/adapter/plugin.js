@@ -655,6 +655,7 @@ class EpXsCSyntaxPlugin extends Plugin {
     const enabled = !!(this.settings && this.settings.diagnostics && this.settings.diagnostics.editorDecorations);
     if (!enabled) {
       this._d3.disable();
+      try { this.app.workspace.updateOptions(); } catch (e) { /* best effort */ }
       return;
     }
     if (!this._d3Registered) {
@@ -688,6 +689,7 @@ class EpXsCSyntaxPlugin extends Plugin {
       }
     } else if (this._d3.state === 'disabled' || this._d3.state === 'disabled-on-crash') {
       this._d3.enable();
+      try { this.app.workspace.updateOptions(); } catch (e) { /* best effort */ }
     }
   }
 
