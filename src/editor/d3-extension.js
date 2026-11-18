@@ -18,6 +18,8 @@ function createD3Extension(options) {
   const getIssues = typeof opts.getIssues === 'function' ? opts.getIssues : function () { return []; };
   const isEnabled = typeof opts.isEnabled === 'function' ? opts.isEnabled : function () { return true; };
   const onError = typeof opts.onError === 'function' ? opts.onError : function () {};
+  const onFirstUpdate = typeof opts.onFirstUpdate === 'function' ? opts.onFirstUpdate : function () {};
+  let firstUpdateDone = false;
 
   function build(view) {
     const builder = new RangeSetBuilder();
@@ -57,6 +59,7 @@ function createD3Extension(options) {
     }
     update(update) {
       if (update.docChanged || update.viewportChanged) this.decorations = this.safeBuild(update.view);
+      if (!firstUpdateDone) { firstUpdateDone = true; try { onFirstUpdate(); } catch (e) { /* best effort */ } }
     }
     safeBuild(view) {
       try { return build(view); } catch (e) { onError('build', e); return new RangeSetBuilder().finish(); }

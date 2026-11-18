@@ -833,7 +833,7 @@ var require_settings = __commonJS({
       schemaVersion: 1,
       lexicon: { customPaths: [] },
       display: { language: "auto", fallbackLanguage: "" },
-      diagnostics: { enabled: true, editorDecorations: false },
+      diagnostics: { enabled: true, editorDecorations: false, d3Marker: "" },
       translation: {
         enabled: false,
         grammarPath: "",
@@ -869,7 +869,8 @@ var require_settings = __commonJS({
         },
         diagnostics: {
           enabled: diagnostics.enabled !== false,
-          editorDecorations: diagnostics.editorDecorations === true
+          editorDecorations: diagnostics.editorDecorations === true,
+          d3Marker: String(diagnostics.d3Marker || "").trim()
         },
         translation: {
           enabled: translation.enabled === true,
@@ -3349,6 +3350,9 @@ var require_d3_extension = __commonJS({
       };
       const onError = typeof opts.onError === "function" ? opts.onError : function() {
       };
+      const onFirstUpdate = typeof opts.onFirstUpdate === "function" ? opts.onFirstUpdate : function() {
+      };
+      let firstUpdateDone = false;
       function build(view) {
         const builder = new RangeSetBuilder();
         if (!isEnabled()) return builder.finish();
@@ -3392,6 +3396,13 @@ var require_d3_extension = __commonJS({
         }
         update(update) {
           if (update.docChanged || update.viewportChanged) this.decorations = this.safeBuild(update.view);
+          if (!firstUpdateDone) {
+            firstUpdateDone = true;
+            try {
+              onFirstUpdate();
+            } catch (e) {
+            }
+          }
         }
         safeBuild(view) {
           try {
@@ -4072,50 +4083,75 @@ var require_plugin = __commonJS({
         return issues;
       }
       configureD3() {
+        if (!this._d3) this._d3 = new D3Controller({ maxErrors: 3 });
         const enabled = !!(this.settings && this.settings.diagnostics && this.settings.diagnostics.editorDecorations);
         if (!enabled) {
-          this._d3Disabled = false;
+          this._d3.disable();
           return;
         }
-        if (this._d3Registered) return;
-        try {
-          const { createD3Extension } = require_d3_extension();
-          const self = this;
-          const ext = createD3Extension({
-            getIssues: function(text) {
-              return self.lintDocument(text);
-            },
-            isEnabled: function() {
-              return !!(self.settings && self.settings.diagnostics && self.settings.diagnostics.enabled && self.settings.diagnostics.editorDecorations && !self._d3Disabled);
-            },
-            onError: function(stage, err) {
-              self.onD3Error(stage, err);
+        if (!this._d3Registered) {
+          try {
+            const { createD3Extension } = require_d3_extension();
+            const self = this;
+            const ext = createD3Extension({
+              getIssues: function(text) {
+                return self.lintDocument(text);
+              },
+              isEnabled: function() {
+                return !!(self.settings && self.settings.diagnostics && self.settings.diagnostics.enabled && self.settings.diagnostics.editorDecorations && self._d3 && self._d3.isEnabled());
+              },
+              onFirstUpdate: function() {
+                self.onD3FirstUpdate();
+              },
+              onError: function(stage, err) {
+                self.onD3Error(stage, err);
+              }
+            });
+            if (!ext) {
+              console.warn("[EpXsC D3] host CM6 module unavailable; extension not registered");
+              new Notice("D3\uFF1A\u5BBF\u4E3B CM6 \u4E0D\u53EF\u7528\uFF0C\u6269\u5C55\u672A\u6CE8\u518C");
+              return;
             }
-          });
-          if (ext) {
+            this._d3.enable();
+            this.settings.diagnostics.d3Marker = "enabling";
+            this.saveData(this.settings);
             this.registerEditorExtension(ext);
             this._d3Registered = true;
-            this._d3State = "active";
             console.log("[EpXsC D3] host CM6 extension registered");
             new Notice("D3\uFF1A\u7F16\u8F91\u5668\u8BCA\u65AD\u5DF2\u542F\u7528");
-          } else {
-            console.warn("[EpXsC D3] host CM6 module unavailable; extension not registered");
-            new Notice("D3\uFF1A\u5BBF\u4E3B CM6 \u4E0D\u53EF\u7528\uFF0C\u6269\u5C55\u672A\u6CE8\u518C");
+          } catch (e) {
+            this._d3.fail("register", e);
+            console.warn("[EpXsC D3] extension registration failed:", e && e.message ? e.message : e);
+            new Notice("D3\uFF1A\u6269\u5C55\u6CE8\u518C\u5931\u8D25\uFF1A" + (e && e.message ? e.message : e));
           }
-        } catch (e) {
-          console.warn("[EpXsC D3] extension registration failed:", e && e.message ? e.message : e);
-          new Notice("D3\uFF1A\u6269\u5C55\u6CE8\u518C\u5931\u8D25\uFF1A" + (e && e.message ? e.message : e));
+        } else if (this._d3.state === "disabled" || this._d3.state === "disabled-on-crash") {
+          this._d3.enable();
+        }
+      }
+      onD3FirstUpdate() {
+        if (!this._d3) return;
+        this._d3.activate();
+        if (this.settings && this.settings.diagnostics && this.settings.diagnostics.d3Marker) {
+          this.settings.diagnostics.d3Marker = "";
+          this.saveData(this.settings);
         }
       }
       onD3Error(stage, err) {
-        if (!this._d3ErrorSignatures) this._d3ErrorSignatures = /* @__PURE__ */ new Set();
-        const sig = String(stage) + ":" + String(err && err.message || err);
-        if (!this._d3ErrorSignatures.has(sig)) this._d3ErrorSignatures.add(sig);
-        if (this._d3ErrorSignatures.size >= 3) {
-          this._d3Disabled = true;
-          this._d3State = "disabled-on-crash";
-          console.warn("[EpXsC D3] circuit breaker opened:", sig);
+        if (!this._d3) return;
+        const state = this._d3.fail(stage, err);
+        if (state === "disabled-on-crash") {
+          if (this.settings && this.settings.diagnostics) {
+            this.settings.diagnostics.d3Marker = "disabled-on-crash";
+            this.saveData(this.settings);
+          }
+          console.warn("[EpXsC D3] circuit breaker opened:", this._d3.lastError);
           new Notice("D3 \u8BCA\u65AD\u5DF2\u81EA\u52A8\u505C\u7528\uFF08\u8FDE\u7EED\u9519\u8BEF\uFF09\u3002");
+        }
+      }
+      onunload() {
+        if (this.settings && this.settings.diagnostics && this.settings.diagnostics.d3Marker === "enabling") {
+          this.settings.diagnostics.d3Marker = "";
+          this.saveData(this.settings);
         }
       }
       getTranslationRenderOptions() {
