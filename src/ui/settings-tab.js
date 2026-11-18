@@ -96,7 +96,7 @@ class EpXsSettingsTab extends PluginSettingTab {
     const asst = this.plugin.settings.assistance;
     new Setting(containerEl)
       .setName('EpXsT 内联预测（实验）')
-      .setDesc('在 EpXsT 源句行内显示词典补全的灰色影子；Tab 接受，默认关闭。')
+      .setDesc('在 EpXsC / EpXsT / EpXsG 源行内显示词典补全的灰色影子；Tab 接受，默认关闭。')
       .addToggle((toggle) => toggle.setValue(!!asst.inlineGhost).onChange(async (value) => {
         asst.inlineGhost = !!value;
         await this.persist();

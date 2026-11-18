@@ -857,10 +857,14 @@ class EpXsCSyntaxPlugin extends Plugin {
     const before = src.slice(0, lineStart).split('\n');
     const fence = String.fromCharCode(96).repeat(3);
     let start = -1;
+    const ghostLangs = ['epxsc', 'epxst', 'epxsg'];
     for (let i = before.length - 1; i >= 0; i--) {
       const t = before[i].trim().toLowerCase();
-      if (t === (fence + 'epxst')) { start = i; break; }
-      if (t.indexOf(fence) === 0) break;
+      if (t.indexOf(fence) === 0) {
+        const lang = t.slice(fence.length).trim();
+        if (ghostLangs.indexOf(lang) >= 0) start = i;
+        break;
+      }
     }
     if (start < 0) return null;
     const words = completionCore.wordCandidates(this.info, prefix, 1);

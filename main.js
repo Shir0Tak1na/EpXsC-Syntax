@@ -966,7 +966,7 @@ var require_settings_tab = __commonJS({
         }));
         containerEl.createEl("h3", { text: "\u8F85\u52A9" });
         const asst = this.plugin.settings.assistance;
-        new Setting(containerEl).setName("EpXsT \u5185\u8054\u9884\u6D4B\uFF08\u5B9E\u9A8C\uFF09").setDesc("\u5728 EpXsT \u6E90\u53E5\u884C\u5185\u663E\u793A\u8BCD\u5178\u8865\u5168\u7684\u7070\u8272\u5F71\u5B50\uFF1BTab \u63A5\u53D7\uFF0C\u9ED8\u8BA4\u5173\u95ED\u3002").addToggle((toggle) => toggle.setValue(!!asst.inlineGhost).onChange(async (value) => {
+        new Setting(containerEl).setName("EpXsT \u5185\u8054\u9884\u6D4B\uFF08\u5B9E\u9A8C\uFF09").setDesc("\u5728 EpXsC / EpXsT / EpXsG \u6E90\u884C\u5185\u663E\u793A\u8BCD\u5178\u8865\u5168\u7684\u7070\u8272\u5F71\u5B50\uFF1BTab \u63A5\u53D7\uFF0C\u9ED8\u8BA4\u5173\u95ED\u3002").addToggle((toggle) => toggle.setValue(!!asst.inlineGhost).onChange(async (value) => {
           asst.inlineGhost = !!value;
           await this.persist();
         }));
@@ -4737,13 +4737,14 @@ var require_plugin = __commonJS({
         const before = src.slice(0, lineStart).split("\n");
         const fence = String.fromCharCode(96).repeat(3);
         let start = -1;
+        const ghostLangs = ["epxsc", "epxst", "epxsg"];
         for (let i = before.length - 1; i >= 0; i--) {
           const t = before[i].trim().toLowerCase();
-          if (t === fence + "epxst") {
-            start = i;
+          if (t.indexOf(fence) === 0) {
+            const lang = t.slice(fence.length).trim();
+            if (ghostLangs.indexOf(lang) >= 0) start = i;
             break;
           }
-          if (t.indexOf(fence) === 0) break;
         }
         if (start < 0) return null;
         const words = completionCore.wordCandidates(this.info, prefix, 1);
