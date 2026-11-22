@@ -16,7 +16,8 @@ function createAssistanceService(options) {
     const messages = buildExplainMessages({
       text: text,
       dictionaryContext: o.dictionaryContext || '',
-      grammarContext: o.grammarContext || ''
+      grammarContext: o.grammarContext || '',
+      adjacentContext: o.adjacentContext || ''
     });
     const result = await provider.chat(messages, { signal: o.signal });
     if (!result || !result.ok) return { ok: false, error: (result && result.error) || { code: 'PROVIDER_ERROR', message: '模型请求失败' } };

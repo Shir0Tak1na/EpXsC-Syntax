@@ -834,7 +834,7 @@ var require_settings = __commonJS({
       lexicon: { customPaths: [] },
       display: { language: "auto", fallbackLanguage: "" },
       diagnostics: { enabled: true, editorDecorations: false, d3Marker: "" },
-      assistance: { enabled: false, inlineGhost: false },
+      assistance: { enabled: false, inlineGhost: false, sendAdjacent: false },
       translation: {
         enabled: false,
         grammarPath: "",
@@ -876,7 +876,8 @@ var require_settings = __commonJS({
         },
         assistance: {
           enabled: assistance.enabled === true,
-          inlineGhost: assistance.inlineGhost === true
+          inlineGhost: assistance.inlineGhost === true,
+          sendAdjacent: assistance.sendAdjacent === true
         },
         translation: {
           enabled: translation.enabled === true,
@@ -968,6 +969,10 @@ var require_settings_tab = __commonJS({
         const asst = this.plugin.settings.assistance;
         new Setting(containerEl).setName("EpXsT \u5185\u8054\u9884\u6D4B\uFF08\u5B9E\u9A8C\uFF09").setDesc("\u5728 EpXsC / EpXsT / EpXsG \u6E90\u884C\u5185\u663E\u793A\u8BCD\u5178\u8865\u5168\u7684\u7070\u8272\u5F71\u5B50\uFF1BTab \u63A5\u53D7\uFF0C\u9ED8\u8BA4\u5173\u95ED\u3002").addToggle((toggle) => toggle.setValue(!!asst.inlineGhost).onChange(async (value) => {
           asst.inlineGhost = !!value;
+          await this.persist();
+        }));
+        new Setting(containerEl).setName("D4.2 \u53D1\u9001\u76F8\u90BB\u53E5\uFF08\u53EF\u9009\uFF09").setDesc("\u9ED8\u8BA4\u5173\u95ED\u3002\u5F00\u542F\u540E\u201C\u89E3\u91CA\u5F53\u524D EpXsC \u5757\u201D\u4F1A\u628A\u7D27\u90BB\u5757\u7684\u4E00\u884C\u524D\u540E\u6587\u4E00\u5E76\u53D1\u9001\uFF1B\u786E\u8BA4\u6846\u4F1A\u663E\u793A\u8BE5\u8303\u56F4\u3002").addToggle((toggle) => toggle.setValue(!!asst.sendAdjacent).onChange(async (value) => {
+          asst.sendAdjacent = !!value;
           await this.persist();
         }));
         new Setting(containerEl).setName("\u542F\u7528\u79BB\u7EBF\u8BCD\u5178\u8865\u5168").setDesc("\u9ED8\u8BA4\u5173\u95ED\u3002\u542F\u7528\u540E\u53EF\u7528\u547D\u4EE4\u201CEpXsC \u8BCD\u6761\u8865\u5168\u201D\u4ECE\u8BCD\u5178/\u8BED\u6CD5\u4E2D\u9009\u62E9\u5E76\u63D2\u5165\uFF1B\u4E0D\u8054\u7F51\u3001\u4E0D\u81EA\u52A8\u6539\u5199\u3002").addToggle((toggle) => toggle.setValue(!!asst.enabled).onChange(async (value) => {
@@ -1483,6 +1488,7 @@ var require_explain = __commonJS({
       const source = String(o.text || "").trim();
       const dictionary = String(o.dictionaryContext || "").trim();
       const grammar = String(o.grammarContext || "").trim();
+      const adjacent = String(o.adjacentContext || "").trim();
       const system = [
         "You are a read-only EpXsC (Expaulxsirian Construct) explanation assistant for the author.",
         "Explain the supplied EpXsC block in Simplified Chinese.",
@@ -1494,6 +1500,7 @@ var require_explain = __commonJS({
       let user = "EpXsC block:\n" + source;
       if (dictionary) user += "\nDictionary context:\n" + dictionary;
       if (grammar) user += "\nGrammar context:\n" + grammar;
+      if (adjacent) user += "\nAdjacent context (user enabled, not part of the block):\n" + adjacent;
       return [
         { role: "system", content: system },
         { role: "user", content: user }
@@ -1521,7 +1528,8 @@ var require_assistance_service = __commonJS({
         const messages = buildExplainMessages({
           text,
           dictionaryContext: o.dictionaryContext || "",
-          grammarContext: o.grammarContext || ""
+          grammarContext: o.grammarContext || "",
+          adjacentContext: o.adjacentContext || ""
         });
         const result = await provider.chat(messages, { signal: o.signal });
         if (!result || !result.ok) return { ok: false, error: result && result.error || { code: "PROVIDER_ERROR", message: "\u6A21\u578B\u8BF7\u6C42\u5931\u8D25" } };
@@ -1568,12 +1576,13 @@ var require_explain_modal = __commonJS({
       }
     };
     var ExplainConfirmModal = class extends Modal {
-      constructor(app, endpoint, source, dictionary, onConfirm) {
+      constructor(app, endpoint, source, dictionary, adjacent, onConfirm) {
         super(app);
         this.endpoint = String(endpoint || "");
         this.source = String(source || "");
         this.dictionary = String(dictionary || "");
-        this.onConfirm = onConfirm;
+        this.adjacent = typeof adjacent === "string" ? adjacent : "";
+        this.onConfirm = typeof adjacent === "function" ? adjacent : onConfirm;
       }
       onOpen() {
         const el = this.contentEl;
@@ -1590,6 +1599,12 @@ var require_explain_modal = __commonJS({
           const d = el.createEl("pre");
           d.textContent = this.dictionary;
           d.style.whiteSpace = "pre-wrap";
+        }
+        if (this.adjacent) {
+          el.createEl("h3", { text: "\u76F8\u90BB\u53E5\u4E0A\u4E0B\u6587\uFF08\u4F60\u5DF2\u5F00\u542F\uFF09" });
+          const a = el.createEl("pre");
+          a.textContent = this.adjacent;
+          a.style.whiteSpace = "pre-wrap";
         }
         const row = el.createDiv();
         const cancel = row.createEl("button", { text: "\u53D6\u6D88" });
@@ -3717,6 +3732,15 @@ var require_d3_extension = __commonJS({
             class: "epx-cm-lint-" + (error ? "error" : "warn"),
             attributes: { "data-epx-lint": title, title }
           }).range(line.from));
+          for (let q = 0; q < list.length; q++) {
+            const issue = list[q];
+            if (typeof issue.from === "number" && typeof issue.to === "number" && issue.to > issue.from && issue.to <= view.state.doc.length) {
+              ranges.push(Decoration.mark({
+                class: "epx-cm-lint-token-" + (issue.level === "error" ? "error" : "warn"),
+                attributes: { title: issue.message }
+              }).range(issue.from, issue.to));
+            }
+          }
         }
         try {
           const unknowns = getUnknowns(view.state.doc.toString()) || [];
@@ -3904,7 +3928,7 @@ var require_plugin = __commonJS({
     var LANG_KEYS = ["EpXsC", "epxsc", "EPXSC"];
     var CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
     var { DICT_PATH, RANK_PATH, SYNTAX_PATH, GRAMMAR_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES } = require_config();
-    var BUILD = "2.3.2";
+    var BUILD = "2.3.3";
     var { SECTION_POS, EXTRA_WORDS, SYMBOL_INFO, pickClass, bracketTip, variableTip, negScopeText, coordTip, rankDef, rankSpan, buildTip } = require_tooltip();
     var FALLBACK_CSS = '/* EpXsC Syntax \u5185\u7F6E\u515C\u5E95\u6837\u5F0F\uFF08\u4E0E styles.css \u7B2C 1\uFF0F2\uFF0F3\uFF0F5\uFF0F6 \u8282\u4E00\u81F4\uFF09 */\nbody{--epx-comment:var(--text-faint);--epx-pretium:var(--color-red);--epx-keyword:var(--color-purple);--epx-judge:var(--color-purple);--epx-clause:var(--color-red);--epx-verb:var(--color-blue);--epx-decl:var(--color-yellow);--epx-element:var(--color-cyan);--epx-type:var(--color-cyan);--epx-unit:var(--color-orange);--epx-number:var(--color-orange);--epx-degree:var(--color-pink);--epx-axis:var(--color-green);--epx-pointer:var(--text-accent);--epx-operator:var(--text-muted);--epx-punct:var(--text-muted);--epx-paren:var(--text-muted);--epx-bracket:var(--text-muted);--epx-brace:var(--text-muted);--epx-rank:var(--color-orange);--epx-b2:var(--text-muted);--epx-b3:var(--text-muted);--epx-variable:var(--color-pink);--epx-modifier:var(--color-red)}\npre.epx-pre{position:relative;padding:1.1em 1.15em 1.15em;background:var(--code-background);border:1px solid var(--background-modifier-border);border-left:3px solid var(--text-accent);border-radius:var(--radius-m)}\npre.epx-pre::before{content:"EpXsC";position:absolute;inset:0 0 auto auto;padding:0 .7em;font-family:var(--font-interface);font-size:.62em;font-weight:600;letter-spacing:.09em;line-height:1.8;color:var(--text-on-accent);background:var(--text-accent);border-radius:0 var(--radius-m) 0 var(--radius-s);opacity:.85;pointer-events:none;user-select:none}\n:is(code[class*="language-EpXsC" i], .epx-ord){font-family:var(--font-monospace);font-size:.9em;line-height:1.65;tab-size:4;color:var(--code-normal,var(--text-normal));background:none;padding:0;text-shadow:none}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.comment{color:var(--epx-comment);font-style:italic}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.pretium{color:var(--epx-pretium);font-weight:700}:is(code[class*="language-EpXsC" i], .epx-ord) .token.clause{color:var(--epx-clause);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.keyword{color:var(--epx-keyword);font-weight:600}:is(code[class*="language-EpXsC" i], .epx-ord) .token.judge{color:var(--epx-judge);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.negPrefix{color:var(--epx-keyword);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.function{color:var(--epx-verb)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.spellRef{color:var(--epx-verb);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.predicate{color:var(--epx-verb)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.declaration{color:var(--epx-decl);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.element{color:var(--epx-element);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.type{color:var(--epx-type)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.variable{color:var(--epx-variable);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.unit{color:var(--epx-unit);font-style:italic}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.number{color:var(--epx-number)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.rankRange{color:var(--epx-rank);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.degree{color:var(--epx-degree);font-style:italic}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.axis{color:var(--epx-axis)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.pointer{color:var(--epx-pointer);font-weight:700}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.coordRun{color:var(--text-muted);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier{color:var(--epx-modifier);font-style:italic;font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.declTarget{color:var(--epx-variable);font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.varUse{color:var(--epx-variable)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.operator{color:var(--epx-operator)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.bracket{color:var(--epx-bracket);color:color-mix(in srgb,var(--color-cyan) 40%,var(--text-muted));font-weight:600}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.paren{color:var(--epx-paren)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.brace{color:var(--epx-brace)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.punctuation{color:var(--epx-punct)}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-d2{color:var(--epx-b2);color:color-mix(in srgb,var(--color-pink) 35%,var(--text-muted))}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-d3{color:var(--epx-b3);color:color-mix(in srgb,var(--color-green) 35%,var(--text-muted))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.declaration{color:#7e691f;color:color-mix(in srgb,var(--color-yellow) 45%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.element,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.type{color:#17797a;color:color-mix(in srgb,var(--color-cyan) 50%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.unit,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.number,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.rankRange{color:#a05b16;color:color-mix(in srgb,var(--color-orange) 60%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.axis{color:#197d44;color:color-mix(in srgb,var(--color-green) 55%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.degree,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.variable,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.declTarget,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.varUse{color:#c4387c;color:color-mix(in srgb,var(--color-pink) 90%,var(--text-normal))}\nbody.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.pretium,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.clause,body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier{color:#cd3145;color:color-mix(in srgb,var(--color-red) 85%,var(--text-normal))}\n:is(code[class*="language-EpXsC" i], .epx-ord) .token.epx-unknown{text-decoration:underline dotted var(--color-orange);text-underline-offset:.2em}\n.epx-tip{position:fixed;z-index:9999;max-width:340px;padding:7px 11px;border:1px solid var(--background-modifier-border);border-radius:var(--radius-s);background:var(--background-secondary);color:var(--text-normal);font-family:var(--font-interface);font-size:12px;line-height:1.5;box-shadow:var(--shadow-s);pointer-events:none;opacity:0}\n.epx-tip.is-visible{opacity:1}\n.epx-tip .epx-tip-head{font-weight:600;color:var(--text-accent)}\n.epx-tip .epx-tip-body{color:var(--text-muted)}\n/* \u666E\u901A\u53E5\u5757\uFF1A\u5916\u6846 + \u53F3\u4E0A\u89D2\u8BED\u8A00\u7B7E\uFF0C\u8DDF\u672F\u5F0F\u5757\u540C\u5F62\uFF0C\u53EA\u6309\u6A21\u5F0F\u6362\u8272\uFF08G \u9752 \xB7 T \u6A59\uFF09\n   \u5916\u5C42\u662F code.language-EpXsC\uFF1Atoken \u914D\u8272\u4E0E\u60AC\u505C\u6CBF\u7528\u672F\u5F0F\u90A3\u5957\u9009\u62E9\u5668\uFF0C\u8FD9\u91CC\u53EA\u7BA1\u7248\u9762\u3002 */\n.epx-ord {\n  --epx-ord-tint: var(--color-cyan);\n  display: block;\n  position: relative;\n  line-height: 1.9;\n  padding: 1.1em 1.15em 1.15em;\n  background: var(--code-background);\n  border: 1px solid var(--background-modifier-border);\n  border-left: 3px solid var(--epx-ord-tint);\n  border-radius: var(--radius-m);\n  box-shadow: 0 1px 2px rgb(0 0 0 / 6%);\n}\n.epx-ord-T { --epx-ord-tint: var(--color-orange); }\n.epx-ord::before {\n  content: "EpXsG";\n  position: absolute;\n  inset: 0 0 auto auto;\n  padding: 0 0.7em;\n  font-family: var(--font-interface);\n  font-size: 0.62em;\n  font-weight: 600;\n  letter-spacing: 0.09em;\n  line-height: 1.8;\n  color: var(--epx-ord-tint);\n  background: var(--background-secondary);\n  background: color-mix(in srgb, var(--epx-ord-tint) 22%, var(--background-primary));\n  border-radius: 0 var(--radius-m) 0 var(--radius-s);\n  opacity: 0.95;\n  pointer-events: none;\n  user-select: none;\n}\n.epx-ord-T::before { content: "EpXsT"; }\n/* \u8BCD\u4E0E\u8BCD\u6CE8\u90FD\u662F inline-block\uFF1A\u5FC5\u987B top \u5BF9\u9F50\uFF0C\u5426\u5219\u6709\u8BCD\u6CE8\u7684\u8BCD\u88AB\u9876\u9AD8\u3001\u6574\u884C\u5B57\u4E0A\u4E0B\u8DF3\u3002 */\n.epx-oline { display: block; margin: .18em 0; }\n.epx-gs { display: block; }\n.epx-gw { display: inline-block; text-align: center; margin: 0 .16em; vertical-align: top; }\n.epx-gsrc { display: block; line-height: 1.3; }\n.epx-ggl { display: block; font-size: .74em; line-height: 1.2; opacity: .7; font-family: var(--font-text); }\n.epx-tsrc { display: block; }\n.epx-tzh { display: block; font-family: var(--font-text); opacity: .78; font-size: .92em; }\n.epx-gap { display: block; height: .45em; }\n.epx-ord-wrap { display: block; }\n/* \u6709\u4E9B\u4E3B\u9898\u4F1A\u7ED9\u5757\u7EA7\u5143\u7D20\u7EE7\u627F\u9996\u884C\u7F29\u8FDB\uFF1BT/G \u662F\u4EE3\u7801\u5757\uFF0C\u9996\u884C\u5FC5\u987B\u8D34\u5DE6 */\n.epx-ord, .epx-ord .epx-oline, .epx-ord .epx-tsrc, .epx-ord .epx-tzh { text-indent: 0; }\n.epx-ord { padding: 1.1em 1.15em 1.15em !important; }\n@media (max-width: 640px) { .epx-ord { padding: 0 0.9em 0.9em !important; } }\n.epx-ord > .epx-oline:first-child { margin-top: 0; }\n.epx-ord { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }\n@media (max-width:640px){.epx-ord,pre.epx-pre{white-space:pre-wrap;overflow-wrap:break-word;padding:0 .9em .9em}.epx-ord{line-height:1.8}.epx-ord::before,pre.epx-pre::before{position:static;display:block;margin:0 -.9em .75em;padding:.22em .9em;text-align:right;line-height:1.7;border-radius:var(--radius-m) var(--radius-m) 0 0;opacity:1}.epx-ggl{line-height:1.25}.epx-tzh{margin-top:.15em}}';
     var varTypesOf = /* @__PURE__ */ new WeakMap();
@@ -4580,12 +4604,29 @@ var require_plugin = __commonJS({
         return out;
       }
       lintDocument(text) {
-        const blocks = extractEpXsCBlocks(String(text || ""));
+        const src = String(text || "");
+        const lines = src.split("\n");
+        const starts = [];
+        let offset = 0;
+        for (let i = 0; i < lines.length; i++) {
+          starts.push(offset);
+          offset += lines[i].length + 1;
+        }
+        const blocks = extractEpXsCBlocks(src);
         const issues = [];
         for (let b = 0; b < blocks.length; b++) {
           const found = this.lintForSource(blocks[b].source, "");
           for (let i = 0; i < found.length; i++) {
-            issues.push({ level: found[i].level, line: blocks[b].line + found[i].line, message: found[i].message, approximate: found[i].approximate });
+            const line = blocks[b].line + found[i].line;
+            const lineStart = starts[line - 1];
+            const from = typeof found[i].start === "number" && typeof lineStart === "number" ? lineStart + found[i].start : null;
+            const to = from !== null && typeof found[i].end === "number" ? lineStart + found[i].end : null;
+            const issue = { level: found[i].level, line, message: found[i].message, approximate: found[i].approximate };
+            if (from !== null && to !== null && to > from && to <= src.length) {
+              issue.from = from;
+              issue.to = to;
+            }
+            issues.push(issue);
           }
         }
         return issues;
@@ -4625,7 +4666,23 @@ var require_plugin = __commonJS({
           }
         }
         if (end < 0) return null;
-        return { source: lines.slice(start + 1, end).join("\n"), startLine: start + 1 };
+        let before = "";
+        for (let i = start - 1; i >= 0; i--) {
+          const s = String(lines[i] || "").trim();
+          if (!s) continue;
+          if (/^\s*`{3}/.test(s)) break;
+          before = s.slice(0, 300);
+          break;
+        }
+        let after = "";
+        for (let i = end + 1; i < lines.length; i++) {
+          const s = String(lines[i] || "").trim();
+          if (!s) continue;
+          if (/^\s*`{3}/.test(s)) break;
+          after = s.slice(0, 300);
+          break;
+        }
+        return { source: lines.slice(start + 1, end).join("\n"), startLine: start + 1, endLine: end + 1, adjacentBefore: before, adjacentAfter: after };
       }
       getAssistanceProvider() {
         if (this.translationProvider) return this.translationProvider;
@@ -4657,15 +4714,22 @@ var require_plugin = __commonJS({
           return;
         }
         const dictionary = this.getTranslationContext(block.source);
+        const adjacentParts = [];
+        if (this.settings.assistance.sendAdjacent === true) {
+          if (block.adjacentBefore) adjacentParts.push("\u524D\u6587\uFF1A" + block.adjacentBefore);
+          if (block.adjacentAfter) adjacentParts.push("\u540E\u6587\uFF1A" + block.adjacentAfter);
+        }
+        const adjacent = adjacentParts.join("\n");
         const endpoint = provider.config && provider.config.baseUrl || "(\u672A\u914D\u7F6E)";
         const self = this;
-        new ExplainConfirmModal(this.app, endpoint, block.source, dictionary, async function() {
+        new ExplainConfirmModal(this.app, endpoint, block.source, dictionary, adjacent, async function() {
           new Notice("\u6B63\u5728\u751F\u6210\u89E3\u91CA\u2026");
           const service = createAssistanceService({ provider });
           const result = await service.explain({
             text: block.source,
             dictionaryContext: dictionary,
-            grammarContext: self.translationGrammarContext || DEFAULT_GRAMMAR_CONTEXT
+            grammarContext: self.translationGrammarContext || DEFAULT_GRAMMAR_CONTEXT,
+            adjacentContext: adjacent
           });
           if (!result || !result.ok) {
             new Notice("\u89E3\u91CA\u5931\u8D25\uFF1A" + (result && result.error ? result.error.message : "\u672A\u77E5\u9519\u8BEF"));

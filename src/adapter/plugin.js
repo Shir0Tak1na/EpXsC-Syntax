@@ -43,7 +43,7 @@ const LANG_KEYS = ['EpXsC', 'epxsc', 'EPXSC'];
 const CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
 const { DICT_PATH, RANK_PATH, SYNTAX_PATH, GRAMMAR_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES } = require('./config.js');
 
-const BUILD = '2.3.2';
+const BUILD = '2.3.3';
 
 /* 一个 token 可能带多个类（如 typeParam + type），按语义优先级取第一个 */
 const { SECTION_POS, EXTRA_WORDS, SYMBOL_INFO, pickClass, bracketTip, variableTip, negScopeText, coordTip, rankDef, rankSpan, buildTip } = require('../ui/tooltip.js');
@@ -699,12 +699,26 @@ class EpXsCSyntaxPlugin extends Plugin {
   }
 
   lintDocument(text) {
-    const blocks = extractEpXsCBlocks(String(text || ''));
+    const src = String(text || '');
+    const lines = src.split('\n');
+    const starts = [];
+    let offset = 0;
+    for (let i = 0; i < lines.length; i++) {
+      starts.push(offset);
+      offset += lines[i].length + 1;
+    }
+    const blocks = extractEpXsCBlocks(src);
     const issues = [];
     for (let b = 0; b < blocks.length; b++) {
       const found = this.lintForSource(blocks[b].source, '');
       for (let i = 0; i < found.length; i++) {
-        issues.push({ level: found[i].level, line: blocks[b].line + found[i].line, message: found[i].message, approximate: found[i].approximate });
+        const line = blocks[b].line + found[i].line;
+        const lineStart = starts[line - 1];
+        const from = (typeof found[i].start === 'number' && typeof lineStart === 'number') ? lineStart + found[i].start : null;
+        const to = (from !== null && typeof found[i].end === 'number') ? lineStart + found[i].end : null;
+        const issue = { level: found[i].level, line: line, message: found[i].message, approximate: found[i].approximate };
+        if (from !== null && to !== null && to > from && to <= src.length) { issue.from = from; issue.to = to; }
+        issues.push(issue);
       }
     }
     return issues;
@@ -737,7 +751,23 @@ class EpXsCSyntaxPlugin extends Plugin {
       if (/^\s*```\s*$/.test(lines[i])) { end = i; break; }
     }
     if (end < 0) return null;
-    return { source: lines.slice(start + 1, end).join('\n'), startLine: start + 1 };
+    let before = '';
+    for (let i = start - 1; i >= 0; i--) {
+      const s = String(lines[i] || '').trim();
+      if (!s) continue;
+      if (/^\s*`{3}/.test(s)) break;
+      before = s.slice(0, 300);
+      break;
+    }
+    let after = '';
+    for (let i = end + 1; i < lines.length; i++) {
+      const s = String(lines[i] || '').trim();
+      if (!s) continue;
+      if (/^\s*`{3}/.test(s)) break;
+      after = s.slice(0, 300);
+      break;
+    }
+    return { source: lines.slice(start + 1, end).join('\n'), startLine: start + 1, endLine: end + 1, adjacentBefore: before, adjacentAfter: after };
   }
 
   getAssistanceProvider() {
@@ -763,15 +793,22 @@ class EpXsCSyntaxPlugin extends Plugin {
     const provider = this.getAssistanceProvider();
     if (!provider) { new Notice('请先配置辅助模型（Base URL / Model）。'); return; }
     const dictionary = this.getTranslationContext(block.source);
+    const adjacentParts = [];
+    if (this.settings.assistance.sendAdjacent === true) {
+      if (block.adjacentBefore) adjacentParts.push('前文：' + block.adjacentBefore);
+      if (block.adjacentAfter) adjacentParts.push('后文：' + block.adjacentAfter);
+    }
+    const adjacent = adjacentParts.join('\n');
     const endpoint = provider.config && provider.config.baseUrl || '(未配置)';
     const self = this;
-    new ExplainConfirmModal(this.app, endpoint, block.source, dictionary, async function () {
+    new ExplainConfirmModal(this.app, endpoint, block.source, dictionary, adjacent, async function () {
       new Notice('正在生成解释…');
       const service = createAssistanceService({ provider: provider });
       const result = await service.explain({
         text: block.source,
         dictionaryContext: dictionary,
-        grammarContext: self.translationGrammarContext || DEFAULT_GRAMMAR_CONTEXT
+        grammarContext: self.translationGrammarContext || DEFAULT_GRAMMAR_CONTEXT,
+        adjacentContext: adjacent
       });
       if (!result || !result.ok) {
         new Notice('解释失败：' + (result && result.error ? result.error.message : '未知错误'));

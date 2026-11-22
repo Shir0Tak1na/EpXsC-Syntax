@@ -7,6 +7,7 @@ function buildExplainMessages(input) {
   const source = String(o.text || '').trim();
   const dictionary = String(o.dictionaryContext || '').trim();
   const grammar = String(o.grammarContext || '').trim();
+  const adjacent = String(o.adjacentContext || '').trim();
   const system = [
     'You are a read-only EpXsC (Expaulxsirian Construct) explanation assistant for the author.',
     'Explain the supplied EpXsC block in Simplified Chinese.',
@@ -18,6 +19,7 @@ function buildExplainMessages(input) {
   let user = 'EpXsC block:\n' + source;
   if (dictionary) user += '\nDictionary context:\n' + dictionary;
   if (grammar) user += '\nGrammar context:\n' + grammar;
+  if (adjacent) user += '\nAdjacent context (user enabled, not part of the block):\n' + adjacent;
   return [
     { role: 'system', content: system },
     { role: 'user', content: user }

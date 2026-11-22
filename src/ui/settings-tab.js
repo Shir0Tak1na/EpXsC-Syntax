@@ -103,6 +103,14 @@ class EpXsSettingsTab extends PluginSettingTab {
       }));
 
     new Setting(containerEl)
+      .setName('D4.2 发送相邻句（可选）')
+      .setDesc('默认关闭。开启后“解释当前 EpXsC 块”会把紧邻块的一行前后文一并发送；确认框会显示该范围。')
+      .addToggle((toggle) => toggle.setValue(!!asst.sendAdjacent).onChange(async (value) => {
+        asst.sendAdjacent = !!value;
+        await this.persist();
+      }));
+
+    new Setting(containerEl)
       .setName('启用离线词典补全')
       .setDesc('默认关闭。启用后可用命令“EpXsC 词条补全”从词典/语法中选择并插入；不联网、不自动改写。')
       .addToggle((toggle) => toggle.setValue(!!asst.enabled).onChange(async (value) => {
@@ -122,7 +130,7 @@ class EpXsSettingsTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('编辑器内联装饰（实验）')
-      .setDesc('为将来的 CodeMirror 行内下划线预留；当前版本不包含该功能，默认关闭。')
+      .setDesc('在源码编辑器显示红/橙行级诊断和精确 token 下划线；实验功能，默认关闭。')
       .addToggle((toggle) => toggle.setValue(!!dg.editorDecorations).onChange(async (value) => {
         dg.editorDecorations = !!value;
         await this.persist();

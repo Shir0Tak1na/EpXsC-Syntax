@@ -30,12 +30,13 @@ class ExplainModal extends Modal {
   onClose() { this.contentEl.empty(); }
 }
 class ExplainConfirmModal extends Modal {
-  constructor(app, endpoint, source, dictionary, onConfirm) {
+  constructor(app, endpoint, source, dictionary, adjacent, onConfirm) {
     super(app);
     this.endpoint = String(endpoint || '');
     this.source = String(source || '');
     this.dictionary = String(dictionary || '');
-    this.onConfirm = onConfirm;
+    this.adjacent = typeof adjacent === 'string' ? adjacent : '';
+    this.onConfirm = typeof adjacent === 'function' ? adjacent : onConfirm;
   }
   onOpen() {
     const el = this.contentEl;
@@ -52,6 +53,12 @@ class ExplainConfirmModal extends Modal {
       const d = el.createEl('pre');
       d.textContent = this.dictionary;
       d.style.whiteSpace = 'pre-wrap';
+    }
+    if (this.adjacent) {
+      el.createEl('h3', { text: '相邻句上下文（你已开启）' });
+      const a = el.createEl('pre');
+      a.textContent = this.adjacent;
+      a.style.whiteSpace = 'pre-wrap';
     }
     const row = el.createDiv();
     const cancel = row.createEl('button', { text: '取消' });

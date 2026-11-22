@@ -50,6 +50,15 @@ function createD3Extension(options) {
         class: 'epx-cm-lint-' + (error ? 'error' : 'warn'),
         attributes: { 'data-epx-lint': title, title: title }
       }).range(line.from));
+      for (let q = 0; q < list.length; q++) {
+        const issue = list[q];
+        if (typeof issue.from === 'number' && typeof issue.to === 'number' && issue.to > issue.from && issue.to <= view.state.doc.length) {
+          ranges.push(Decoration.mark({
+            class: 'epx-cm-lint-token-' + (issue.level === 'error' ? 'error' : 'warn'),
+            attributes: { title: issue.message }
+          }).range(issue.from, issue.to));
+        }
+      }
     }
     try {
       const unknowns = getUnknowns(view.state.doc.toString()) || [];

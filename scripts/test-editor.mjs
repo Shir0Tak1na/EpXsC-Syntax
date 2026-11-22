@@ -21,13 +21,14 @@ const TICK = String.fromCharCode(96).repeat(3);
 
 let errors = 0;
 const d3 = createD3Extension({
-  getIssues: () => [{ level: 'error', line: 2, message: 'synthetic' }],
+  getIssues: () => [{ level: 'error', line: 2, message: 'synthetic', from: 10, to: 14 }],
   getUnknowns: () => [],
   isEnabled: () => true,
   onError: () => { errors += 1; }
 });
 const view = new EditorView({ doc: TICK + 'EpXsC\nFoo() {\n' + TICK, extensions: [d3], parent: document.body });
 assert.ok(view.dom.querySelector('.cm-line.epx-cm-lint-error'), 'D3 error line decoration must render');
+assert.ok(view.dom.querySelector('.epx-cm-lint-token-error'), 'D3 exact token decoration must render');
 view.destroy();
 
 const unknownD3 = createD3Extension({

@@ -429,6 +429,10 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   const messages = explainCore.buildExplainMessages({ text: 'Plur Aqua', dictionaryContext: 'plur = 净化', grammarContext: 'VSO' });
   assert.equal(messages.length, 2);
   assert.ok(messages[1].content.indexOf('Plur Aqua') >= 0);
+  const adjacentMessages = explainCore.buildExplainMessages({ text: 'Plur Aqua', adjacentContext: '前文：上一句' });
+  assert.ok(adjacentMessages[1].content.includes('Adjacent context'), 'adjacent context must be explicitly labeled');
+  assert.ok(adjacentMessages[1].content.includes('前文：上一句'));
+  assert.ok(!messages[1].content.includes('Adjacent context'), 'adjacent context must be absent by default');
   const svc = createAssistanceService({ provider: { chat: async () => ({ ok: true, text: '解释文本' }) } });
   const out = await svc.explain({ text: 'Plur Aqua' });
   assert.equal(out.ok, true);

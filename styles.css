@@ -350,3 +350,7 @@ body.theme-light :is(code[class*="language-EpXsC" i], .epx-ord) .token.modifier 
 .epx-ghost{color:var(--text-muted);opacity:.55;font-style:italic;pointer-events:none;white-space:pre}
 
 .cm-unknown{text-decoration-line:underline;text-decoration-style:dotted;text-decoration-color:var(--color-orange);text-underline-offset:.18em}
+
+/* D3.3 exact token ranges */
+.cm-line .epx-cm-lint-token-error{text-decoration-line:underline;text-decoration-style:dashed;text-decoration-color:var(--color-red);text-underline-offset:.18em}
+.cm-line .epx-cm-lint-token-warn{text-decoration-line:underline;text-decoration-style:wavy;text-decoration-color:var(--color-orange);text-underline-offset:.18em}

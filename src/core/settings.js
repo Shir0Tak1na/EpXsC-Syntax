@@ -9,7 +9,7 @@ const DEFAULT_SETTINGS = {
   lexicon: { customPaths: [] },
   display: { language: 'auto', fallbackLanguage: '' },
   diagnostics: { enabled: true, editorDecorations: false, d3Marker: '' },
-  assistance: { enabled: false, inlineGhost: false },
+  assistance: { enabled: false, inlineGhost: false, sendAdjacent: false },
   translation: {
     enabled: false,
     grammarPath: '',
@@ -53,7 +53,8 @@ function normalizeSettings(data) {
     },
     assistance: {
       enabled: assistance.enabled === true,
-      inlineGhost: assistance.inlineGhost === true
+      inlineGhost: assistance.inlineGhost === true,
+      sendAdjacent: assistance.sendAdjacent === true
     },
     translation: {
       enabled: translation.enabled === true,
