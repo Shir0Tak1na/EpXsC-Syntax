@@ -9,6 +9,7 @@ const DEFAULT_PROVIDER = {
   model: '',
   headers: {},
   apiKey: '',
+  secretId: '',
   timeoutMs: 30000,
   maxTokens: 2048,
   temperature: 0.3
@@ -35,6 +36,7 @@ function normalizeProviderConfig(input) {
     model: String(v.model || '').trim(),
     headers: normalizeHeaders(v.headers),
     apiKey: String(v.apiKey || ''),
+    secretId: String(v.secretId || ''),
     timeoutMs: Number(v.timeoutMs) > 0 ? Number(v.timeoutMs) : DEFAULT_PROVIDER.timeoutMs,
     maxTokens: Number(v.maxTokens) > 0 ? Math.floor(Number(v.maxTokens)) : DEFAULT_PROVIDER.maxTokens,
     temperature: Number.isFinite(Number(v.temperature)) ? Number(v.temperature) : DEFAULT_PROVIDER.temperature

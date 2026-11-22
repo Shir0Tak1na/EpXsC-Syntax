@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.4
+
+发布日期：2026-11-22
+
+- API Key 改用 Obsidian SecretStorage：data.json 只保存 secret 名称。
+- 旧版明文 Key 加载时尝试自动迁移。
+- 无 SecretStorage 的宿主保留旧输入框作为降级路径。
+- 设置页改用 SecretComponent；请求前解析 secret。
+
 ## 2.3.3
 
 发布日期：2026-11-22

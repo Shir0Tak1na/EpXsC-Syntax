@@ -43,7 +43,7 @@ const LANG_KEYS = ['EpXsC', 'epxsc', 'EPXSC'];
 const CODE_SELECTOR = 'code[class*="language-EpXsC" i]';
 const { DICT_PATH, RANK_PATH, SYNTAX_PATH, GRAMMAR_PATH, ROOTS_DIR, SPELL_DIR, MAX_HIGHLIGHT_LINES } = require('./config.js');
 
-const BUILD = '2.3.3';
+const BUILD = '2.3.4';
 
 /* 一个 token 可能带多个类（如 typeParam + type），按语义优先级取第一个 */
 const { SECTION_POS, EXTRA_WORDS, SYMBOL_INFO, pickClass, bracketTip, variableTip, negScopeText, coordTip, rankDef, rankSpan, buildTip } = require('../ui/tooltip.js');
@@ -359,6 +359,7 @@ class EpXsCSyntaxPlugin extends Plugin {
         if (self.app.workspace.onLayoutReady) self.app.workspace.onLayoutReady(function () { new Notice(msg, 10000); });
         else new Notice(msg, 10000);
       }
+      self.migrateProviderSecret();
       self.configureTranslation();
       self.configureD3();
       self.configureGhost();
@@ -546,6 +547,7 @@ class EpXsCSyntaxPlugin extends Plugin {
       return false;
     }
     const cfg = normalizeProviderConfig(tr.provider);
+    cfg.apiKey = this.resolveProviderApiKey();
     const check = validateProviderConfig(cfg);
     if (!check.ok) {
       this.translationService = null;
@@ -775,6 +777,7 @@ class EpXsCSyntaxPlugin extends Plugin {
     const tr = this.settings && this.settings.translation;
     if (!tr) return null;
     const cfg = normalizeProviderConfig(tr.provider);
+    cfg.apiKey = this.resolveProviderApiKey();
     const check = validateProviderConfig(cfg);
     if (!check.ok) return null;
     return createOpenAICompatibleProvider({

@@ -424,6 +424,13 @@ assert.ok(!tokenizerSrc.includes('SPELL_DIR'), 'tokenizer must not own SPELL_DIR
   assert.ok(gr.some((x) => x.word === 'plur'));
 }
 
+// 13i) SecretStorage-compatible provider normalization
+{
+  const s = settingsCore.normalizeSettings({ translation: { provider: { secretId: 'epxsc-syntax/provider-key', apiKey: 'legacy' } } });
+  assert.equal(s.translation.provider.secretId, 'epxsc-syntax/provider-key');
+  assert.equal(s.translation.provider.apiKey, 'legacy');
+}
+
 // 13h) D4.2 read-only explanation
 {
   const messages = explainCore.buildExplainMessages({ text: 'Plur Aqua', dictionaryContext: 'plur = 净化', grammarContext: 'VSO' });

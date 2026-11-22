@@ -1,6 +1,6 @@
 'use strict';
 
-const { PluginSettingTab, Setting, Notice } = require('obsidian');
+const { PluginSettingTab, Setting, Notice, SecretComponent } = require('obsidian');
 const { normalizeSettings } = require('../core/settings.js');
 
 class EpXsSettingsTab extends PluginSettingTab {
@@ -171,16 +171,28 @@ class EpXsSettingsTab extends PluginSettingTab {
         this.scheduleSave();
       }));
 
-    new Setting(containerEl)
+    const apiKeySetting = new Setting(containerEl)
       .setName('API Key')
-      .setDesc('只保存在插件 data.json；不要使用带高权限的长期令牌。')
-      .addText((text) => {
+      .setDesc('优先使用 Obsidian SecretStorage：data.json 只保存 secret 名称，不保存密钥。旧明文 Key 会在加载时尝试迁移。');
+    if (typeof SecretComponent === 'function' && this.app && this.app.secretStorage) {
+      apiKeySetting.addComponent((el) => {
+        const secret = new SecretComponent(this.app, el);
+        secret.setValue(tr.provider.secretId || '').onChange(async (value) => {
+          tr.provider.secretId = String(value || '').trim();
+          tr.provider.apiKey = '';
+          await this.persist();
+        });
+      });
+    } else {
+      apiKeySetting.addText((text) => {
         text.inputEl.type = 'password';
+        text.setDesc && text.setDesc('当前宿主没有 SecretStorage，密钥只能退回 data.json。');
         text.setValue(tr.provider.apiKey || '').onChange(async (value) => {
           tr.provider.apiKey = String(value || '');
           this.scheduleSave();
         });
       });
+    }
 
     new Setting(containerEl)
       .setName('Headers')
