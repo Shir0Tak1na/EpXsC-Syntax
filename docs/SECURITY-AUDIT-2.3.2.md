@@ -25,7 +25,7 @@
 | H1 | Prior D3 bundled a second CM6 runtime and blocked all notes. Root cause confirmed by isolated-vault console error. | Fixed: external CM6; no CM6 inputs in metafile; external host registration passed. |
 | H2 | D3 enabling marker could be cleared after a circuit-breaker failure; a later settings save could re-enable decoration work. | Fixed: only explicit disable/re-enable path clears/re-arms; `disabled-on-crash` is honored at startup. |
 | H3 | Whole-word ghost used a replace decoration and hid typed input. | Fixed: suffix widget; typed prefix remains visible; Tab appends. |
-| H4 | API key is still stored in plaintext in `data.json`. | **Accepted unresolved by owner on 2026-11-18**; Secret Storage is not available in the current target. Use a low-privilege key. |
+| H4 | API key was stored in plaintext in `data.json`. | **Fixed in 2.3.4 candidate:** Obsidian SecretStorage with legacy plaintext migration; no SecretStorage host falls back with warning. |
 | H5 | External CM6 requires a host-provided module; tested on Obsidian 1.15.1. | Accepted/gated: `minAppVersion` 1.15.1; D3 defaults off; no runtime guarantee for older hosts. |
 
 ### Medium
