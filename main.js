@@ -985,7 +985,7 @@ var require_settings_tab = __commonJS({
           dg.enabled = !!value;
           await this.persist();
         }));
-        new Setting(containerEl).setName("\u7F16\u8F91\u5668\u5185\u8054\u88C5\u9970\uFF08\u5B9E\u9A8C\uFF09").setDesc("\u4E3A\u5C06\u6765\u7684 CodeMirror \u884C\u5185\u4E0B\u5212\u7EBF\u9884\u7559\uFF1B\u5F53\u524D\u7248\u672C\u4E0D\u5305\u542B\u8BE5\u529F\u80FD\uFF0C\u9ED8\u8BA4\u5173\u95ED\u3002").addToggle((toggle) => toggle.setValue(!!dg.editorDecorations).onChange(async (value) => {
+        new Setting(containerEl).setName("\u7F16\u8F91\u5668\u5185\u8054\u88C5\u9970\uFF08\u5B9E\u9A8C\uFF09").setDesc("\u5728\u6E90\u7801\u7F16\u8F91\u5668\u663E\u793A\u7EA2/\u6A59\u884C\u7EA7\u8BCA\u65AD\u548C\u7CBE\u786E token \u4E0B\u5212\u7EBF\uFF1B\u5B9E\u9A8C\u529F\u80FD\uFF0C\u9ED8\u8BA4\u5173\u95ED\u3002").addToggle((toggle) => toggle.setValue(!!dg.editorDecorations).onChange(async (value) => {
           dg.editorDecorations = !!value;
           await this.persist();
         }));
