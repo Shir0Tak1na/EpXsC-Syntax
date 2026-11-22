@@ -36,7 +36,7 @@
 | M2 | D3 marker save is asynchronous and can be lost on a hard crash. | Accepted: startup detects `enabling`; normal unload clears. |
 | M3 | `lintText` treats a block containing a period as prose and returns before unit/keyword warnings. | **Fixed for code-like lines:** semicolon/brace/spell-keyword lines still warn on unknown units. Natural-sentence lint remains future work. |
 | M4 | Source unknown-word marks use a length >= 4 heuristic and skip `>` lines. | Accepted; mirrors renderer. |
-| M5 | D4.2 confirmation shows source/dictionary/endpoint, but not a full raw JSON payload or adjacent-sentence switch. | Partial; current scope is current block + dictionary only. |
+| M5 | D4.2 confirmation shows source/dictionary/endpoint, but not a full raw JSON payload or adjacent-sentence switch. | **Partially fixed in 2.3.3:** adjacent context is opt-in and shown in confirmation; full raw JSON preview still not exposed. |
 | M6 | D3 line decorations use native `title` in source editor, while rendered view uses custom tooltip. | Cosmetic inconsistency; no data exposure. |
 
 ### Low
